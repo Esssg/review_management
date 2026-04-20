@@ -1,0 +1,9 @@
+# Edge Functions 배포 시 검증용. 로컬 링크는 `supabase link`로 프로젝트를 지정합니다.
+
+[edge_runtime]
+policy = "per_worker"
+
+# ES256 JWT(신규 프로젝트 기본)일 때 게이트웨이 verify가 "Unsupported JWT algorithm ES256"로 실패할 수 있음.
+# 인증은 함수 안에서 supabase.auth.getUser()로 수행합니다.
+[functions.generate-ai-review]
+verify_jwt = false

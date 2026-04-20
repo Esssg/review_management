@@ -1,0 +1,18 @@
+ext {
+    minSdkVersion = 23
+    // compileSdk 34: 손상된 android-35 플랫폼(aapt2 android.jar 오류) 회피. CapacitorWebView는 patch-package로 보완.
+    compileSdkVersion = 34
+    targetSdkVersion = 34
+    androidxActivityVersion = '1.9.2'
+    androidxAppCompatVersion = '1.7.0'
+    androidxCoordinatorLayoutVersion = '1.2.0'
+    // 1.15.x는 compileSdk 35 필요 → AGP 8.0.2 + compileSdk 34와 맞지 않음
+    androidxCoreVersion = '1.13.1'
+    androidxFragmentVersion = '1.8.4'
+    coreSplashScreenVersion = '1.0.1'
+    androidxWebkitVersion = '1.12.1'
+    junitVersion = '4.13.2'
+    androidxJunitVersion = '1.2.1'
+    androidxEspressoCoreVersion = '3.6.1'
+    cordovaAndroidVersion = '10.1.1'
+}

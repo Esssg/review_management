@@ -1,0 +1,18 @@
+diff --git a/node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/CapacitorWebView.java b/node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/CapacitorWebView.java
+index 07c9ec9..3c067f7 100644
+--- a/node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/CapacitorWebView.java
++++ b/node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/CapacitorWebView.java
+@@ -63,9 +63,11 @@ public class CapacitorWebView extends WebView {
+         boolean autoMargins = false;
+         boolean forceMargins = configEdgeToEdge.equals("force");
+ 
+-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && configEdgeToEdge.equals("auto")) {
++        // compileSdk 34 + 손상된 API35 android.jar 회피: 상수 대신 리터럴·getIdentifier 사용
++        if (Build.VERSION.SDK_INT >= 35 && "auto".equals(configEdgeToEdge)) {
+             TypedValue value = new TypedValue();
+-            boolean foundOptOut = getContext().getTheme().resolveAttribute(android.R.attr.windowOptOutEdgeToEdgeEnforcement, value, true);
++            int optOutAttr = getContext().getResources().getIdentifier("windowOptOutEdgeToEdgeEnforcement", "attr", "android");
++            boolean foundOptOut = optOutAttr != 0 && getContext().getTheme().resolveAttribute(optOutAttr, value, true);
+             boolean optOutValue = value.data != 0; // value is set to -1 on true as of Android 15, so we have to do this.
+ 
+             autoMargins = !(foundOptOut && optOutValue);
