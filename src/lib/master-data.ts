@@ -1,9 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 
-export type Platform = { id: string; name: string; user_id: string | null };
-export type PaymentMethod = { id: string; name: string; user_id: string | null };
-export type BuyerAccount = { id: string; label: string };
+export type Platform = { id: string; name: string; user_id: string | null; color: string };
+export type PaymentMethod = { id: string; name: string; user_id: string | null; color: string };
+export type BuyerAccount = { id: string; label: string; color: string };
 
 export type MasterData = {
   platforms: Platform[];
@@ -29,21 +29,21 @@ export async function fetchMasterData(
 
     supabase
       .from("platforms")
-      .select("id, name, user_id")
+      .select("id, name, user_id, color")
       .or(`user_id.is.null,user_id.eq.${userId}`)
       .eq("is_active", true)
       .order("name"),
 
     supabase
       .from("payment_methods")
-      .select("id, name, user_id")
+      .select("id, name, user_id, color")
       .or(`user_id.is.null,user_id.eq.${userId}`)
       .eq("is_active", true)
       .order("name"),
 
     supabase
       .from("buyer_accounts")
-      .select("id, label")
+      .select("id, label, color")
       .eq("user_id", userId)
       .order("label"),
   ]);

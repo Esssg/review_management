@@ -12,16 +12,19 @@ export type Database = {
     Tables: {
       buyer_accounts: {
         Row: {
+          color: string;
           id: string;
           label: string;
           user_id: string;
         };
         Insert: {
+          color?: string;
           id?: string;
           label: string;
           user_id: string;
         };
         Update: {
+          color?: string;
           id?: string;
           label?: string;
           user_id?: string;
@@ -152,18 +155,21 @@ export type Database = {
       };
       payment_methods: {
         Row: {
+          color: string;
           id: string;
           is_active: boolean;
           name: string;
           user_id: string | null;
         };
         Insert: {
+          color?: string;
           id?: string;
           is_active?: boolean;
           name: string;
           user_id?: string | null;
         };
         Update: {
+          color?: string;
           id?: string;
           is_active?: boolean;
           name?: string;
@@ -173,18 +179,21 @@ export type Database = {
       };
       platforms: {
         Row: {
+          color: string;
           id: string;
           is_active: boolean;
           name: string;
           user_id: string | null;
         };
         Insert: {
+          color?: string;
           id?: string;
           is_active?: boolean;
           name: string;
           user_id?: string | null;
         };
         Update: {
+          color?: string;
           id?: string;
           is_active?: boolean;
           name?: string;

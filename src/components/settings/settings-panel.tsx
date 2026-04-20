@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { HexColorInput, HexColorPicker } from "react-colorful";
 import { ArrowLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
+import { normalizeHexColor } from "@/lib/color";
 import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -25,6 +27,21 @@ type SettingsPanelView =
   | "buyer-accounts";
 
 type ItemWithMeta<T> = T & { isSystem: boolean; isHidden: boolean };
+
+const DEFAULT_PLATFORM_COLOR = "#64748b";
+const DEFAULT_PAYMENT_METHOD_COLOR = "#7c3aed";
+const DEFAULT_BUYER_ACCOUNT_COLOR = "#64748b";
+const COLOR_PRESETS = [
+  "#f97316",
+  "#16a34a",
+  "#ca8a04",
+  "#dc2626",
+  "#2563eb",
+  "#7c3aed",
+  "#0891b2",
+  "#e11d48",
+  "#64748b",
+] as const;
 
 const VIEW_TITLES: Record<Exclude<SettingsPanelView, "home">, string> = {
   account: "계정",
@@ -47,99 +64,275 @@ function SectionHeader({ title, description }: { title: string; description: str
 
 function ItemRow({
   label,
+  color,
   isSystem,
   isHidden,
+  canEditColor,
   isDeleting,
+  isSavingColor,
   onDelete,
+  onChangeColor,
 }: {
   label: string;
+  color: string;
   isSystem: boolean;
   isHidden: boolean;
+  canEditColor: boolean;
   isDeleting: boolean;
+  isSavingColor: boolean;
   onDelete: () => void;
+  onChangeColor: (next: string) => Promise<void>;
 }) {
+  const normalizedColor = normalizeHexColor(color, DEFAULT_PLATFORM_COLOR);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [draftColor, setDraftColor] = useState(normalizedColor);
+  const paletteRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setDraftColor(normalizedColor);
+  }, [normalizedColor, paletteOpen]);
+
+  useEffect(() => {
+    if (!paletteOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!paletteRef.current?.contains(event.target as Node)) {
+        setPaletteOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [paletteOpen]);
+
   return (
     <div
       className={cn(
-        "flex items-center justify-between rounded-xl border px-3 py-2.5",
+        "rounded-xl border px-3 py-2.5",
         isHidden && "opacity-50",
       )}
     >
-      <div className="flex items-center gap-2">
-        <span className="text-sm">{label}</span>
-        {isSystem && (
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 dark:bg-slate-700 dark:text-slate-400">
-            기본
-          </span>
-        )}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/10 dark:ring-white/20"
+            style={{ backgroundColor: normalizedColor }}
+            aria-hidden
+          />
+          <span className="truncate text-sm">{label}</span>
+          {isSystem && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+              기본
+            </span>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {canEditColor ? (
+            <div className="relative" ref={paletteRef}>
+              <button
+                type="button"
+                disabled={isSavingColor}
+                onClick={() => setPaletteOpen((prev) => !prev)}
+                className={cn(
+                  "h-8 w-8 rounded-full border-2 border-white shadow ring-1 ring-black/12 transition-transform hover:scale-105 dark:border-slate-800 dark:ring-white/20",
+                  isSavingColor && "cursor-not-allowed opacity-60",
+                )}
+                style={{ backgroundColor: normalizedColor }}
+                aria-label={`${label} 색상 선택`}
+                title="색상 변경"
+              />
+              {paletteOpen ? (
+                <div className="absolute right-0 top-10 z-20 w-52 rounded-xl border bg-popover p-2 shadow-lg">
+                  <div className="mb-1 text-[11px] font-medium text-muted-foreground">추천 색상</div>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {COLOR_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        className={cn(
+                          "h-7 w-7 rounded-full ring-1 ring-black/10 transition-transform hover:scale-105 dark:ring-white/20",
+                          normalizedColor === preset && "ring-2 ring-offset-2 ring-offset-background",
+                        )}
+                        style={{ backgroundColor: preset }}
+                        onClick={() => {
+                          void onChangeColor(preset);
+                          setPaletteOpen(false);
+                        }}
+                        disabled={isSavingColor}
+                        aria-label={`${label} 색상 ${preset}`}
+                        title={preset}
+                      />
+                    ))}
+                  </div>
+                  <div className="mt-2 border-t pt-2">
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-muted-foreground">직접 선택</p>
+                    <HexColorPicker
+                      color={draftColor}
+                      onChange={(next) => setDraftColor(next)}
+                      style={{ width: "100%", height: 120 }}
+                    />
+                    <HexColorInput
+                      color={draftColor}
+                      onChange={(next) => setDraftColor(normalizeHexColor(next, draftColor))}
+                      prefixed
+                      className={cn(
+                        "h-8 w-full rounded-md border border-input bg-background px-2 text-xs uppercase",
+                        isSavingColor && "opacity-60",
+                      )}
+                    />
+                    <button
+                      type="button"
+                      className="h-8 w-full rounded-md bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                      disabled={isSavingColor || normalizeHexColor(draftColor, normalizedColor) === normalizedColor}
+                      onClick={() => void onChangeColor(normalizeHexColor(draftColor, normalizedColor))}
+                    >
+                      적용
+                    </button>
+                  </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            disabled={isDeleting}
+            onClick={onDelete}
+            className={cn(
+              "inline-flex size-8 shrink-0 items-center justify-center rounded-lg border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
+              isHidden
+                ? "border-slate-300 bg-background text-slate-600 hover:bg-muted dark:border-slate-600 dark:text-slate-400"
+                : "border-destructive bg-destructive text-white hover:bg-destructive/90 dark:border-destructive dark:bg-destructive dark:hover:bg-destructive/90",
+            )}
+            aria-label={isHidden ? "보이기" : "숨기기/삭제"}
+            title={isSystem ? (isHidden ? "다시 표시" : "숨기기") : "삭제"}
+          >
+            <Trash2
+              className="shrink-0"
+              size={20}
+              strokeWidth={2.25}
+              color={isHidden ? "currentColor" : "#ffffff"}
+              aria-hidden
+            />
+          </button>
+        </div>
       </div>
-      <button
-        type="button"
-        disabled={isDeleting}
-        onClick={onDelete}
-        className={cn(
-          "inline-flex size-8 shrink-0 items-center justify-center rounded-lg border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
-          isHidden
-            ? "border-slate-300 bg-background text-slate-600 hover:bg-muted dark:border-slate-600 dark:text-slate-400"
-            : "border-destructive bg-destructive text-white hover:bg-destructive/90 dark:border-destructive dark:bg-destructive dark:hover:bg-destructive/90",
-        )}
-        aria-label={isHidden ? "보이기" : "숨기기/삭제"}
-        title={isSystem ? (isHidden ? "다시 표시" : "숨기기") : "삭제"}
-      >
-        <Trash2
-          className="shrink-0"
-          size={20}
-          strokeWidth={2.25}
-          color={isHidden ? "currentColor" : "#ffffff"}
-          aria-hidden
-        />
-      </button>
     </div>
   );
 }
 
 function AddItemForm({
   placeholder,
+  defaultColor,
   onAdd,
 }: {
   placeholder: string;
-  onAdd: (name: string) => Promise<void>;
+  defaultColor: string;
+  onAdd: (name: string, color: string) => Promise<void>;
 }) {
   const [value, setValue] = useState("");
+  const [color, setColor] = useState(defaultColor);
   const [isAdding, setIsAdding] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const paletteRef = useRef<HTMLDivElement | null>(null);
 
   const handleAdd = async () => {
     const trimmed = value.trim();
     if (!trimmed) return;
     setIsAdding(true);
     try {
-      await onAdd(trimmed);
+      await onAdd(trimmed, normalizeHexColor(color, defaultColor));
       setValue("");
+      setColor(defaultColor);
+      setPaletteOpen(false);
     } finally {
       setIsAdding(false);
     }
   };
 
+  useEffect(() => {
+    if (!paletteOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!paletteRef.current?.contains(event.target as Node)) {
+        setPaletteOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [paletteOpen]);
+
   return (
-    <div className="flex gap-2">
-      <input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void handleAdd();
-        }}
-        placeholder={placeholder}
-        className="h-9 flex-1 rounded-xl border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-      />
-      <button
-        type="button"
-        disabled={isAdding || !value.trim()}
-        onClick={() => void handleAdd()}
-        className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-3 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
-      >
-        <Plus className="h-4 w-4" />
-        추가
-      </button>
+    <div>
+      <div className="flex gap-2">
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void handleAdd();
+          }}
+          placeholder={placeholder}
+          className="h-9 flex-1 rounded-xl border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+        <div className="relative" ref={paletteRef}>
+          <button
+            type="button"
+            onClick={() => setPaletteOpen((prev) => !prev)}
+            className="h-9 w-9 rounded-full border-2 border-white shadow ring-1 ring-black/12 transition-transform hover:scale-105 dark:border-slate-800 dark:ring-white/20"
+            style={{ backgroundColor: normalizeHexColor(color, defaultColor) }}
+            aria-label="추가 항목 색상 선택"
+            title="색상 변경"
+          />
+          {paletteOpen ? (
+            <div className="absolute right-0 top-10 z-20 w-52 rounded-xl border bg-popover p-2 shadow-lg">
+              <div className="mb-1 text-[11px] font-medium text-muted-foreground">추천 색상</div>
+              <div className="grid grid-cols-5 gap-1.5">
+                {COLOR_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    className={cn(
+                      "h-7 w-7 rounded-full ring-1 ring-black/10 transition-transform hover:scale-105 dark:ring-white/20",
+                      normalizeHexColor(color, defaultColor) === preset &&
+                        "ring-2 ring-offset-2 ring-offset-background",
+                    )}
+                    style={{ backgroundColor: preset }}
+                    onClick={() => {
+                      setColor(preset);
+                      setPaletteOpen(false);
+                    }}
+                    aria-label={`추천 색상 ${preset}`}
+                    title={preset}
+                  />
+                ))}
+              </div>
+              <div className="mt-2 border-t pt-2">
+                <div className="space-y-2">
+                  <p className="text-[11px] text-muted-foreground">직접 선택</p>
+                  <HexColorPicker
+                    color={normalizeHexColor(color, defaultColor)}
+                    onChange={(next) => setColor(next)}
+                    style={{ width: "100%", height: 120 }}
+                  />
+                  <HexColorInput
+                    color={normalizeHexColor(color, defaultColor)}
+                    onChange={(next) => setColor(normalizeHexColor(next, defaultColor))}
+                    prefixed
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs uppercase"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          disabled={isAdding || !value.trim()}
+          onClick={() => void handleAdd()}
+          className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-3 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" />
+          추가
+        </button>
+      </div>
     </div>
   );
 }
@@ -232,6 +425,7 @@ export function SettingsPanel({
   const [purchaseTemplates] = useState<PurchaseTemplateRow[]>(initialPurchaseTemplates);
   const [hidden, setHidden] = useState<UserItemSetting[]>(hiddenSettings);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [savingColorId, setSavingColorId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [aiGender, setAiGender] = useState(initialAiReviewProfile?.gender ?? "");
@@ -394,11 +588,11 @@ export function SettingsPanel({
     }
   };
 
-  const handleAddPlatform = async (name: string) => {
+  const handleAddPlatform = async (name: string, color: string) => {
     const { data, error } = await supabase
       .from("platforms")
-      .insert({ name, user_id: userId })
-      .select("id, name, user_id")
+      .insert({ name, user_id: userId, color: normalizeHexColor(color, DEFAULT_PLATFORM_COLOR) })
+      .select("id, name, user_id, color")
       .single();
     if (error) {
       setErrorMessage(error.message);
@@ -407,11 +601,11 @@ export function SettingsPanel({
     setPlatforms((prev) => [...prev, data]);
   };
 
-  const handleAddPaymentMethod = async (name: string) => {
+  const handleAddPaymentMethod = async (name: string, color: string) => {
     const { data, error } = await supabase
       .from("payment_methods")
-      .insert({ name, user_id: userId })
-      .select("id, name, user_id")
+      .insert({ name, user_id: userId, color: normalizeHexColor(color, DEFAULT_PAYMENT_METHOD_COLOR) })
+      .select("id, name, user_id, color")
       .single();
     if (error) {
       setErrorMessage(error.message);
@@ -420,11 +614,11 @@ export function SettingsPanel({
     setPaymentMethods((prev) => [...prev, data]);
   };
 
-  const handleAddBuyerAccount = async (label: string) => {
+  const handleAddBuyerAccount = async (label: string, color: string) => {
     const { data, error } = await supabase
       .from("buyer_accounts")
-      .insert({ label, user_id: userId })
-      .select("id, label")
+      .insert({ label, user_id: userId, color: normalizeHexColor(color, DEFAULT_BUYER_ACCOUNT_COLOR) })
+      .select("id, label, color")
       .single();
     if (error) {
       setErrorMessage(error.message);
@@ -437,13 +631,72 @@ export function SettingsPanel({
     ...p,
     isSystem: p.user_id === null,
     isHidden: isHidden(p.id, "platform"),
-  }));
+  })).sort((a, b) => {
+    if (a.isSystem !== b.isSystem) return a.isSystem ? 1 : -1;
+    return a.name.localeCompare(b.name, "ko");
+  });
 
   const methodsWithMeta: ItemWithMeta<PaymentMethod>[] = paymentMethods.map((m) => ({
     ...m,
     isSystem: m.user_id === null,
     isHidden: isHidden(m.id, "payment_method"),
-  }));
+  })).sort((a, b) => {
+    if (a.isSystem !== b.isSystem) return a.isSystem ? 1 : -1;
+    return a.name.localeCompare(b.name, "ko");
+  });
+
+  const handlePlatformColorChange = async (platform: Platform, nextColor: string) => {
+    if (platform.user_id === null) return;
+    const color = normalizeHexColor(nextColor, DEFAULT_PLATFORM_COLOR);
+    if (normalizeHexColor(platform.color, DEFAULT_PLATFORM_COLOR) === color) return;
+    setSavingColorId(platform.id);
+    setErrorMessage("");
+    try {
+      const { error } = await supabase.from("platforms").update({ color }).eq("id", platform.id);
+      if (error) {
+        setErrorMessage(error.message);
+        return;
+      }
+      setPlatforms((prev) => prev.map((item) => (item.id === platform.id ? { ...item, color } : item)));
+    } finally {
+      setSavingColorId(null);
+    }
+  };
+
+  const handlePaymentMethodColorChange = async (method: PaymentMethod, nextColor: string) => {
+    if (method.user_id === null) return;
+    const color = normalizeHexColor(nextColor, DEFAULT_PAYMENT_METHOD_COLOR);
+    if (normalizeHexColor(method.color, DEFAULT_PAYMENT_METHOD_COLOR) === color) return;
+    setSavingColorId(method.id);
+    setErrorMessage("");
+    try {
+      const { error } = await supabase.from("payment_methods").update({ color }).eq("id", method.id);
+      if (error) {
+        setErrorMessage(error.message);
+        return;
+      }
+      setPaymentMethods((prev) => prev.map((item) => (item.id === method.id ? { ...item, color } : item)));
+    } finally {
+      setSavingColorId(null);
+    }
+  };
+
+  const handleBuyerAccountColorChange = async (account: BuyerAccount, nextColor: string) => {
+    const color = normalizeHexColor(nextColor, DEFAULT_BUYER_ACCOUNT_COLOR);
+    if (normalizeHexColor(account.color, DEFAULT_BUYER_ACCOUNT_COLOR) === color) return;
+    setSavingColorId(account.id);
+    setErrorMessage("");
+    try {
+      const { error } = await supabase.from("buyer_accounts").update({ color }).eq("id", account.id);
+      if (error) {
+        setErrorMessage(error.message);
+        return;
+      }
+      setBuyerAccounts((prev) => prev.map((item) => (item.id === account.id ? { ...item, color } : item)));
+    } finally {
+      setSavingColorId(null);
+    }
+  };
 
   const handleSaveAiReviewProfile = async () => {
     setErrorMessage("");
@@ -712,16 +965,24 @@ export function SettingsPanel({
                 <ItemRow
                   key={p.id}
                   label={p.name}
+                  color={p.color}
                   isSystem={p.isSystem}
                   isHidden={p.isHidden}
+                  canEditColor={!p.isSystem}
                   isDeleting={deletingId === p.id}
+                  isSavingColor={savingColorId === p.id}
                   onDelete={() => void handleDeletePlatform(p)}
+                  onChangeColor={(next) => handlePlatformColorChange(p, next)}
                 />
               ))
             )}
           </div>
           <div className="mt-3">
-            <AddItemForm placeholder="새 플랫폼 이름" onAdd={handleAddPlatform} />
+            <AddItemForm
+              placeholder="새 플랫폼 이름"
+              defaultColor={DEFAULT_PLATFORM_COLOR}
+              onAdd={handleAddPlatform}
+            />
           </div>
         </section>
       </div>
@@ -746,16 +1007,24 @@ export function SettingsPanel({
                 <ItemRow
                   key={m.id}
                   label={m.name}
+                  color={m.color}
                   isSystem={m.isSystem}
                   isHidden={m.isHidden}
+                  canEditColor={!m.isSystem}
                   isDeleting={deletingId === m.id}
+                  isSavingColor={savingColorId === m.id}
                   onDelete={() => void handleDeletePaymentMethod(m)}
+                  onChangeColor={(next) => handlePaymentMethodColorChange(m, next)}
                 />
               ))
             )}
           </div>
           <div className="mt-3">
-            <AddItemForm placeholder="새 결제 수단 이름" onAdd={handleAddPaymentMethod} />
+            <AddItemForm
+              placeholder="새 결제 수단 이름"
+              defaultColor={DEFAULT_PAYMENT_METHOD_COLOR}
+              onAdd={handleAddPaymentMethod}
+            />
           </div>
         </section>
       </div>
@@ -777,16 +1046,24 @@ export function SettingsPanel({
                 <ItemRow
                   key={a.id}
                   label={a.label}
+                  color={a.color}
                   isSystem={false}
                   isHidden={false}
+                  canEditColor
                   isDeleting={deletingId === a.id}
+                  isSavingColor={savingColorId === a.id}
                   onDelete={() => void handleDeleteBuyerAccount(a)}
+                  onChangeColor={(next) => handleBuyerAccountColorChange(a, next)}
                 />
               ))
             )}
           </div>
           <div className="mt-3">
-            <AddItemForm placeholder="새 계정 별칭 (예: 혜미)" onAdd={handleAddBuyerAccount} />
+            <AddItemForm
+              placeholder="새 계정 별칭 (예: 혜미)"
+              defaultColor={DEFAULT_BUYER_ACCOUNT_COLOR}
+              onAdd={handleAddBuyerAccount}
+            />
           </div>
         </section>
       </div>

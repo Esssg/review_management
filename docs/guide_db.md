@@ -1,7 +1,7 @@
 # DB 가이드 (Supabase)
 
 기준 프로젝트: `xhjjoxzwpgqlodflaiix`  
-최종 업데이트: 2026-04-19
+최종 업데이트: 2026-04-20
 
 ## 1) 현재 DB에 있는 테이블
 
@@ -67,13 +67,14 @@
 
 ### `public.platforms`
 
-행 수: 6건 | RLS: 활성화 (조회: `user_id` IS NULL 또는 `auth.uid()` 일치, 추가·삭제: 본인 소유만)
+행 수: 6건 | RLS: 활성화 (조회: `user_id` IS NULL 또는 `auth.uid()` 일치, 추가·삭제: 본인 소유만, 색상 업데이트: 시스템/본인 행 가능)
 
 | 컬럼 | 타입 | Nullable | 의미 |
 |---|---|---|---|
 | `id` | uuid | NO | PK |
 | `user_id` | uuid | YES | NULL이면 시스템 기본값, `auth.uid()`면 사용자 추가값 |
 | `name` | text | NO | 플랫폼 이름 (예: 쿠팡, 네이버) |
+| `color` | text | NO | 플랫폼 표시 색상 (`#RRGGBB`) |
 | `is_active` | boolean | NO | 활성 여부 (기본값 true) |
 
 #### 제약 (이름 중복)
@@ -82,26 +83,27 @@
 - (구버전) 전역 `UNIQUE(name)`만 있으면, 가입/초대 시 트리거가 같은 이름을 다시 넣을 때 `platforms_name_key` 충돌이 날 수 있음.
 
 #### 샘플 데이터
-| name | user_id |
-|---|---|
-| 네이버 | NULL (시스템) |
-| 마켓컬리 | NULL (시스템) |
-| 무신사 | NULL (시스템) |
-| 올리브영 | NULL (시스템) |
-| 카카오 | NULL (시스템) |
-| 쿠팡 | NULL (시스템) |
+| name | user_id | color |
+|---|---|---|
+| 네이버 | NULL (시스템) | `#16a34a` |
+| 마켓컬리 | NULL (시스템) | `#64748b` |
+| 무신사 | NULL (시스템) | `#64748b` |
+| 올리브영 | NULL (시스템) | `#64748b` |
+| 카카오 | NULL (시스템) | `#ca8a04` |
+| 쿠팡 | NULL (시스템) | `#f97316` |
 
 ---
 
 ### `public.payment_methods`
 
-행 수: 8건 | RLS: 활성화 (조회: `user_id` IS NULL 또는 `auth.uid()` 일치, 추가·삭제: 본인 소유만)
+행 수: 8건 | RLS: 활성화 (조회: `user_id` IS NULL 또는 `auth.uid()` 일치, 추가·삭제: 본인 소유만, 색상 업데이트: 시스템/본인 행 가능)
 
 | 컬럼 | 타입 | Nullable | 의미 |
 |---|---|---|---|
 | `id` | uuid | NO | PK |
 | `user_id` | uuid | YES | NULL이면 시스템 기본값, `auth.uid()`면 사용자 추가값 |
 | `name` | text | NO | 결제 수단 이름 (예: 현금, 카카오페이) |
+| `color` | text | NO | 결제 수단 표시 색상 (`#RRGGBB`) |
 | `is_active` | boolean | NO | 활성 여부 (기본값 true) |
 
 #### 제약 (이름 중복)
@@ -119,6 +121,7 @@
 | `id` | uuid | NO | PK |
 | `user_id` | uuid | NO | 계정 소유 사용자 ID (`auth.users.id` FK) |
 | `label` | text | NO | 구매자 계정 별칭 (예: 혜미, 석진) |
+| `color` | text | NO | 구매 계정 표시 색상 (`#RRGGBB`) |
 
 ---
 
@@ -208,7 +211,7 @@
 ```typescript
 supabase
   .from("orders")
-  .select("*, platforms(id, name), payment_methods(id, name), buyer_accounts(id, label), purchase_info_templates(*)")
+  .select("*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)")
   .order("purchase_date", { ascending: false })
 ```
 
@@ -219,6 +222,6 @@ supabase
 
 ## 4) 참고
 - `public.orders`, `public.purchase_info_templates`, `public.buyer_accounts`, `public.platforms`, `public.payment_methods`, `public.user_ai_review_profiles`, `public.user_item_settings`, `public.users`는 RLS가 활성화되어 있습니다.
-- `platforms` / `payment_methods`는 시스템 기본 행(`user_id` IS NULL)은 모든 인증 사용자가 조회할 수 있고, INSERT·DELETE는 `user_id = auth.uid()`인 행만 가능합니다.
+- `platforms` / `payment_methods`는 시스템 기본 행(`user_id` IS NULL)을 모든 인증 사용자가 조회할 수 있습니다. INSERT·DELETE는 `user_id = auth.uid()`인 행만 가능하고, UPDATE(색상)는 시스템/본인 행 모두 허용됩니다.
 - 쓰기 시 FK 컬럼(`platform_id`, `payment_method_id`, `buyer_account_id`)을 사용합니다.
 - AI 리뷰 생성은 Supabase Edge Function `generate-ai-review`에서 Gemini를 호출하고, 완료 시 `orders.ai_review`를 갱신합니다. 배포 후 프로젝트 시크릿에 `GEMINI_API_KEY`를 설정하고 `supabase functions deploy generate-ai-review`로 배포해야 합니다. 선택 환경 변수: `GEMINI_MODEL`(기본 `gemini-2.5-flash-lite`, 무료 티 권장). 값은 **모델 id만**(`gemini-2.5-flash`, `gemini-2.0-flash` 등). `models/` 접두어는 Edge에서 제거합니다. `gemini-1.5-flash` 등 1.5 계열은 404가 나는 경우가 많아 `gemini-2.5-flash-lite`로 치환합니다. 신규 프로젝트 JWT(ES256)와의 호환을 위해 `supabase/config.toml`에서 이 함수는 `verify_jwt=false`이며, 함수 코드에서 `auth.getUser()`로 사용자를 검증합니다.

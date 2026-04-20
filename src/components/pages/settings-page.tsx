@@ -17,9 +17,9 @@ export function SettingsPage() {
   const [phase, setPhase] = useState<"loading" | "guest" | "ready">("loading");
   const [userId, setUserId] = useState<string | null>(null);
   const [payload, setPayload] = useState<{
-    platforms: { id: string; name: string; user_id: string | null }[];
-    paymentMethods: { id: string; name: string; user_id: string | null }[];
-    buyerAccounts: { id: string; label: string }[];
+    platforms: { id: string; name: string; user_id: string | null; color: string }[];
+    paymentMethods: { id: string; name: string; user_id: string | null; color: string }[];
+    buyerAccounts: { id: string; label: string; color: string }[];
     hidden: UserItemSetting[];
     purchaseTemplates: PurchaseTemplateRow[];
     aiReviewProfile: Database["public"]["Tables"]["user_ai_review_profiles"]["Row"] | null;
@@ -51,17 +51,17 @@ export function SettingsPage() {
       ] = await Promise.all([
         supabase
           .from("platforms")
-          .select("id, name, user_id")
+          .select("id, name, user_id, color")
           .or(`user_id.is.null,user_id.eq.${user.id}`)
           .eq("is_active", true)
           .order("name"),
         supabase
           .from("payment_methods")
-          .select("id, name, user_id")
+          .select("id, name, user_id, color")
           .or(`user_id.is.null,user_id.eq.${user.id}`)
           .eq("is_active", true)
           .order("name"),
-        supabase.from("buyer_accounts").select("id, label").eq("user_id", user.id).order("label"),
+        supabase.from("buyer_accounts").select("id, label, color").eq("user_id", user.id).order("label"),
         supabase
           .from("user_item_settings")
           .select("user_id, target_id, item_type, is_hidden")

@@ -42,7 +42,7 @@ export function DashboardPage() {
       const { data, error } = await supabase
         .from("orders")
         .select(
-          "*, platforms(id, name), payment_methods(id, name), buyer_accounts(id, label), purchase_info_templates(*)",
+          "*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)",
         )
         .order("purchase_date", { ascending: false });
       if (cancelled) return;

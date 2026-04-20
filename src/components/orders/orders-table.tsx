@@ -40,6 +40,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
+import { hexToRgba, normalizeHexColor } from "@/lib/color";
 import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/types/database";
@@ -47,9 +48,9 @@ import type { Database } from "@/types/database";
 type OrderRow = Database["public"]["Tables"]["orders"]["Row"];
 
 export type OrderWithRelations = OrderRow & {
-  platforms: { id: string; name: string } | null;
-  payment_methods: { id: string; name: string } | null;
-  buyer_accounts: { id: string; label: string } | null;
+  platforms: { id: string; name: string; color: string } | null;
+  payment_methods: { id: string; name: string; color: string } | null;
+  buyer_accounts: { id: string; label: string; color: string } | null;
   purchase_info_templates?: PurchaseTemplateRow | null;
 };
 
@@ -73,7 +74,7 @@ function formatDate(isoDate: string | null) {
 }
 
 const ORDER_LIST_SELECT =
-  "*, platforms(id, name), payment_methods(id, name), buyer_accounts(id, label), purchase_info_templates(*)" as const;
+  "*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)" as const;
 
 function parseDepositAmountInput(raw: string): number | null {
   const t = raw.trim().replace(/,/g, "");
@@ -87,73 +88,28 @@ function profitFromDepositAndPurchase(deposit: number, purchase: number): number
   return Math.round((deposit - purchase) * 100) / 100;
 }
 
-const PLATFORM_STYLES: Record<string, { label: string; className: string }> = {
-  쿠팡: {
-    label: "쿠팡",
-    className:
-      "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/30",
-  },
-  coupang: {
-    label: "쿠팡",
-    className:
-      "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/30",
-  },
-  네이버: {
-    label: "네이버",
-    className:
-      "bg-green-100 text-green-700 border-green-200 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30",
-  },
-  naver: {
-    label: "네이버",
-    className:
-      "bg-green-100 text-green-700 border-green-200 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30",
-  },
-  카카오: {
-    label: "카카오",
-    className:
-      "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-500/20 dark:text-yellow-300 dark:border-yellow-500/30",
-  },
-  "11번가": {
-    label: "11번가",
-    className:
-      "bg-red-100 text-red-700 border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30",
-  },
-  지마켓: {
-    label: "지마켓",
-    className:
-      "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/30",
-  },
-};
+const DEFAULT_PLATFORM_COLOR = "#64748b";
+const DEFAULT_PAYMENT_METHOD_COLOR = "#7c3aed";
+const DEFAULT_BUYER_ACCOUNT_COLOR = "#64748b";
 
-function getPlatformStyle(platform: string | undefined) {
-  if (!platform) {
-    return {
-      label: "기타",
-      className:
-        "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600",
-    };
-  }
-  const lower = platform.toLowerCase();
-  for (const [key, val] of Object.entries(PLATFORM_STYLES)) {
-    if (lower.includes(key.toLowerCase())) return val;
-  }
+function getChipTone(color: string) {
+  const base = normalizeHexColor(color, DEFAULT_PLATFORM_COLOR);
   return {
-    label: platform.charAt(0).toUpperCase() + platform.slice(1),
-    className:
-      "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600",
+    base,
+    style: {
+      color: base,
+      borderColor: hexToRgba(base, 0.35),
+      backgroundColor: hexToRgba(base, 0.14),
+    },
   };
 }
 
-function PlatformBadge({ platform }: { platform: string | undefined }) {
-  const style = getPlatformStyle(platform);
+function PlatformBadge({ platform }: { platform: { name: string; color: string } | null }) {
+  const label = platform?.name?.trim() || "기타";
+  const tone = getChipTone(platform?.color ?? DEFAULT_PLATFORM_COLOR);
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
-        style.className,
-      )}
-    >
-      {style.label}
+    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium" style={tone.style}>
+      {label}
     </span>
   );
 }
@@ -166,36 +122,6 @@ function getPaymentMethodDisplay(name: string | null | undefined): { Icon: Lucid
   if (lower.includes("카드") || lower.includes("card")) return { Icon: CreditCard, label: n };
   if (lower.includes("페이") || lower.includes("pay")) return { Icon: Wallet, label: n };
   return { Icon: Wallet, label: n };
-}
-
-/** 계정마다 다른 색 — id 기준 해시로 고정(새로고침해도 동일). */
-const BUYER_ACCOUNT_CHIP_PALETTE = [
-  { icon: "text-rose-600 dark:text-rose-400", label: "text-rose-700 dark:text-rose-300" },
-  { icon: "text-orange-600 dark:text-orange-400", label: "text-orange-800 dark:text-orange-300" },
-  { icon: "text-amber-600 dark:text-amber-400", label: "text-amber-800 dark:text-amber-300" },
-  { icon: "text-lime-600 dark:text-lime-400", label: "text-lime-800 dark:text-lime-300" },
-  { icon: "text-emerald-600 dark:text-emerald-400", label: "text-emerald-800 dark:text-emerald-300" },
-  { icon: "text-teal-600 dark:text-teal-400", label: "text-teal-800 dark:text-teal-300" },
-  { icon: "text-cyan-600 dark:text-cyan-400", label: "text-cyan-800 dark:text-cyan-300" },
-  { icon: "text-sky-600 dark:text-sky-400", label: "text-sky-800 dark:text-sky-300" },
-  { icon: "text-blue-600 dark:text-blue-400", label: "text-blue-800 dark:text-blue-300" },
-  { icon: "text-indigo-600 dark:text-indigo-400", label: "text-indigo-800 dark:text-indigo-300" },
-  { icon: "text-violet-600 dark:text-violet-400", label: "text-violet-800 dark:text-violet-300" },
-  { icon: "text-fuchsia-600 dark:text-fuchsia-400", label: "text-fuchsia-800 dark:text-fuchsia-300" },
-  { icon: "text-pink-600 dark:text-pink-400", label: "text-pink-800 dark:text-pink-300" },
-] as const;
-
-function hashToPositiveInt(input: string): number {
-  let h = 0;
-  for (let i = 0; i < input.length; i += 1) {
-    h = (Math.imul(31, h) + input.charCodeAt(i)) | 0;
-  }
-  return h === -2147483648 ? 0 : Math.abs(h);
-}
-
-function getBuyerAccountChipStyle(accountKey: string) {
-  const i = hashToPositiveInt(accountKey) % BUYER_ACCOUNT_CHIP_PALETTE.length;
-  return BUYER_ACCOUNT_CHIP_PALETTE[i]!;
 }
 
 const ORDER_DETAIL_CHIP_CLASS =
@@ -325,8 +251,8 @@ function OrderDetailChips({
   const payDisplay = paymentName ? getPaymentMethodDisplay(paymentName) : null;
   const PayIcon = payDisplay?.Icon;
   const accountLabel = row.buyer_accounts?.label?.trim();
-  const accountKey = row.buyer_accounts?.id ?? accountLabel ?? "";
-  const accountStyle = accountKey ? getBuyerAccountChipStyle(accountKey) : null;
+  const paymentColor = normalizeHexColor(row.payment_methods?.color, DEFAULT_PAYMENT_METHOD_COLOR);
+  const accountColor = normalizeHexColor(row.buyer_accounts?.color, DEFAULT_BUYER_ACCOUNT_COLOR);
   const photos = row.review_photo_count;
   const chars = row.review_char_count;
   const showPhotos = photos !== null && photos !== undefined;
@@ -350,19 +276,19 @@ function OrderDetailChips({
       </span>
       {payDisplay && PayIcon ? (
         <span className={chipClassMaybeWrap} title="결제 방식">
-          <PayIcon className={cn(iconClass, "text-violet-600 dark:text-violet-400")} aria-hidden />
+          <PayIcon className={iconClass} style={{ color: paymentColor }} aria-hidden />
           <span className={cn(chipText)}>{payDisplay.label}</span>
         </span>
       ) : null}
-      {accountLabel && accountStyle ? (
+      {accountLabel ? (
         <span className={chipClassMaybeWrap} title="구매 계정">
-          <UserCircle className={cn(iconClass, accountStyle.icon)} aria-hidden />
+          <UserCircle className={iconClass} style={{ color: accountColor }} aria-hidden />
           <span
             className={cn(
               "min-w-0 font-medium",
               preferWrapLabels ? "whitespace-normal break-words" : "max-w-[6rem] truncate sm:max-w-[9rem]",
-              accountStyle.label,
             )}
+            style={{ color: accountColor }}
           >
             {accountLabel}
           </span>
@@ -1043,8 +969,8 @@ function OrderCardItem({
   onPatchOrder: (o: OrderWithRelations) => void;
 }) {
   const touchStartXRef = useRef(0);
-  const platformName = row.platforms?.name;
-  const platformStyle = getPlatformStyle(platformName);
+  const platformName = row.platforms?.name ?? "";
+  const platformTone = getChipTone(row.platforms?.color ?? DEFAULT_PLATFORM_COLOR);
   const hasProfit = row.profit_krw !== null && Number(row.profit_krw) !== 0;
 
   return (
@@ -1101,8 +1027,8 @@ function OrderCardItem({
         <div
           className={cn(
             "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border text-sm font-bold",
-            platformStyle.className,
           )}
+          style={platformTone.style}
         >
           {(platformName ?? "?").charAt(0).toUpperCase()}
         </div>
@@ -1114,7 +1040,7 @@ function OrderCardItem({
           ) : null}
           <p className="line-clamp-1 text-sm font-semibold">{row.product_name}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            <PlatformBadge platform={platformName} />
+            <PlatformBadge platform={row.platforms} />
           </div>
         </div>
 
@@ -1455,7 +1381,7 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
                         {formatKrw(row.purchase_price_krw)}
                       </TableCell>
                       <TableCell className="px-3">
-                        <PlatformBadge platform={row.platforms?.name} />
+                        <PlatformBadge platform={row.platforms} />
                       </TableCell>
                       <TableCell className="min-w-0 px-3 py-2 align-top">
                         <OrderDetailChips row={row} density="table" />
@@ -1624,7 +1550,7 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
                         {formatKrw(row.purchase_price_krw)}
                       </TableCell>
                       <TableCell className="px-3">
-                        <PlatformBadge platform={row.platforms?.name} />
+                        <PlatformBadge platform={row.platforms} />
                       </TableCell>
                       <TableCell className="whitespace-nowrap px-3 text-right font-medium">
                         {formatKrw(row.profit_krw)}

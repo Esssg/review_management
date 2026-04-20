@@ -46,9 +46,9 @@ import type { Database } from "@/types/database";
 type OrderRow = Database["public"]["Tables"]["orders"]["Row"];
 
 type OrderWithRelations = OrderRow & {
-  platforms: { id: string; name: string } | null;
-  payment_methods: { id: string; name: string } | null;
-  buyer_accounts: { id: string; label: string } | null;
+  platforms: { id: string; name: string; color: string } | null;
+  payment_methods: { id: string; name: string; color: string } | null;
+  buyer_accounts: { id: string; label: string; color: string } | null;
   purchase_info_templates?: PurchaseTemplateRow | null;
 };
 
