@@ -48,7 +48,7 @@ export function exportDashboardExcel(orders: OrderWithRelations[], userEmail: st
   // Monthly stats
   const monthMap = new Map<
     string,
-    { purchaseAmount: number; profitKrw: number; total: number; completed: number }
+    { purchaseAmount: number; profitKrw: number; total: number; completed: number; undelivered: number }
   >();
   orders.forEach((o) => {
     const month = o.purchase_date.slice(0, 7);
@@ -57,19 +57,21 @@ export function exportDashboardExcel(orders: OrderWithRelations[], userEmail: st
       profitKrw: 0,
       total: 0,
       completed: 0,
+      undelivered: 0,
     };
     prev.purchaseAmount += toNum(o.purchase_price_krw);
     prev.profitKrw += toNum(o.profit_krw);
     prev.total += 1;
     if (o.is_processed) prev.completed += 1;
+    if (!o.is_item_delivered) prev.undelivered += 1;
     monthMap.set(month, prev);
   });
   const monthlyStats = [...monthMap.entries()].sort((a, b) => b[0].localeCompare(a[0]));
 
   d.push(["■ 월별 요약 통계"]);
-  d.push(["월", "구매금액 (원)", "수익 (원)", "전체 건수", "완료 건수"]);
+  d.push(["월", "구매금액 (원)", "수익 (원)", "전체 건수", "완료 건수", "미배송 건수"]);
   monthlyStats.forEach(([month, stat]) => {
-    d.push([month, stat.purchaseAmount, stat.profitKrw, stat.total, stat.completed]);
+    d.push([month, stat.purchaseAmount, stat.profitKrw, stat.total, stat.completed, stat.undelivered]);
   });
   d.push([]);
 
@@ -109,7 +111,7 @@ export function exportDashboardExcel(orders: OrderWithRelations[], userEmail: st
   byAccount.forEach(([key, s]) => d.push([key, s.purchaseAmount, s.depositAmount, s.profitKrw]));
 
   const ws1 = XLSX.utils.aoa_to_sheet(d);
-  ws1["!cols"] = [{ wch: 28 }, { wch: 20 }, { wch: 20 }, { wch: 12 }, { wch: 12 }];
+  ws1["!cols"] = [{ wch: 28 }, { wch: 20 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
   XLSX.utils.book_append_sheet(wb, ws1, "대시보드");
 
   // ─────────────────────────────────────────

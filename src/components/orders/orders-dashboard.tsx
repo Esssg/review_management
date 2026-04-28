@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -12,26 +13,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { OrderWithRelations } from "@/components/orders/orders-table";
+import {
+  buildGroupedStats,
+  buildMonthlyStats,
+  formatKrw,
+  formatPercent,
+  toDashboardNumber,
+} from "@/lib/dashboard-stats";
 
 type PeriodPreset = "thisMonth" | "last3Months" | "yearToDate" | "all" | "custom";
-
-function toNumber(v: string | number | null | undefined) {
-  if (v === null || v === undefined) return 0;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function formatKrw(value: number) {
-  return new Intl.NumberFormat("ko-KR", {
-    style: "currency",
-    currency: "KRW",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function getMonthKey(date: string) {
-  return date.slice(0, 7);
-}
 
 function getPresetRange(preset: PeriodPreset) {
   const now = new Date();
@@ -58,7 +48,14 @@ function getPresetRange(preset: PeriodPreset) {
   return { from: "", to: "" };
 }
 
-export function OrdersDashboard({ orders }: { orders: OrderWithRelations[] }) {
+export function OrdersDashboard({
+  orders,
+  isNativeApp = false,
+}: {
+  orders: OrderWithRelations[];
+  isNativeApp?: boolean;
+}) {
+  const router = useRouter();
   const [preset, setPreset] = useState<PeriodPreset>("thisMonth");
   const defaultRange = getPresetRange("thisMonth");
   const [fromDate, setFromDate] = useState(defaultRange.from);
@@ -73,79 +70,34 @@ export function OrdersDashboard({ orders }: { orders: OrderWithRelations[] }) {
   }, [orders, fromDate, toDate]);
 
   const periodPurchaseAmount = useMemo(
-    () => filteredByPeriod.reduce((sum, order) => sum + toNumber(order.purchase_price_krw), 0),
+    () => filteredByPeriod.reduce((sum, order) => sum + toDashboardNumber(order.purchase_price_krw), 0),
     [filteredByPeriod],
   );
 
   const currentAssets = useMemo(() => {
     const totalPurchaseAmount = orders.reduce(
-      (sum, order) => sum + toNumber(order.purchase_price_krw),
+      (sum, order) => sum + toDashboardNumber(order.purchase_price_krw),
       0,
     );
     const totalDepositAmount = orders.reduce(
-      (sum, order) => sum + toNumber(order.deposit_amount_krw),
+      (sum, order) => sum + toDashboardNumber(order.deposit_amount_krw),
       0,
     );
     const unrecoveredPrincipal = orders
       .filter((order) => !order.is_processed)
-      .reduce((sum, order) => sum + toNumber(order.purchase_price_krw), 0);
+      .reduce((sum, order) => sum + toDashboardNumber(order.purchase_price_krw), 0);
     const pendingCount = orders.filter((order) => !order.is_processed).length;
 
     return { totalPurchaseAmount, totalDepositAmount, unrecoveredPrincipal, pendingCount };
   }, [orders]);
 
-  const monthlyStats = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        month: string;
-        purchaseAmount: number;
-        profitKrw: number;
-        totalCount: number;
-        completedCount: number;
-      }
-    >();
-
-    orders.forEach((order) => {
-      const month = getMonthKey(order.purchase_date);
-      const prev = map.get(month) ?? {
-        month,
-        purchaseAmount: 0,
-        profitKrw: 0,
-        totalCount: 0,
-        completedCount: 0,
-      };
-      prev.purchaseAmount += toNumber(order.purchase_price_krw);
-      prev.profitKrw += toNumber(order.profit_krw);
-      prev.totalCount += 1;
-      if (order.is_processed) prev.completedCount += 1;
-      map.set(month, prev);
-    });
-
-    return [...map.values()].sort((a, b) => b.month.localeCompare(a.month));
-  }, [orders]);
+  const monthlyStats = useMemo(() => buildMonthlyStats(orders), [orders]);
 
   const groupedStats = useMemo(() => {
-    const buildGroup = (keySelector: (order: OrderWithRelations) => string) => {
-      const map = new Map<
-        string,
-        { key: string; purchaseAmount: number; depositAmount: number; profitKrw: number }
-      >();
-      orders.forEach((order) => {
-        const key = keySelector(order) || "미지정";
-        const prev = map.get(key) ?? { key, purchaseAmount: 0, depositAmount: 0, profitKrw: 0 };
-        prev.purchaseAmount += toNumber(order.purchase_price_krw);
-        prev.depositAmount += toNumber(order.deposit_amount_krw);
-        prev.profitKrw += toNumber(order.profit_krw);
-        map.set(key, prev);
-      });
-      return [...map.values()].sort((a, b) => b.purchaseAmount - a.purchaseAmount);
-    };
-
     return {
-      byPlatform: buildGroup((order) => order.platforms?.name ?? "미지정"),
-      byMethod: buildGroup((order) => order.payment_methods?.name ?? "미지정"),
-      byAccount: buildGroup((order) => order.buyer_accounts?.label ?? "미지정"),
+      byPlatform: buildGroupedStats(orders, (order) => order.platforms?.name ?? "미지정"),
+      byMethod: buildGroupedStats(orders, (order) => order.payment_methods?.name ?? "미지정"),
+      byAccount: buildGroupedStats(orders, (order) => order.buyer_accounts?.label ?? "미지정"),
     };
   }, [orders]);
 
@@ -230,37 +182,84 @@ export function OrdersDashboard({ orders }: { orders: OrderWithRelations[] }) {
         <h2 className="text-lg font-semibold">3. 월별 요약 통계</h2>
         <div className="mt-3 min-w-0 max-w-full rounded-lg border">
           <Table
-            containerClassName="max-w-full overflow-x-hidden"
-            className="table-fixed w-full max-w-full text-xs sm:text-sm"
+            containerClassName="max-w-full overflow-x-auto"
+            className={`${isNativeApp ? "" : "min-w-[1040px]"} table-fixed w-full max-w-full text-xs sm:text-sm`}
           >
-            <colgroup>
-              <col className="w-[14%]" />
-              <col className="w-[28%]" />
-              <col className="w-[28%]" />
-              <col className="w-[15%]" />
-              <col className="w-[15%]" />
-            </colgroup>
+            {isNativeApp ? (
+              <colgroup>
+                <col className="w-[26%]" />
+                <col className="w-[37%]" />
+                <col className="w-[37%]" />
+              </colgroup>
+            ) : (
+              <colgroup>
+                <col className="w-[10%]" />
+                <col className="w-[14%]" />
+                <col className="w-[14%]" />
+                <col className="w-[13%]" />
+                <col className="w-[9%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+              </colgroup>
+            )}
             <TableHeader className="bg-muted/40">
               <TableRow>
                 <TableHead className="px-2 py-2 sm:px-3">월</TableHead>
                 <TableHead className="px-2 py-2 text-right sm:px-3">구매금액</TableHead>
                 <TableHead className="px-2 py-2 text-right sm:px-3">수익</TableHead>
-                <TableHead className="px-2 py-2 text-right sm:px-3">전체 건수</TableHead>
-                <TableHead className="px-2 py-2 text-right sm:px-3">완료 건수</TableHead>
+                {!isNativeApp ? (
+                  <>
+                    <TableHead className="px-2 py-2 text-right sm:px-3">입금금액</TableHead>
+                    <TableHead className="px-2 py-2 text-right sm:px-3">수익률</TableHead>
+                    <TableHead className="px-2 py-2 text-right sm:px-3">전체</TableHead>
+                    <TableHead className="px-2 py-2 text-right sm:px-3">완료</TableHead>
+                    <TableHead className="px-2 py-2 text-right sm:px-3">미완료</TableHead>
+                    <TableHead className="px-2 py-2 text-right sm:px-3">배송</TableHead>
+                    <TableHead className="px-2 py-2 text-right sm:px-3">미배송</TableHead>
+                  </>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
               {monthlyStats.map((stat) => (
                 <TableRow key={stat.month}>
-                  <TableCell className="px-2 py-2 sm:px-3">{stat.month}</TableCell>
+                  <TableCell className="px-2 py-2 sm:px-3">
+                    {isNativeApp ? (
+                      <button
+                        type="button"
+                        className="font-medium text-primary underline-offset-4 hover:underline"
+                        onClick={() => router.push(`/dashboard/monthly?month=${encodeURIComponent(stat.month)}`)}
+                      >
+                        {stat.month}
+                      </button>
+                    ) : (
+                      stat.month
+                    )}
+                  </TableCell>
                   <TableCell className="px-2 py-2 text-right text-xs tabular-nums sm:px-3 sm:text-sm">
                     {formatKrw(stat.purchaseAmount)}
                   </TableCell>
                   <TableCell className="px-2 py-2 text-right text-xs tabular-nums sm:px-3 sm:text-sm">
                     {formatKrw(stat.profitKrw)}
                   </TableCell>
-                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.totalCount}</TableCell>
-                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.completedCount}</TableCell>
+                  {!isNativeApp ? (
+                    <>
+                      <TableCell className="px-2 py-2 text-right text-xs tabular-nums sm:px-3 sm:text-sm">
+                        {formatKrw(stat.depositAmount)}
+                      </TableCell>
+                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">
+                        {formatPercent(stat.profitRate)}
+                      </TableCell>
+                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.totalCount}</TableCell>
+                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.completedCount}</TableCell>
+                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.pendingCount}</TableCell>
+                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.deliveredCount}</TableCell>
+                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.undeliveredCount}</TableCell>
+                    </>
+                  ) : null}
                 </TableRow>
               ))}
             </TableBody>

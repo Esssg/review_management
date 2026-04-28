@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Review Manager</string>
-    <string name="title_activity_main">Review Manager</string>
+    <string name="app_name">리뷰매니저</string>
+    <string name="title_activity_main">리뷰매니저</string>
     <string name="package_name">com.reviewmanager.app</string>
     <string name="custom_url_scheme">com.reviewmanager.app</string>
 </resources>

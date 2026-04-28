@@ -6,7 +6,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
  */
 const config: CapacitorConfig = {
   appId: "com.reviewmanager.app",
-  appName: "Review Manager",
+  appName: "리뷰매니저",
   webDir: "out",
 };
 

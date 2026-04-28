@@ -16,6 +16,10 @@ function isOrderDetailPath(path: string) {
   return path.startsWith("/orders/detail");
 }
 
+function isDashboardNestedPath(path: string) {
+  return path.startsWith("/dashboard/");
+}
+
 /** 설정 탭 하위 화면(구매 템플릿 상세·추가 등). 하드웨어 뒤로가기는 설정(`/settings`)으로 복귀해야 함. */
 function isSettingsNestedPath(path: string) {
   return path.startsWith("/settings/");
@@ -25,6 +29,7 @@ function isSettingsNestedPath(path: string) {
  * Android 하드웨어 뒤로가기:
  * - 구매 장부(`/`) → 종료 확인
  * - 주문 상세: 히스토리 있으면 한 단계 뒤로
+ * - 대시보드 하위 URL(`/dashboard/...`): 히스토리 있으면 뒤로, 없으면 대시보드로
  * - 설정 하위 URL(`/settings/...`): 히스토리 있으면 뒤로, 없으면 설정 루트로
  * - 그 외 탭 → 구매 장부(`/`)로 이동
  */
@@ -80,6 +85,15 @@ export function CapacitorAndroidBackHandler() {
               return;
             }
             window.history.back();
+            return;
+          }
+
+          if (isDashboardNestedPath(p)) {
+            if (canGoBack) {
+              window.history.back();
+              return;
+            }
+            routerRef.current.replace("/dashboard");
             return;
           }
 

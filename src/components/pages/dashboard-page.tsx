@@ -108,7 +108,7 @@ export function DashboardPage() {
           <UserAccountMenu email={email ?? "?"} />
         </div>
       </div>
-      <OrdersDashboard orders={orders} />
+      <OrdersDashboard orders={orders} isNativeApp={isNative} />
     </div>
   );
 }

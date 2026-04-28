@@ -63,3 +63,7 @@ android/**/build/
 android/local.properties
 *.keystore
 *.jks
+
+# android release signing (never commit real values)
+android/keystore.properties
+android/keystore/

@@ -32,6 +32,7 @@
 - `npm run cap:sync`: `out/`을 Android(및 iOS) 프로젝트에 반영
 - `npm run cap:open:android` / `cap:open:ios`: 네이티브 IDE 열기
 - `npm run cap:apk:debug`: `next build` → `cap sync android` → 디버그 APK 빌드. 산출물: `android/app/build/outputs/apk/debug/app-debug.apk`
+- `npm run cap:apk:release`: `next build` → `cap sync android` → 서명된 릴리스 APK 빌드. `android/keystore.properties`가 있어야 자동 서명됨. 산출물: `android/app/build/outputs/apk/release/app-release.apk`
 
 ## 내장형 APK 빌드 요약
 
@@ -49,6 +50,29 @@ adb -s R3CWB0JM3NY install -r -t "/Users/2sssg/workspace2/review_manager/android
 
 - `-r`: 기존 앱이 있으면 재설치(데이터 유지)
 - `-t`: 테스트 APK(디버그 서명 등) 설치 허용
+
+### 서명된 릴리스 APK 만들기 (파일 전송 설치용)
+
+디버그 APK는 Play Protect·삼성 Auto Blocker 등이 차단할 수 있어, 파일 전송으로 설치하려면 내 키스토어로 서명된 release APK가 필요합니다.
+
+1. 키스토어 1회 생성(비밀번호는 직접 입력):
+
+```bash
+keytool -genkeypair -v \
+  -keystore android/keystore/review-manager.jks \
+  -alias reviewmanager \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+2. `android/keystore.properties.example`을 `android/keystore.properties`로 복사한 뒤 실제 비밀번호를 채움. 두 파일 모두 `.gitignore`로 커밋이 막혀 있음. `.jks`와 `keystore.properties`는 **저장소 외부에 별도 백업** 필수(분실 시 동일 패키지의 업데이트가 영원히 불가).
+
+3. 빌드:
+
+```bash
+npm run cap:apk:release
+```
+
+산출물: `android/app/build/outputs/apk/release/app-release.apk` — 이 파일은 파일 전송(구글 드라이브/USB 등) 후 기기에서 탭해 설치 가능합니다. 카톡 전송은 파일 변조 위험이 있어 비권장.
 
 주문 상세 URL은 정적 라우팅 제약으로 **`/orders/detail?id=<주문UUID>`** 형식입니다.
 
