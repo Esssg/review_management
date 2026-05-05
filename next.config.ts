@@ -10,8 +10,12 @@ import type { NextConfig } from "next";
 const extraAllowedDevOrigins =
   process.env.NEXT_DEV_ALLOWED_ORIGINS?.split(",").map((h) => h.trim()).filter(Boolean) ?? [];
 
+// Capacitor APK 빌드는 정적 export(`out/`)가 필요하고, Vercel 같은 웹 호스팅은
+// 서버 라우트(`/api/...`)를 써야 하므로 BUILD_TARGET 환경변수로 빌드 모드를 분리합니다.
+const isApkBuild = process.env.BUILD_TARGET === "apk";
+
 const nextConfig: NextConfig = {
-  output: "export",
+  ...(isApkBuild ? { output: "export" as const } : {}),
   allowedDevOrigins: [
     "192.168.*.*",
     "10.*.*.*",

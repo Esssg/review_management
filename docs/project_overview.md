@@ -4,11 +4,12 @@
 - 리뷰/주문 운영 데이터를 관리하기 위한 Next.js 기반 웹 애플리케이션입니다.
 - 프론트엔드는 Next.js App Router 구조를 사용하고, 백엔드는 Supabase(PostgreSQL/Auth)를 활용합니다.
 - 주문 데이터의 등록/조회/상태 관리를 중심으로 동작합니다.
-- 자동 추천(`/menu-4`)은 `crawl_orders`의 처리 대기 행을 `purchase_date` 내림차순으로 보여주고, 검수해 `orders`로 저장하거나 목록 행 hover 시 나타나는 삭제 버튼으로 삭제 상태로 바꾸는 크롤링 주문 확인 화면입니다. 새로고침 버튼은 사용자 `platform_accounts`의 크롤링 상태를 확인하고, 실행 중이 아니면 외부 크롤링 서버의 계정별 쿠팡 크롤링 API를 호출합니다.
-- **Capacitor 내장형**: `next build`로 정적 사이트(`out/`)를 만들고, APK 안 WebView에서 UI를 로드합니다. 데이터·로그인은 **온라인 Supabase**와 통신합니다(맥에서 Next를 켜둘 필요 없음).
+- 자동 추천(`/menu-4`)은 `crawl_orders`의 처리 대기 행을 `purchase_date` 내림차순으로 보여주고, 검수해 `orders`로 저장하거나 목록 행 hover 시 나타나는 삭제 버튼으로 삭제 상태로 바꾸는 크롤링 주문 확인 화면입니다. 새로고침 버튼은 사용자 `platform_accounts`의 크롤링 상태를 확인하고, 실행 중이 아니면 계정별 쿠팡 크롤링 API를 호출합니다.
+- 크롤링 호출 경로는 빌드 모드에 따라 다릅니다. **웹(Vercel) 배포**는 같은 도메인의 서버 프록시(`/api/crawl/coupang`, `src/app/api/crawl/coupang/route.ts`)를 거쳐 외부 크롤링 서버(`http://175.125.243.56:8003`)에 요청을 보내고, **Capacitor APK 빌드**(`BUILD_TARGET=apk`)는 정적 export라 서버 라우트가 없으므로 `NEXT_PUBLIC_CRAWL_API_BASE_URL`로 지정한 외부 크롤링 서버 절대 URL을 직접 호출합니다. HTTPS 페이지에서 평문 HTTP 외부 서버를 직접 부르면 Mixed Content로 막히는 문제를 이 분기로 회피합니다.
+- **Capacitor 내장형**: `BUILD_TARGET=apk next build`로 정적 사이트(`out/`)를 만들고, APK 안 WebView에서 UI를 로드합니다. 데이터·로그인은 **온라인 Supabase**와 통신합니다(맥에서 Next를 켜둘 필요 없음). 웹 배포(`next build`)는 서버 라우트를 포함한 일반 Next.js 빌드를 만듭니다.
 
 ## 기술 스택
-- 프레임워크: `next@16`, `react@19`, `typescript` — `output: "export"` 정적 배포
+- 프레임워크: `next@16`, `react@19`, `typescript` — `BUILD_TARGET=apk`일 때만 `output: "export"`(정적), 그 외(예: Vercel)는 서버 라우트를 포함한 일반 빌드
 - UI: `@base-ui/react`, `shadcn`, `lucide-react`, `tailwindcss@4`
 - 데이터/인증: `@supabase/supabase-js`(브라우저 `localStorage` 세션)
 - 네이티브 셸: Capacitor 7, `webDir: "out"`([`capacitor.config.ts`](../capacitor.config.ts)). `patches/@capacitor+android+7.6.2.patch`로 API 35 `android.jar` 오류 시에도 **compileSdk 34** 빌드가 되도록 보완합니다(`npm install` 시 `patch-package` 적용).
@@ -26,8 +27,9 @@
 - `android/`: Capacitor Android 네이티브 프로젝트
 
 ## 실행/개발 스크립트
-- `npm run dev` / `npm run dev:lan`: 로컬 개발(정적 export와 동일 라우트, HMR)
-- `npm run build`: 정적 사이트를 `out/`에 생성
+- `npm run dev` / `npm run dev:lan`: 로컬 개발(서버 라우트 포함, HMR)
+- `npm run build`: Vercel 등 서버 호스팅용 일반 Next.js 빌드(서버 라우트 포함)
+- `BUILD_TARGET=apk npm run build`: 정적 사이트를 `out/`에 생성(Capacitor APK용)
 - `npm run lint`: 린트 검사
 - `npm run gen:types`: Supabase public 스키마 타입 생성
 - `npm run cap:sync`: `out/`을 Android(및 iOS) 프로젝트에 반영

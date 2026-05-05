@@ -31,7 +31,10 @@ type PlatformAccountRow = Pick<Database["public"]["Tables"]["platform_accounts"]
 type PagePhase = "loading" | "ready" | "error";
 
 const crawlListHref = "/menu-4";
-const crawlApiBaseUrl = "http://175.125.243.56:8003/crawl/coupang";
+// 웹(Vercel) 빌드는 같은 도메인의 서버 프록시를 사용하고, Capacitor APK 빌드처럼
+// NEXT_PUBLIC_CRAWL_API_BASE_URL이 설정된 환경에서는 외부 크롤링 서버를 직접 호출합니다.
+const crawlApiBaseUrl =
+  process.env.NEXT_PUBLIC_CRAWL_API_BASE_URL?.trim() || "/api/crawl/coupang";
 const DEFAULT_PLATFORM_COLOR = "#64748b";
 const DEFAULT_PAYMENT_METHOD_COLOR = "#7c3aed";
 const DEFAULT_BUYER_ACCOUNT_COLOR = "#64748b";
@@ -419,14 +422,16 @@ export function CrawlOrdersPage() {
     setCrawlNotice("크롤링 요청을 보냈습니다.");
 
     const requests = platformAccounts.map((account) => {
-      const url = new URL(crawlApiBaseUrl);
-      url.searchParams.set("platform_account_id", account.id);
-      url.searchParams.set("max_pages", "2");
+      // 절대 URL(`http://...`)과 상대 경로(`/api/...`) 둘 다 받을 수 있게 직접 쿼리스트링을 붙입니다.
+      const params = new URLSearchParams({
+        platform_account_id: account.id,
+        max_pages: "2",
+      });
+      const requestUrl = `${crawlApiBaseUrl}?${params.toString()}`;
 
       // 응답 본문은 사용하지 않고, 각 계정별 크롤링 시작 요청만 동시에 보냅니다.
-      return fetch(url.toString(), {
+      return fetch(requestUrl, {
         method: "GET",
-        mode: "no-cors",
         cache: "no-store",
       });
     });
