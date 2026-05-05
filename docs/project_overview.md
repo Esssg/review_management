@@ -6,6 +6,7 @@
 - 주문 데이터의 등록/조회/상태 관리를 중심으로 동작합니다.
 - 자동 추천(`/menu-4`)은 `crawl_orders`의 처리 대기 행을 `purchase_date` 내림차순으로 보여주고, 검수해 `orders`로 저장하거나 목록 행 hover 시 나타나는 삭제 버튼으로 삭제 상태로 바꾸는 크롤링 주문 확인 화면입니다. 새로고침 버튼은 사용자 `platform_accounts`의 크롤링 상태를 확인하고, 실행 중이 아니면 계정별 쿠팡 크롤링 API를 호출합니다.
 - 크롤링 호출 경로는 빌드 모드에 따라 다릅니다. **웹(Vercel) 배포**는 같은 도메인의 서버 프록시(`/api/crawl/coupang`, `src/app/api/crawl/coupang/route.ts`)를 거쳐 외부 크롤링 서버(`http://175.125.243.56:8003`)에 요청을 보내고, **Capacitor APK 빌드**(`BUILD_TARGET=apk`)는 정적 export라 서버 라우트가 없으므로 `NEXT_PUBLIC_CRAWL_API_BASE_URL`로 지정한 외부 크롤링 서버 절대 URL을 직접 호출합니다. HTTPS 페이지에서 평문 HTTP 외부 서버를 직접 부르면 Mixed Content로 막히는 문제를 이 분기로 회피합니다.
+- APK에서 평문 HTTP 외부 서버를 직접 호출하기 위해 두 가지 보안 완화가 적용돼 있습니다. ① `capacitor.config.ts`의 `server.androidScheme = "http"`로 WebView origin을 `http://localhost`로 띄워 Mixed Content 차단을 회피하고, ② `android/app/src/main/AndroidManifest.xml`에 `android:usesCleartextTraffic="true"`로 안드로이드 자체의 평문 트래픽 차단을 해제합니다. 외부 서버가 HTTPS로 전환되면 두 설정 모두 되돌리는 것을 권장합니다.
 - **Capacitor 내장형**: `BUILD_TARGET=apk next build`로 정적 사이트(`out/`)를 만들고, APK 안 WebView에서 UI를 로드합니다. 데이터·로그인은 **온라인 Supabase**와 통신합니다(맥에서 Next를 켜둘 필요 없음). 웹 배포(`next build`)는 서버 라우트를 포함한 일반 Next.js 빌드를 만듭니다.
 
 ## 기술 스택
