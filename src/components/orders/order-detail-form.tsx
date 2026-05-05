@@ -52,6 +52,29 @@ type OrderWithRelations = OrderRow & {
   purchase_info_templates?: PurchaseTemplateRow | null;
 };
 
+type DraftOrderWithRelations = Partial<
+  Omit<
+    OrderWithRelations,
+    "id" | "user_id" | "product_name" | "purchase_date" | "purchase_price_krw" | "is_item_delivered" | "is_processed"
+  >
+> & {
+  id: string;
+  user_id: string;
+  product_name?: string | null;
+  purchase_date?: string | null;
+  purchase_price_krw?: number | null;
+  is_item_delivered?: boolean | null;
+  is_processed?: boolean | null;
+};
+
+type ImportActions = {
+  onSave: (payload: Database["public"]["Tables"]["orders"]["Insert"]) => Promise<{ error?: string }>;
+  onDelete: () => Promise<{ error?: string }>;
+  afterSaveHref: string;
+  afterDeleteHref: string;
+  deleteConfirmLabel?: string;
+};
+
 /** buildPayload와 동일 범위의 필드만 비교(저장 여부 판단) */
 type OrderFormSnapshot = {
   title: string;
@@ -273,11 +296,15 @@ function OrderSummaryHero({ order }: { order: OrderWithRelations }) {
 
 export function OrderDetailForm({
   order,
+  draftOrder,
+  importActions,
   platforms,
   paymentMethods,
   buyerAccounts,
 }: {
   order?: OrderWithRelations;
+  draftOrder?: DraftOrderWithRelations;
+  importActions?: ImportActions;
   platforms: Platform[];
   paymentMethods: PaymentMethod[];
   buyerAccounts: BuyerAccount[];
@@ -285,37 +312,45 @@ export function OrderDetailForm({
   const router = useRouter();
   const supabase = createClient();
   const isEditMode = Boolean(order);
+  const isImportMode = Boolean(draftOrder && importActions);
+  // 크롤링 주문은 실제 orders 행이 아니므로, 값 채우기용 초안으로만 사용합니다.
+  const initialOrder = order ?? draftOrder;
 
-  const [kakaoRoomName, setKakaoRoomName] = useState(order?.title ?? "");
-  const [orderNumber, setOrderNumber] = useState(order?.order_number ?? "");
-  const [productName, setProductName] = useState(order?.product_name ?? "");
-  const [platformId, setPlatformId] = useState(order?.platform_id ?? "");
-  const [paymentMethodId, setPaymentMethodId] = useState(order?.payment_method_id ?? "");
-  const [buyerAccountId, setBuyerAccountId] = useState(order?.buyer_account_id ?? "");
+  const [kakaoRoomName, setKakaoRoomName] = useState(initialOrder?.title ?? "");
+  const [orderNumber, setOrderNumber] = useState(initialOrder?.order_number ?? "");
+  const [productName, setProductName] = useState(initialOrder?.product_name ?? "");
+  const [platformId, setPlatformId] = useState(initialOrder?.platform_id ?? "");
+  const [paymentMethodId, setPaymentMethodId] = useState(initialOrder?.payment_method_id ?? "");
+  const [buyerAccountId, setBuyerAccountId] = useState(initialOrder?.buyer_account_id ?? "");
   const [linkedPurchaseTemplateId, setLinkedPurchaseTemplateId] = useState(
-    order?.purchase_info_template_id ?? "",
+    initialOrder?.purchase_info_template_id ?? "",
   );
   const [purchaseDate, setPurchaseDate] = useState(() => {
-    if (order?.purchase_date) return order.purchase_date;
+    if (initialOrder?.purchase_date) return initialOrder.purchase_date;
+    if (isImportMode) return "";
     return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
   });
-  const [depositDate, setDepositDate] = useState(order?.deposit_date ?? "");
-  const [purchasePrice, setPurchasePrice] = useState<string>(String(order?.purchase_price_krw ?? "0"));
+  const [depositDate, setDepositDate] = useState(initialOrder?.deposit_date ?? "");
+  const [purchasePrice, setPurchasePrice] = useState<string>(
+    initialOrder?.purchase_price_krw != null ? String(initialOrder.purchase_price_krw) : isImportMode ? "" : "0",
+  );
   const [reviewPhotoCount, setReviewPhotoCount] = useState<string>(
-    order?.review_photo_count != null ? String(order.review_photo_count) : "",
+    initialOrder?.review_photo_count != null ? String(initialOrder.review_photo_count) : "",
   );
   const [reviewCharCount, setReviewCharCount] = useState<string>(
-    order?.review_char_count != null ? String(order.review_char_count) : "",
+    initialOrder?.review_char_count != null ? String(initialOrder.review_char_count) : "",
   );
-  const [depositAmount, setDepositAmount] = useState<string>(String(order?.deposit_amount_krw ?? ""));
-  const [isItemDelivered, setIsItemDelivered] = useState(order ? (order.is_item_delivered ? "true" : "false") : "");
-  const [isProcessed, setIsProcessed] = useState(order?.is_processed ? "true" : "false");
-  const [depositMemo, setDepositMemo] = useState(order?.deposit_memo ?? "");
+  const [depositAmount, setDepositAmount] = useState<string>(String(initialOrder?.deposit_amount_krw ?? ""));
+  const [isItemDelivered, setIsItemDelivered] = useState(
+    initialOrder?.is_item_delivered == null ? "" : initialOrder.is_item_delivered ? "true" : "false",
+  );
+  const [isProcessed, setIsProcessed] = useState(initialOrder?.is_processed ? "true" : "false");
+  const [depositMemo, setDepositMemo] = useState(initialOrder?.deposit_memo ?? "");
   const [toast, setToast] = useState<ToastState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [purchaseTemplates, setPurchaseTemplates] = useState<PurchaseTemplateRow[]>([]);
-  const [aiExtraInput, setAiExtraInput] = useState(order?.ai_review_user_prompt ?? "");
-  const [aiReviewText, setAiReviewText] = useState(order?.ai_review ?? "");
+  const [aiExtraInput, setAiExtraInput] = useState(initialOrder?.ai_review_user_prompt ?? "");
+  const [aiReviewText, setAiReviewText] = useState(initialOrder?.ai_review ?? "");
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiStreamError, setAiStreamError] = useState<string | null>(null);
   const lastAiOrderIdRef = useRef<string | undefined>(undefined);
@@ -654,6 +689,15 @@ export function OrderDetailForm({
         is_item_delivered: isItemDelivered === "true",
         is_processed: nextIsProcessed,
         deposit_memo,
+        ...(isImportMode
+          ? {
+              notes: draftOrder?.notes ?? null,
+              product_url: draftOrder?.product_url ?? null,
+              scheduled_purchase_at: draftOrder?.scheduled_purchase_at ?? null,
+              screenshot_storage_path: draftOrder?.screenshot_storage_path ?? null,
+              order_status: draftOrder?.order_status ?? null,
+            }
+          : {}),
         ai_review_user_prompt: aiExtraInput.trim() || null,
       } satisfies Database["public"]["Tables"]["orders"]["Insert"],
     };
@@ -669,6 +713,15 @@ export function OrderDetailForm({
         return false;
       }
 
+      if (isImportMode && importActions) {
+        const result = await importActions.onSave(payload);
+        if (result.error) {
+          setToast({ type: "error", message: result.error });
+          return false;
+        }
+        return true;
+      }
+
       const query = isEditMode
         ? supabase.from("orders").update(payload).eq("id", order!.id)
         : supabase.from("orders").insert(payload);
@@ -680,6 +733,29 @@ export function OrderDetailForm({
       }
 
       return true;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const deleteDraftOrder = async () => {
+    if (!isImportMode || !importActions) return;
+
+    const confirmed = window.confirm(importActions.deleteConfirmLabel ?? "이 크롤링 주문을 삭제할까요?");
+    if (!confirmed) return;
+
+    setToast(null);
+    setIsSaving(true);
+
+    try {
+      const result = await importActions.onDelete();
+      if (result.error) {
+        setToast({ type: "error", message: result.error });
+        return;
+      }
+
+      router.push(importActions.afterDeleteHref);
+      router.refresh();
     } finally {
       setIsSaving(false);
     }
@@ -1222,7 +1298,7 @@ export function OrderDetailForm({
         </CardHeader>
         <CardContent className="pt-0">
           <div className="divide-y divide-border/50">
-            {!isEditMode ? (
+            {!isEditMode && !isImportMode ? (
               <FormRow label="입금 완료 여부" hint="처음부터 완료로 넣을 때만 선택">
                 <select
                   value={isProcessed}
@@ -1268,7 +1344,44 @@ export function OrderDetailForm({
         </CardContent>
       </Card>
 
-      {isEditMode ? (
+      {isImportMode && importActions ? (
+        <div
+          className={cn(
+            "sticky z-20 -mx-1 rounded-2xl border bg-background/95 px-3 py-3 shadow-[0_-8px_30px_-12px_rgba(0,0,0,0.12)] backdrop-blur-md dark:shadow-[0_-8px_30px_-12px_rgba(0,0,0,0.45)] sm:mx-0",
+            "bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] supports-[padding:max(0px)]:pb-[max(0.5rem,env(safe-area-inset-bottom))]",
+          )}
+        >
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            <button
+              type="button"
+              disabled={isSaving}
+              className={cn(buttonVariants({ variant: "default", size: "default" }), "h-11 w-full touch-manipulation")}
+              onClick={() =>
+                saveOrder({
+                  isProcessed: false,
+                  onSuccess: () => {
+                    router.push(importActions.afterSaveHref);
+                    router.refresh();
+                  },
+                })
+              }
+            >
+              저장하기
+            </button>
+            <button
+              type="button"
+              disabled={isSaving}
+              className={cn(
+                buttonVariants({ variant: "destructive", size: "default" }),
+                "h-11 w-full touch-manipulation border-destructive bg-destructive text-white hover:bg-destructive/90 hover:text-white dark:border-destructive dark:bg-destructive dark:text-white dark:hover:bg-destructive/90",
+              )}
+              onClick={() => void deleteDraftOrder()}
+            >
+              삭제하기
+            </button>
+          </div>
+        </div>
+      ) : isEditMode ? (
         <>
           <div
             className={cn(

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CircleDashed, House, LayoutDashboard, Settings, SquarePlus } from "lucide-react";
+import { House, LayoutDashboard, Settings, Sparkles, SquarePlus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -30,9 +30,9 @@ const menuItems = [
   },
   {
     id: 4,
-    label: "메뉴4",
+    label: "자동 추천",
     href: "/menu-4",
-    icon: CircleDashed,
+    icon: Sparkles,
     isActive: (pathname: string) => pathname.startsWith("/menu-4"),
   },
   {

@@ -31,6 +31,33 @@ export type Database = {
         };
         Relationships: [];
       };
+      crawl_orders: {
+        Row: {
+          id: string;
+          user_id: string;
+          crawl_order_status: number | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+          [key: string]: Json | undefined;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          crawl_order_status?: number | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+          [key: string]: Json | undefined;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          crawl_order_status?: number | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+          [key: string]: Json | undefined;
+        };
+        Relationships: [];
+      };
       orders: {
         Row: {
           id: string;
@@ -174,6 +201,33 @@ export type Database = {
           is_active?: boolean;
           name?: string;
           user_id?: string | null;
+        };
+        Relationships: [];
+      };
+      platform_accounts: {
+        Row: {
+          id: string;
+          user_id: string;
+          status: boolean;
+          created_at?: string | null;
+          updated_at?: string | null;
+          [key: string]: Json | undefined;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          status?: boolean;
+          created_at?: string | null;
+          updated_at?: string | null;
+          [key: string]: Json | undefined;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          status?: boolean;
+          created_at?: string | null;
+          updated_at?: string | null;
+          [key: string]: Json | undefined;
         };
         Relationships: [];
       };
