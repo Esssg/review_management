@@ -4,7 +4,7 @@
 - 리뷰/주문 운영 데이터를 관리하기 위한 Next.js 기반 웹 애플리케이션입니다.
 - 프론트엔드는 Next.js App Router 구조를 사용하고, 백엔드는 Supabase(PostgreSQL/Auth)를 활용합니다.
 - 주문 데이터의 등록/조회/상태 관리를 중심으로 동작합니다.
-- 자동 추천(`/menu-4`)은 `crawl_orders`의 처리 대기 행을 `purchase_date` 내림차순으로 보여주고, 검수해 `orders`로 저장하거나 목록 행 hover 시 나타나는 삭제 버튼으로 삭제 상태로 바꾸는 크롤링 주문 확인 화면입니다. 새로고침 버튼은 사용자 `platform_accounts`의 크롤링 상태를 확인하고, 실행 중이 아니면 계정별 쿠팡 크롤링 API를 호출합니다.
+- 자동 추천(`/menu-4`)은 `crawl_orders`의 처리 대기 행을 `purchase_date` 내림차순으로 보여주고, 검수해 `orders`로 저장하거나 목록 행 hover 시 나타나는 삭제 버튼으로 삭제 상태로 바꾸는 크롤링 주문 확인 화면입니다. 새로고침 버튼은 사용자 `platform_accounts`의 크롤링 상태를 확인하고, 실행 중이 아니면 외부 크롤링 서버의 계정별 쿠팡 크롤링 API를 호출합니다.
 - **Capacitor 내장형**: `next build`로 정적 사이트(`out/`)를 만들고, APK 안 WebView에서 UI를 로드합니다. 데이터·로그인은 **온라인 Supabase**와 통신합니다(맥에서 Next를 켜둘 필요 없음).
 
 ## 기술 스택

@@ -31,7 +31,7 @@ type PlatformAccountRow = Pick<Database["public"]["Tables"]["platform_accounts"]
 type PagePhase = "loading" | "ready" | "error";
 
 const crawlListHref = "/menu-4";
-const crawlApiBaseUrl = "https://review-manager-mon.vercel.app/crawl/coupang";
+const crawlApiBaseUrl = "http://175.125.243.56:8003/crawl/coupang";
 const DEFAULT_PLATFORM_COLOR = "#64748b";
 const DEFAULT_PAYMENT_METHOD_COLOR = "#7c3aed";
 const DEFAULT_BUYER_ACCOUNT_COLOR = "#64748b";
