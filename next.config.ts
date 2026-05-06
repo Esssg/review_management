@@ -15,6 +15,9 @@ const extraAllowedDevOrigins =
 const isApkBuild = process.env.BUILD_TARGET === "apk";
 
 const nextConfig: NextConfig = {
+  env: {
+    NEXT_PUBLIC_BUILD_TARGET: process.env.BUILD_TARGET ?? "",
+  },
   // APK 정적 export에서는 서버 라우트(`src/app/api/.../route.ts`)가 들어가면 빌드가 실패하므로
   // 페이지 확장자를 `tsx`로만 한정해 `.ts` 라우트 핸들러를 자연스럽게 제외합니다.
   ...(isApkBuild ? { output: "export" as const, pageExtensions: ["tsx"] } : {}),

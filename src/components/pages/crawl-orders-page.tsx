@@ -26,18 +26,34 @@ import type { Database } from "@/types/database";
 
 type CrawlOrderRow = Database["public"]["Tables"]["crawl_orders"]["Row"];
 type OrderInsert = Database["public"]["Tables"]["orders"]["Insert"];
-type PlatformAccountRow = Pick<Database["public"]["Tables"]["platform_accounts"]["Row"], "id" | "status">;
+type PlatformAccountRow = Pick<Database["public"]["Tables"]["platform_accounts"]["Row"], "id" | "name" | "status">;
+type CapacitorWindow = Window & typeof globalThis & {
+  Capacitor?: {
+    isNativePlatform?: () => boolean;
+  };
+};
 
 type PagePhase = "loading" | "ready" | "error";
 
 const crawlListHref = "/menu-4";
-// 웹(Vercel) 빌드는 같은 도메인의 서버 프록시를 사용하고, Capacitor APK 빌드처럼
-// NEXT_PUBLIC_CRAWL_API_BASE_URL이 설정된 환경에서는 외부 크롤링 서버를 직접 호출합니다.
-const crawlApiBaseUrl =
-  process.env.NEXT_PUBLIC_CRAWL_API_BASE_URL?.trim() || "/api/crawl/coupang";
+// 웹(Vercel) 빌드는 같은 도메인의 서버 프록시를 사용하고, 서버 라우트가 없는 APK 빌드만
+// NEXT_PUBLIC_CRAWL_API_BASE_URL로 지정한 외부 크롤링 서버를 직접 호출합니다.
+const crawlProxyPath = "/api/crawl/coupang";
+const apkCrawlApiBaseUrl = process.env.NEXT_PUBLIC_CRAWL_API_BASE_URL?.trim() || crawlProxyPath;
 const DEFAULT_PLATFORM_COLOR = "#64748b";
 const DEFAULT_PAYMENT_METHOD_COLOR = "#7c3aed";
 const DEFAULT_BUYER_ACCOUNT_COLOR = "#64748b";
+
+function isNativeCapacitorRuntime() {
+  if (typeof window === "undefined") return false;
+  return (window as CapacitorWindow).Capacitor?.isNativePlatform?.() === true;
+}
+
+function getCrawlApiBaseUrl() {
+  // 웹 번들에 APK용 환경변수가 섞여도 브라우저에서는 CORS를 피하려고 항상 프록시를 사용합니다.
+  if (process.env.NEXT_PUBLIC_BUILD_TARGET === "apk" && isNativeCapacitorRuntime()) return apkCrawlApiBaseUrl;
+  return crawlProxyPath;
+}
 
 function readValue(row: CrawlOrderRow, keys: string[]) {
   for (const key of keys) {
@@ -108,6 +124,10 @@ function findBuyerAccount(accounts: BuyerAccount[], row: CrawlOrderRow) {
 
 function relationById<T extends { id: string }>(items: T[], id: string) {
   return id ? items.find((item) => item.id === id) ?? null : null;
+}
+
+function displayPlatformAccountName(account: PlatformAccountRow) {
+  return account.name.trim() || "이름 없는";
 }
 
 function displayPrimary(row: CrawlOrderRow) {
@@ -333,7 +353,7 @@ export function CrawlOrdersPage() {
         fetchMasterData(supabase, user.id),
         supabase
           .from("platform_accounts")
-          .select("id, status")
+          .select("id, name, status")
           .eq("user_id", user.id),
       ]);
 
@@ -366,7 +386,7 @@ export function CrawlOrdersPage() {
       fetchMasterData(supabase, user.id),
       supabase
         .from("platform_accounts")
-        .select("id, status")
+        .select("id, name, status")
         .eq("user_id", user.id),
     ]);
 
@@ -395,6 +415,13 @@ export function CrawlOrdersPage() {
 
   const hasRunningCrawl = platformAccounts.some((account) => account.status === true);
   const isCrawlButtonDisabled = hasRunningCrawl || isStartingCrawl;
+  const runningCrawlNotice =
+    platformAccounts
+      .filter((account) => account.status === true)
+      .map((account) => `${displayPlatformAccountName(account)}계정 크롤링 중`)
+      .join("\n") || "크롤링 실행중…";
+  const visibleCrawlNotice = crawlNotice ?? (hasRunningCrawl ? runningCrawlNotice : null);
+  const isCrawlNoticeSpinning = isStartingCrawl || (visibleCrawlNotice?.includes("크롤링 중") ?? false);
 
   useEffect(() => {
     if (!hasRunningCrawl) return;
@@ -403,13 +430,9 @@ export function CrawlOrdersPage() {
     return () => window.clearInterval(timer);
   }, [hasRunningCrawl, loadPage]);
 
-  useEffect(() => {
-    if (hasRunningCrawl) setCrawlNotice(null);
-  }, [hasRunningCrawl]);
-
   const startCrawl = () => {
     if (hasRunningCrawl) {
-      setCrawlNotice("크롤링 실행중…");
+      setCrawlNotice(runningCrawlNotice);
       return;
     }
 
@@ -419,7 +442,23 @@ export function CrawlOrdersPage() {
     }
 
     setIsStartingCrawl(true);
-    setCrawlNotice("크롤링 요청을 보냈습니다.");
+    setCrawlNotice(platformAccounts.map((account) => `${displayPlatformAccountName(account)}계정 크롤링 중`).join("\n"));
+
+    const updateAccountNotice = (account: PlatformAccountRow, message: string) => {
+      // 여러 계정을 동시에 요청하므로 응답이 돌아온 계정 줄만 교체합니다.
+      const accountName = displayPlatformAccountName(account);
+      setCrawlNotice((current) => {
+        const before = current?.split("\n").filter(Boolean) ?? [];
+        const runningMessage = `${accountName}계정 크롤링 중`;
+        const next = before.length > 0 ? before : [runningMessage];
+        const index = next.findIndex((item) => item === runningMessage || item.startsWith(`${accountName}계정 크롤링 `));
+
+        if (index === -1) return [...next, message].join("\n");
+
+        next[index] = message;
+        return next.join("\n");
+      });
+    };
 
     const requests = platformAccounts.map((account) => {
       // 절대 URL(`http://...`)과 상대 경로(`/api/...`) 둘 다 받을 수 있게 직접 쿼리스트링을 붙입니다.
@@ -427,12 +466,46 @@ export function CrawlOrdersPage() {
         platform_account_id: account.id,
         max_pages: "2",
       });
-      const requestUrl = `${crawlApiBaseUrl}?${params.toString()}`;
+      const requestUrl = `${getCrawlApiBaseUrl()}?${params.toString()}`;
 
-      // 응답 본문은 사용하지 않고, 각 계정별 크롤링 시작 요청만 동시에 보냅니다.
+      // 응답 본문은 사용하지 않고, HTTP 성공 범위(2xx)로 계정별 요청 결과를 표시합니다.
       return fetch(requestUrl, {
         method: "GET",
         cache: "no-store",
+      }).then((response) => {
+        const accountName = displayPlatformAccountName(account);
+        const upstreamStatus = response.headers.get("X-Crawl-Upstream-Status") ?? String(response.status);
+        const upstreamStatusText = response.headers.get("X-Crawl-Upstream-Status-Text") ?? response.statusText;
+
+        console.info("[crawl] response", {
+          accountId: account.id,
+          accountName,
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          upstreamStatus,
+          upstreamStatusText,
+          url: response.url,
+        });
+
+        if (response.ok) {
+          updateAccountNotice(account, `${accountName}계정 크롤링 완료`);
+          return;
+        }
+
+        const statusLabel = upstreamStatusText ? `${upstreamStatus} ${upstreamStatusText}` : upstreamStatus;
+        updateAccountNotice(account, `${accountName}계정 크롤링 실패 (HTTP ${statusLabel})`);
+      }).catch((error: unknown) => {
+        const accountName = displayPlatformAccountName(account);
+        const errorMessage = error instanceof Error ? error.message : "알 수 없는 네트워크 오류";
+
+        console.error("[crawl] request failed", {
+          accountId: account.id,
+          accountName,
+          error,
+          requestUrl,
+        });
+        updateAccountNotice(account, `${accountName}계정 크롤링 실패 (${errorMessage})`);
       });
     });
 
@@ -601,13 +674,13 @@ export function CrawlOrdersPage() {
         </div>
       </div>
 
-      {hasRunningCrawl || crawlNotice ? (
+      {visibleCrawlNotice ? (
         <div
           role="status"
           className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800 shadow-sm dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-200"
         >
-          <RefreshCw className={cn("h-4 w-4 shrink-0", hasRunningCrawl || isStartingCrawl ? "animate-spin" : null)} aria-hidden />
-          <span>{hasRunningCrawl ? "크롤링 실행중…" : crawlNotice}</span>
+          <RefreshCw className={cn("h-4 w-4 shrink-0", isCrawlNoticeSpinning ? "animate-spin" : null)} aria-hidden />
+          <span className="whitespace-pre-line">{visibleCrawlNotice}</span>
         </div>
       ) : null}
 

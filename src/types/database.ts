@@ -207,6 +207,7 @@ export type Database = {
       platform_accounts: {
         Row: {
           id: string;
+          name: string;
           user_id: string;
           status: boolean;
           created_at?: string | null;
@@ -215,6 +216,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          name: string;
           user_id?: string;
           status?: boolean;
           created_at?: string | null;
@@ -223,6 +225,7 @@ export type Database = {
         };
         Update: {
           id?: string;
+          name?: string;
           user_id?: string;
           status?: boolean;
           created_at?: string | null;
