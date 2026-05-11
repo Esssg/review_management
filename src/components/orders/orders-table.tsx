@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
+  AlertTriangle,
   Banknote,
   Bot,
   CheckCircle2,
@@ -86,6 +87,204 @@ function parseDepositAmountInput(raw: string): number | null {
 
 function profitFromDepositAndPurchase(deposit: number, purchase: number): number {
   return Math.round((deposit - purchase) * 100) / 100;
+}
+
+/** 입금 기본일은 운영 기준 시간대인 한국 날짜로 채운다. */
+function getTodayDateInputValue() {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
+function addDaysToDateInput(value: string, days: number) {
+  const base = value.trim() || getTodayDateInputValue();
+  const [year, month, day] = base.split("-").map(Number);
+  if (!year || !month || !day) return getTodayDateInputValue();
+  const next = new Date(Date.UTC(year, month - 1, day + days));
+  return next.toISOString().slice(0, 10);
+}
+
+function adjustDepositAmountInput(value: string, fallbackAmount: number | string, delta: number) {
+  const current = parseDepositAmountInput(value) ?? (Number(fallbackAmount) || 0);
+  return String(Math.max(0, current + delta));
+}
+
+function getDefaultDepositValues(row: OrderWithRelations) {
+  return {
+    date: row.deposit_date?.trim() || getTodayDateInputValue(),
+    amount:
+      row.deposit_amount_krw != null
+        ? String(row.deposit_amount_krw)
+        : String(row.purchase_price_krw),
+    memo: row.deposit_memo?.trim() ? row.deposit_memo : row.title?.trim() ?? "",
+  };
+}
+
+/** 배송 상태와 입금액 조합이 평소 처리 기준과 다르면 완료 전 경고한다. */
+function getDeliveryDepositWarning(row: OrderWithRelations, depositAmount: number) {
+  const purchaseAmount = Number(row.purchase_price_krw);
+  if (!Number.isFinite(purchaseAmount)) return null;
+  const isSameAmount = depositAmount === purchaseAmount;
+  if (!row.is_item_delivered && isSameAmount) {
+    return "미배송 상품인데 구매금액과 입금금액이 같습니다. 처리하시겠습니까?";
+  }
+  if (row.is_item_delivered && !isSameAmount) {
+    return "배송 상품인데 구매금액과 입금금액이 다릅니다. 처리하시겠습니까?";
+  }
+  return null;
+}
+
+/** 완료처리 전 금액과 배송 상태가 어긋나는 경우 운영자가 한 번 더 확인한다. */
+function DepositMismatchConfirmDialog({
+  message,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  message: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (!busy) onConfirm();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!busy) onCancel();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [busy, onCancel, onConfirm]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/50 px-4 py-6 backdrop-blur-[2px]"
+      role="presentation"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (busy) return;
+        onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="deposit-mismatch-title"
+        aria-describedby="deposit-mismatch-message"
+        className="w-full max-w-[23rem] rounded-2xl border border-amber-200 bg-white p-4 shadow-2xl ring-1 ring-black/5 dark:border-amber-500/30 dark:bg-slate-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+            <AlertTriangle className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0 space-y-1.5">
+            <h3 id="deposit-mismatch-title" className="text-base font-semibold text-slate-950 dark:text-slate-50">
+              완료처리 확인
+            </h3>
+            <p
+              id="deposit-mismatch-message"
+              className="whitespace-normal break-keep text-sm leading-6 text-slate-700 dark:text-slate-200"
+            >
+              {message}
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <Button type="button" variant="outline" className="h-11 rounded-xl" disabled={busy} onClick={onCancel}>
+            취소하기
+          </Button>
+          <Button
+            type="button"
+            className="h-11 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            무시하고 처리하기
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 날짜와 금액 보정 버튼은 모바일 터치 환경에서도 누르기 쉬운 크기로 맞춘다. */
+function DepositDateStepButtons({ onStep }: { onStep: (days: number) => void }) {
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        className="h-7 touch-manipulation px-2 text-[11px]"
+        aria-label="입금일자 하루 빼기"
+        onClick={(e) => {
+          e.stopPropagation();
+          onStep(-1);
+        }}
+      >
+        -1일
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        className="h-7 touch-manipulation px-2 text-[11px]"
+        aria-label="입금일자 하루 더하기"
+        onClick={(e) => {
+          e.stopPropagation();
+          onStep(1);
+        }}
+      >
+        +1일
+      </Button>
+    </div>
+  );
+}
+
+function DepositAmountStepButtons({ onStep }: { onStep: (amount: number) => void }) {
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        className="h-7 touch-manipulation px-2 text-[11px]"
+        aria-label="입금금액 500원 빼기"
+        onClick={(e) => {
+          e.stopPropagation();
+          onStep(-500);
+        }}
+      >
+        -500원
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        className="h-7 touch-manipulation px-2 text-[11px]"
+        aria-label="입금금액 500원 더하기"
+        onClick={(e) => {
+          e.stopPropagation();
+          onStep(500);
+        }}
+      >
+        +500원
+      </Button>
+    </div>
+  );
 }
 
 const DEFAULT_PLATFORM_COLOR = "#64748b";
@@ -345,18 +544,21 @@ function MobilePendingDepositSwipePanel({
   const panel1Ref = useRef<HTMLDivElement>(null);
   const [activePage, setActivePage] = useState(0);
   const [panelHeights, setPanelHeights] = useState({ h0: 96, h1: 280 });
-  const [depositDate, setDepositDate] = useState(() => row.deposit_date ?? "");
-  const [depositAmount, setDepositAmount] = useState(() =>
-    row.deposit_amount_krw != null ? String(row.deposit_amount_krw) : "",
-  );
-  const [depositMemo, setDepositMemo] = useState(() => row.deposit_memo ?? "");
+  const [depositDate, setDepositDate] = useState(() => getDefaultDepositValues(row).date);
+  const [depositAmount, setDepositAmount] = useState(() => getDefaultDepositValues(row).amount);
+  const [depositMemo, setDepositMemo] = useState(() => getDefaultDepositValues(row).memo);
+  const pendingSubmitRef = useRef<{ date: string; amount: number } | null>(null);
+  const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setDepositDate(row.deposit_date ?? "");
-    setDepositAmount(row.deposit_amount_krw != null ? String(row.deposit_amount_krw) : "");
-    setDepositMemo(row.deposit_memo ?? "");
-  }, [row.id, row.deposit_date, row.deposit_amount_krw, row.deposit_memo]);
+    const defaults = getDefaultDepositValues(row);
+    setDepositDate(defaults.date);
+    setDepositAmount(defaults.amount);
+    setDepositMemo(defaults.memo);
+    pendingSubmitRef.current = null;
+    setConfirmMessage(null);
+  }, [row]);
 
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
@@ -396,27 +598,17 @@ function MobilePendingDepositSwipePanel({
     setActivePage((p) => (p !== next ? next : p));
   };
 
-  const submit = async () => {
-    const dd = depositDate.trim();
-    if (!dd) {
-      window.alert("완료처리를 하려면 입금일자 칸을 입력해야 됩니다.");
-      return;
-    }
-    const dep = parseDepositAmountInput(depositAmount);
-    if (dep === null) {
-      window.alert("완료처리를 하려면 실입금금액 칸을 입력해야 됩니다.");
-      return;
-    }
+  const completeOrder = async (date: string, amount: number) => {
     setBusy(true);
     try {
       const purchase = Number(row.purchase_price_krw);
-      const profit = profitFromDepositAndPurchase(dep, purchase);
+      const profit = profitFromDepositAndPurchase(amount, purchase);
       const { data, error } = await supabase
         .from("orders")
         .update({
           is_processed: true,
-          deposit_date: dd,
-          deposit_amount_krw: dep,
+          deposit_date: date,
+          deposit_amount_krw: amount,
           deposit_memo: depositMemo.trim() || null,
           profit_krw: profit,
         })
@@ -427,10 +619,38 @@ function MobilePendingDepositSwipePanel({
         window.alert(error.message);
         return;
       }
+      pendingSubmitRef.current = null;
+      setConfirmMessage(null);
       onPatched(data as OrderWithRelations);
     } finally {
       setBusy(false);
     }
+  };
+
+  const submit = async (skipWarning = false) => {
+    const dd = depositDate.trim();
+    if (!dd) {
+      window.alert("완료처리를 하려면 입금일자 칸을 입력해야 됩니다.");
+      return;
+    }
+    const dep = parseDepositAmountInput(depositAmount);
+    if (dep === null) {
+      window.alert("완료처리를 하려면 실입금금액 칸을 입력해야 됩니다.");
+      return;
+    }
+    const warning = skipWarning ? null : getDeliveryDepositWarning(row, dep);
+    if (warning) {
+      pendingSubmitRef.current = { date: dd, amount: dep };
+      setConfirmMessage(warning);
+      return;
+    }
+    await completeOrder(dd, dep);
+  };
+
+  const confirmSubmit = () => {
+    const pending = pendingSubmitRef.current;
+    if (!pending) return;
+    void completeOrder(pending.date, pending.amount);
   };
 
   const memoClass =
@@ -438,6 +658,17 @@ function MobilePendingDepositSwipePanel({
 
   return (
     <div className="mt-0">
+      {confirmMessage ? (
+        <DepositMismatchConfirmDialog
+          message={confirmMessage}
+          busy={busy}
+          onCancel={() => {
+            pendingSubmitRef.current = null;
+            setConfirmMessage(null);
+          }}
+          onConfirm={confirmSubmit}
+        />
+      ) : null}
       <div className="mb-2 grid grid-cols-2 gap-2 px-0.5" aria-hidden>
         <span
           className={cn(
@@ -493,7 +724,10 @@ function MobilePendingDepositSwipePanel({
             className="min-w-full shrink-0 snap-center snap-always space-y-2 self-start border-l border-slate-200/80 px-2 py-2.5 dark:border-slate-600"
           >
           <div className="space-y-1">
-            <Label className="text-[11px] text-muted-foreground">입금일자</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-[11px] text-muted-foreground">입금일자</Label>
+              <DepositDateStepButtons onStep={(days) => setDepositDate((value) => addDaysToDateInput(value, days))} />
+            </div>
             <Input
               type="date"
               value={depositDate}
@@ -503,7 +737,14 @@ function MobilePendingDepositSwipePanel({
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-[11px] text-muted-foreground">입금금액 (원)</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-[11px] text-muted-foreground">입금금액 (원)</Label>
+              <DepositAmountStepButtons
+                onStep={(amount) =>
+                  setDepositAmount((value) => adjustDepositAmountInput(value, row.purchase_price_krw, amount))
+                }
+              />
+            </div>
             <Input
               type="number"
               inputMode="numeric"
@@ -561,17 +802,22 @@ function WebPendingCompleteDropdown({
   onPatched: (o: OrderWithRelations) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const pendingSubmitRef = useRef<{ date: string; amount: number } | null>(null);
   const [depositDate, setDepositDate] = useState("");
   const [depositAmount, setDepositAmount] = useState("");
   const [depositMemo, setDepositMemo] = useState("");
+  const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
-    setDepositDate(row.deposit_date ?? "");
-    setDepositAmount(row.deposit_amount_krw != null ? String(row.deposit_amount_krw) : "");
-    setDepositMemo(row.deposit_memo ?? "");
-  }, [isOpen, row.id, row.deposit_date, row.deposit_amount_krw, row.deposit_memo]);
+    const defaults = getDefaultDepositValues(row);
+    setDepositDate(defaults.date);
+    setDepositAmount(defaults.amount);
+    setDepositMemo(defaults.memo);
+    pendingSubmitRef.current = null;
+    setConfirmMessage(null);
+  }, [isOpen, row]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -583,27 +829,17 @@ function WebPendingCompleteDropdown({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [isOpen, onClose]);
 
-  const submit = async () => {
-    const dd = depositDate.trim();
-    if (!dd) {
-      window.alert("완료처리를 하려면 입금일자 칸을 입력해야 됩니다.");
-      return;
-    }
-    const dep = parseDepositAmountInput(depositAmount);
-    if (dep === null) {
-      window.alert("완료처리를 하려면 실입금금액 칸을 입력해야 됩니다.");
-      return;
-    }
+  const completeOrder = async (date: string, amount: number) => {
     setBusy(true);
     try {
       const purchase = Number(row.purchase_price_krw);
-      const profit = profitFromDepositAndPurchase(dep, purchase);
+      const profit = profitFromDepositAndPurchase(amount, purchase);
       const { data, error } = await supabase
         .from("orders")
         .update({
           is_processed: true,
-          deposit_date: dd,
-          deposit_amount_krw: dep,
+          deposit_date: date,
+          deposit_amount_krw: amount,
           deposit_memo: depositMemo.trim() || null,
           profit_krw: profit,
         })
@@ -614,6 +850,8 @@ function WebPendingCompleteDropdown({
         window.alert(error.message);
         return;
       }
+      pendingSubmitRef.current = null;
+      setConfirmMessage(null);
       onPatched(data as OrderWithRelations);
       onClose();
     } finally {
@@ -621,11 +859,48 @@ function WebPendingCompleteDropdown({
     }
   };
 
+  const submit = async (skipWarning = false) => {
+    const dd = depositDate.trim();
+    if (!dd) {
+      window.alert("완료처리를 하려면 입금일자 칸을 입력해야 됩니다.");
+      return;
+    }
+    const dep = parseDepositAmountInput(depositAmount);
+    if (dep === null) {
+      window.alert("완료처리를 하려면 실입금금액 칸을 입력해야 됩니다.");
+      return;
+    }
+    const warning = skipWarning ? null : getDeliveryDepositWarning(row, dep);
+    if (warning) {
+      pendingSubmitRef.current = { date: dd, amount: dep };
+      setConfirmMessage(warning);
+      return;
+    }
+    await completeOrder(dd, dep);
+  };
+
+  const confirmSubmit = () => {
+    const pending = pendingSubmitRef.current;
+    if (!pending) return;
+    void completeOrder(pending.date, pending.amount);
+  };
+
   const memoClass =
     "min-h-[4.5rem] w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30";
 
   return (
     <div ref={wrapRef} className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
+      {confirmMessage ? (
+        <DepositMismatchConfirmDialog
+          message={confirmMessage}
+          busy={busy}
+          onCancel={() => {
+            pendingSubmitRef.current = null;
+            setConfirmMessage(null);
+          }}
+          onConfirm={confirmSubmit}
+        />
+      ) : null}
       <Button
         type="button"
         variant="outline"
@@ -647,11 +922,21 @@ function WebPendingCompleteDropdown({
           aria-label="입금 완료 처리"
         >
           <div className="space-y-1">
-            <Label className="text-xs">입금일자</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs">입금일자</Label>
+              <DepositDateStepButtons onStep={(days) => setDepositDate((value) => addDaysToDateInput(value, days))} />
+            </div>
             <Input type="date" value={depositDate} onChange={(e) => setDepositDate(e.target.value)} className="h-9" />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">입금금액 (원)</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs">입금금액 (원)</Label>
+              <DepositAmountStepButtons
+                onStep={(amount) =>
+                  setDepositAmount((value) => adjustDepositAmountInput(value, row.purchase_price_krw, amount))
+                }
+              />
+            </div>
             <Input
               type="number"
               inputMode="numeric"
