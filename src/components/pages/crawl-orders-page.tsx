@@ -464,7 +464,7 @@ export function CrawlOrdersPage() {
       // 절대 URL(`http://...`)과 상대 경로(`/api/...`) 둘 다 받을 수 있게 직접 쿼리스트링을 붙입니다.
       const params = new URLSearchParams({
         platform_account_id: account.id,
-        max_pages: "2",
+        max_pages: "5",
       });
       const requestUrl = `${getCrawlApiBaseUrl()}?${params.toString()}`;
 
