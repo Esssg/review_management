@@ -320,6 +320,10 @@ function isDepositBuyerAccountMatched(deposit: DepositWithAccount, buyerAccount:
   return areNamesLikelySamePerson(deposit.bank_account?.bank_account_name, buyerAccount?.label);
 }
 
+function isCompletedDepositAmountMatched(deposit: DepositWithAccount, order: PendingDepositOrder) {
+  return order.is_processed && Number(order.deposit_amount_krw) === deposit.amount;
+}
+
 function readCounterpartyDatePrefix(counterparty: string) {
   const prefix = counterparty.trim().slice(0, 4);
   return /^\d{4}$/.test(prefix) ? prefix : null;
@@ -395,6 +399,23 @@ function getDepositRecommendationSections(deposit: DepositWithAccount, orders: P
       recommendations: getDepositRecommendations(deposit, completedOrders, COMPLETED_DEPOSIT_RECOMMENDATION_LIMIT),
     },
   ];
+}
+
+function findTopSimilarityRecommendationOrderId(
+  deposit: DepositWithAccount,
+  sections: DepositRecommendationSection[],
+) {
+  const candidates = sections
+    .flatMap((section) => section.recommendations)
+    // 완료 주문은 기존 입금금액이 현재 입금액과 같을 때만 강조 후보가 됩니다.
+    .filter((recommendation) => !recommendation.order.is_processed || isCompletedDepositAmountMatched(deposit, recommendation.order))
+    .filter((recommendation) => recommendation.similarity != null);
+
+  if (candidates.length === 0) return null;
+
+  return candidates.reduce((best, candidate) => (
+    (candidate.similarity ?? 0) > (best.similarity ?? 0) ? candidate : best
+  )).order.id;
 }
 
 function AutoRecommendMetaChips({
@@ -1029,6 +1050,7 @@ export function CrawlOrdersPage() {
   const canGoNext = activeAutoRecommendPage < 1;
   const renderDepositRecommendationList = (deposit: DepositWithAccount) => {
     const recommendationSections = getDepositRecommendationSections(deposit, depositRecommendationOrders);
+    const highlightedOrderId = findTopSimilarityRecommendationOrderId(deposit, recommendationSections);
     const totalRecommendationCount = recommendationSections.reduce(
       (sum, section) => sum + section.recommendations.length,
       0,
@@ -1069,12 +1091,14 @@ export function CrawlOrdersPage() {
                   const platformColor = normalizeHexColor(platform?.color ?? "", DEFAULT_PLATFORM_COLOR);
                   const buyerAccountColor = normalizeHexColor(buyerAccount?.color ?? "", DEFAULT_BUYER_ACCOUNT_COLOR);
                   const isAccountOwnerMatched = isDepositBuyerAccountMatched(deposit, buyerAccount);
+                  const isAmountMatched = isCompletedDepositAmountMatched(deposit, order);
+                  const isTopSimilarity = highlightedOrderId === order.id;
                   return (
                     <div
                       key={order.id}
                       className={cn(
                         "flex min-w-0 flex-col gap-3 rounded-xl border p-3 shadow-xs sm:flex-row sm:items-center sm:justify-between",
-                        isAccountOwnerMatched
+                        isTopSimilarity
                           ? "border-amber-200 bg-amber-50/80 ring-1 ring-amber-200 dark:border-amber-500/40 dark:bg-amber-500/10 dark:ring-amber-500/25"
                           : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/60",
                       )}
@@ -1082,12 +1106,24 @@ export function CrawlOrdersPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <p className="min-w-0 truncate text-sm font-semibold">{displayPendingOrderTitle(order)}</p>
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                              reason === "title" && similarity === 100
+                                ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-200 dark:ring-emerald-500/30"
+                                : "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200",
+                            )}
+                          >
                             {reason === "title" ? `일치율 ${similarity ?? 0}%` : "구매일 일치"}
                           </span>
                           {isAccountOwnerMatched ? (
                             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-200 dark:ring-amber-500/30">
                               계좌주 일치
+                            </span>
+                          ) : null}
+                          {isAmountMatched ? (
+                            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-800 ring-1 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-200 dark:ring-sky-500/30">
+                              입금금액 일치
                             </span>
                           ) : null}
                         </div>
