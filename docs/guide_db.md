@@ -1,7 +1,7 @@
 # DB 가이드 (Supabase)
 
 기준 프로젝트: `xhjjoxzwpgqlodflaiix`  
-최종 업데이트: 2026-04-20
+최종 업데이트: 2026-05-25
 
 ## 1) 현재 DB에 있는 테이블
 
@@ -14,6 +14,8 @@
 - `user_ai_review_profiles` — AI 리뷰 생성용 사용자 기본 프로필(비식별 위주, RLS 활성화)
 - `user_item_settings` — 시스템 기본 항목 숨김 설정 (RLS 활성화)
 - `users` — Auth 사용자와 1:1 앱 프로필(`user_id`, 표시 `name`, RLS 활성화). `auth.users` INSERT 트리거로 행 생성
+- `bank_account` — 사용자별 입금 계좌 정보 (RLS 활성화)
+- `bank_account_deposit` — 입금 계좌별 입금 내역 (RLS 활성화)
 
 ---
 
@@ -205,6 +207,56 @@
 
 ---
 
+### `public.bank_account`
+
+행 수: 1건 | RLS: 활성화 (`auth.uid() = user_id` 소유자 정책)
+
+#### 컬럼 정의 및 의미
+
+| 컬럼 | 타입 | Nullable | 의미 |
+|---|---|---|---|
+| `id` | integer | NO | 입금 계좌 고유 ID (identity, PK) |
+| `user_id` | uuid | NO | 계좌 소유 사용자 ID (`auth.users.id` FK, 기본값 `auth.uid()`) |
+| `bank_account_number` | text | NO | 입금 계좌번호 |
+| `bank_account_name` | text | NO | 예금주 또는 계좌 표시명 |
+| `bank` | text | NO | 은행명 |
+| `bank_code` | text | NO | 은행 코드 |
+| `bank_password` | text | NO | 계좌 비밀번호 또는 조회용 비밀번호 |
+| `resident_number` | text | NO | 주민등록번호 등 계좌 인증에 필요한 식별번호 |
+
+#### FK 관계
+- `bank_account.user_id` → `auth.users.id` (삭제 시 CASCADE)
+
+#### 보안 메모
+- `bank_password`, `resident_number`는 민감 정보이므로 클라이언트 화면 노출과 로그 출력 시 마스킹이 필요합니다.
+
+---
+
+### `public.bank_account_deposit`
+
+행 수: 1건 | RLS: 활성화 (`bank_account_id`로 연결된 `bank_account.user_id = auth.uid()` 정책)
+
+#### 컬럼 정의 및 의미
+
+| 컬럼 | 타입 | Nullable | 의미 |
+|---|---|---|---|
+| `id` | integer | NO | 입금 내역 고유 ID (identity, PK) |
+| `bank_account_id` | integer | NO | 입금 계좌 ID (`bank_account.id` FK) |
+| `date` | date | NO | 입금일 |
+| `time` | time without time zone | YES | 입금 시각 |
+| `counterparty` | text | NO | 입금 상대방 또는 거래처명 |
+| `amount` | integer | NO | 입금 금액 |
+| `bank_account_deposit_status` | smallint | NO | 입금 내역 처리 상태 (`0` 미완료, `1` 매핑완료, `99` 삭제) |
+
+#### FK 관계
+- `bank_account_deposit.bank_account_id` → `bank_account.id` (삭제 시 CASCADE)
+
+#### 조회/쓰기 권한
+- 입금 내역에는 별도 `user_id`를 두지 않고, 연결된 `bank_account`의 소유자와 `auth.uid()`가 일치할 때만 SELECT/INSERT/UPDATE/DELETE를 허용합니다.
+- 자동추천의 입금 내역 자동 추천 화면은 `bank_account_deposit_status = 0`인 행만 표시하고, 주문 완료 매핑 후 `1`로 바꿉니다.
+
+---
+
 ## 3) 데이터 조회 패턴
 
 ### orders 목록 조회 (join 포함)
@@ -221,7 +273,7 @@ supabase
 ---
 
 ## 4) 참고
-- `public.orders`, `public.purchase_info_templates`, `public.buyer_accounts`, `public.platforms`, `public.payment_methods`, `public.user_ai_review_profiles`, `public.user_item_settings`, `public.users`는 RLS가 활성화되어 있습니다.
+- `public.orders`, `public.purchase_info_templates`, `public.buyer_accounts`, `public.platforms`, `public.payment_methods`, `public.user_ai_review_profiles`, `public.user_item_settings`, `public.users`, `public.bank_account`, `public.bank_account_deposit`는 RLS가 활성화되어 있습니다.
 - `platforms` / `payment_methods`는 시스템 기본 행(`user_id` IS NULL)을 모든 인증 사용자가 조회할 수 있습니다. INSERT·DELETE는 `user_id = auth.uid()`인 행만 가능하고, UPDATE(색상)는 시스템/본인 행 모두 허용됩니다.
 - 쓰기 시 FK 컬럼(`platform_id`, `payment_method_id`, `buyer_account_id`)을 사용합니다.
 - AI 리뷰 생성은 Supabase Edge Function `generate-ai-review`에서 Gemini를 호출하고, 완료 시 `orders.ai_review`를 갱신합니다. 배포 후 프로젝트 시크릿에 `GEMINI_API_KEY`를 설정하고 `supabase functions deploy generate-ai-review`로 배포해야 합니다. 선택 환경 변수: `GEMINI_MODEL`(기본 `gemini-2.5-flash-lite`, 무료 티 권장). 값은 **모델 id만**(`gemini-2.5-flash`, `gemini-2.0-flash` 등). `models/` 접두어는 Edge에서 제거합니다. `gemini-1.5-flash` 등 1.5 계열은 404가 나는 경우가 많아 `gemini-2.5-flash-lite`로 치환합니다. 신규 프로젝트 JWT(ES256)와의 호환을 위해 `supabase/config.toml`에서 이 함수는 `verify_jwt=false`이며, 함수 코드에서 `auth.getUser()`로 사용자를 검증합니다.

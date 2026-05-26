@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { TouchEvent } from "react";
 import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Banknote, Building2, ChevronRight, CreditCard, RefreshCw, ShoppingBag, Sparkles, Trash2, UserCircle, Wallet } from "lucide-react";
+import { Banknote, Building2, CheckCircle2, ChevronLeft, ChevronRight, CreditCard, RefreshCw, ShoppingBag, Trash2, UserCircle, Wallet } from "lucide-react";
 
 import { UserAccountMenu } from "@/components/auth/user-account-menu";
 import { OrderDetailForm } from "@/components/orders/order-detail-form";
@@ -25,8 +26,27 @@ import { cn } from "@/lib/utils";
 import type { Database } from "@/types/database";
 
 type CrawlOrderRow = Database["public"]["Tables"]["crawl_orders"]["Row"];
+type BankAccountDepositRow = Database["public"]["Tables"]["bank_account_deposit"]["Row"];
+type BankAccountRow = Database["public"]["Tables"]["bank_account"]["Row"];
+type OrderRow = Database["public"]["Tables"]["orders"]["Row"];
 type OrderInsert = Database["public"]["Tables"]["orders"]["Insert"];
 type PlatformAccountRow = Pick<Database["public"]["Tables"]["platform_accounts"]["Row"], "id" | "name" | "status">;
+type DepositBankAccount = Pick<BankAccountRow, "bank_account_name" | "bank" | "bank_account_number">;
+type DepositBankAccountSummary = Pick<BankAccountRow, "id" | "bank_account_name" | "bank" | "bank_account_number">;
+type DepositWithAccount = BankAccountDepositRow & {
+  bank_account: DepositBankAccount | null;
+};
+type PendingDepositOrder = Pick<
+  OrderRow,
+  | "id"
+  | "title"
+  | "product_name"
+  | "purchase_date"
+  | "purchase_price_krw"
+  | "is_item_delivered"
+  | "platform_id"
+  | "buyer_account_id"
+>;
 type CapacitorWindow = Window & typeof globalThis & {
   Capacitor?: {
     isNativePlatform?: () => boolean;
@@ -43,6 +63,9 @@ const apkCrawlApiBaseUrl = process.env.NEXT_PUBLIC_CRAWL_API_BASE_URL?.trim() ||
 const DEFAULT_PLATFORM_COLOR = "#64748b";
 const DEFAULT_PAYMENT_METHOD_COLOR = "#7c3aed";
 const DEFAULT_BUYER_ACCOUNT_COLOR = "#64748b";
+const DEPOSIT_TITLE_SIMILARITY_MIN = 45;
+
+const krwFormatter = new Intl.NumberFormat("ko-KR");
 
 function isNativeCapacitorRuntime() {
   if (typeof window === "undefined") return false;
@@ -219,6 +242,92 @@ function getPaymentMethodIcon(name: string): LucideIcon {
   return Wallet;
 }
 
+function formatKrw(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(Number(value))) return "-";
+  return `${krwFormatter.format(Number(value))}원`;
+}
+
+function formatDepositDate(date: string) {
+  return date.replaceAll("-", ".");
+}
+
+function formatDepositTime(time: string | null) {
+  if (!time) return "-";
+  return time.slice(0, 5);
+}
+
+function displayPendingOrderTitle(order: PendingDepositOrder) {
+  return order.title?.trim() || order.product_name || "이름 없는 주문";
+}
+
+function normalizeForSimilarity(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function similarityPercent(left: string, right: string) {
+  const a = normalizeForSimilarity(left);
+  const b = normalizeForSimilarity(right);
+  if (!a || !b) return 0;
+  if (a === b) return 100;
+
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: b.length + 1 }, () => 0);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + cost,
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+
+  return Math.max(0, Math.round((1 - previous[b.length] / Math.max(a.length, b.length)) * 100));
+}
+
+function readCounterpartyDatePrefix(counterparty: string) {
+  const prefix = counterparty.trim().slice(0, 4);
+  return /^\d{4}$/.test(prefix) ? prefix : null;
+}
+
+function purchaseDateToMonthDay(date: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  return match ? `${match[2]}${match[3]}` : "";
+}
+
+function getDepositRecommendations(deposit: DepositWithAccount, pendingOrders: PendingDepositOrder[]) {
+  const counterparty = deposit.counterparty.trim();
+
+  // 입금자명 후보는 운영자가 바로 판단할 수 있게 정확/유사 일치율이 높은 순서로 제한합니다.
+  const titleMatches = pendingOrders
+    .map((order) => ({
+      order,
+      reason: "title" as const,
+      similarity: similarityPercent(counterparty, order.title?.trim() ?? ""),
+    }))
+    .filter((candidate) => candidate.similarity >= DEPOSIT_TITLE_SIMILARITY_MIN)
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, 3);
+
+  if (titleMatches.length > 0) return titleMatches;
+
+  const monthDay = readCounterpartyDatePrefix(counterparty);
+  if (!monthDay) return [];
+
+  return pendingOrders
+    .filter((order) => purchaseDateToMonthDay(order.purchase_date) === monthDay)
+    .slice(0, 3)
+    .map((order) => ({
+      order,
+      reason: "date" as const,
+      similarity: null,
+    }));
+}
+
 function AutoRecommendMetaChips({
   row,
   master,
@@ -311,17 +420,26 @@ export function CrawlOrdersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("id")?.trim() ?? "";
+  const sliderTouchStartXRef = useRef<number | null>(null);
 
   const [phase, setPhase] = useState<PagePhase>("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [activeAutoRecommendPage, setActiveAutoRecommendPage] = useState(0);
   const [orders, setOrders] = useState<CrawlOrderRow[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<CrawlOrderRow | null>(null);
   const [master, setMaster] = useState<MasterData | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [hoveredOrderId, setHoveredOrderId] = useState<string | null>(null);
   const [platformAccounts, setPlatformAccounts] = useState<PlatformAccountRow[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<DepositBankAccountSummary[]>([]);
+  const [deposits, setDeposits] = useState<DepositWithAccount[]>([]);
+  const [pendingDepositOrders, setPendingDepositOrders] = useState<PendingDepositOrder[]>([]);
+  const [expandedDepositId, setExpandedDepositId] = useState<number | null>(null);
+  const [completingDepositId, setCompletingDepositId] = useState<number | null>(null);
+  const [deletingDepositId, setDeletingDepositId] = useState<number | null>(null);
+  const [hoveredDepositId, setHoveredDepositId] = useState<number | null>(null);
   const [isStartingCrawl, setIsStartingCrawl] = useState(false);
   const [crawlNotice, setCrawlNotice] = useState<string | null>(null);
 
@@ -376,7 +494,7 @@ export function CrawlOrdersPage() {
       return;
     }
 
-    const [ordersResult, masterData, platformAccountsResult] = await Promise.all([
+    const [ordersResult, masterData, platformAccountsResult, bankAccountsResult, depositsResult, pendingOrdersResult] = await Promise.all([
       supabase
         .from("crawl_orders")
         .select("*")
@@ -388,10 +506,51 @@ export function CrawlOrdersPage() {
         .from("platform_accounts")
         .select("id, name, status")
         .eq("user_id", user.id),
+      // 입금 자동추천 화면에는 민감 인증값을 빼고 운영자가 확인할 계좌 정보만 가져옵니다.
+      supabase
+        .from("bank_account")
+        .select("id, bank_account_name, bank, bank_account_number")
+        .eq("user_id", user.id)
+        .order("id", { ascending: true }),
+      // 미완료 입금 내역만 오래된 입금 순서대로 보여줘서 처리 누락을 먼저 확인합니다.
+      supabase
+        .from("bank_account_deposit")
+        .select(`
+          id,
+          bank_account_id,
+          date,
+          time,
+          counterparty,
+          amount,
+          bank_account_deposit_status,
+          bank_account:bank_account_id (
+            bank_account_name,
+            bank,
+            bank_account_number
+          )
+        `)
+        .eq("bank_account_deposit_status", 0)
+        .order("date", { ascending: true })
+        .order("time", { ascending: true }),
+      supabase
+        .from("orders")
+        .select(
+          "id, title, product_name, purchase_date, purchase_price_krw, is_item_delivered, platform_id, buyer_account_id",
+        )
+        .eq("user_id", user.id)
+        .eq("is_processed", false)
+        .order("purchase_date", { ascending: true }),
     ]);
 
-    if (ordersResult.error || platformAccountsResult.error) {
-      setErrorMessage(ordersResult.error?.message ?? platformAccountsResult.error?.message ?? "조회 오류가 발생했습니다.");
+    if (ordersResult.error || platformAccountsResult.error || bankAccountsResult.error || depositsResult.error || pendingOrdersResult.error) {
+      setErrorMessage(
+        ordersResult.error?.message ??
+        platformAccountsResult.error?.message ??
+        bankAccountsResult.error?.message ??
+        depositsResult.error?.message ??
+        pendingOrdersResult.error?.message ??
+        "조회 오류가 발생했습니다.",
+      );
       setPhase("error");
       return;
     }
@@ -400,6 +559,9 @@ export function CrawlOrdersPage() {
     setSelectedOrder(null);
     setMaster(masterData);
     setPlatformAccounts(platformAccountsResult.data ?? []);
+    setBankAccounts((bankAccountsResult.data ?? []) as DepositBankAccountSummary[]);
+    setDeposits((depositsResult.data ?? []) as DepositWithAccount[]);
+    setPendingDepositOrders((pendingOrdersResult.data ?? []) as PendingDepositOrder[]);
     setPhase("ready");
   }, [router, selectedId]);
 
@@ -548,6 +710,117 @@ export function CrawlOrdersPage() {
     }
   };
 
+  const showAutoRecommendPage = (page: number) => {
+    setActiveAutoRecommendPage(Math.min(1, Math.max(0, page)));
+  };
+
+  const handleSliderTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    sliderTouchStartXRef.current = event.touches[0]?.clientX ?? null;
+  };
+
+  const handleSliderTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    const startX = sliderTouchStartXRef.current;
+    sliderTouchStartXRef.current = null;
+    if (startX == null) return;
+
+    const endX = event.changedTouches[0]?.clientX;
+    if (endX == null) return;
+
+    const distance = endX - startX;
+    if (Math.abs(distance) < 48) return;
+    showAutoRecommendPage(activeAutoRecommendPage + (distance < 0 ? 1 : -1));
+  };
+
+  const deleteDepositFromList = async (deposit: DepositWithAccount) => {
+    // 입금 내역도 주문 자동추천처럼 원본은 남기고 상태값만 99(삭제)로 바꿔서 목록에서 숨깁니다.
+    const confirmed = window.confirm(`"${deposit.counterparty}" 입금 내역을 삭제 처리할까요?`);
+    if (!confirmed) return;
+
+    setDeletingDepositId(deposit.id);
+    try {
+      const supabase = createClient();
+      const { error, count } = await supabase
+        .from("bank_account_deposit")
+        .update({ bank_account_deposit_status: 99 }, { count: "exact" })
+        .eq("id", deposit.id)
+        .eq("bank_account_deposit_status", 0);
+
+      if (error) {
+        window.alert(error.message);
+        return;
+      }
+      if (count === 0) {
+        window.alert("이미 처리된 입금 내역입니다.");
+        await loadPage();
+        return;
+      }
+
+      setDeposits((prev) => prev.filter((item) => item.id !== deposit.id));
+      setExpandedDepositId((current) => (current === deposit.id ? null : current));
+    } finally {
+      setDeletingDepositId(null);
+    }
+  };
+
+  const completeDepositRecommendation = async (deposit: DepositWithAccount, order: PendingDepositOrder) => {
+    if (!userId) return;
+
+    const confirmed = window.confirm(
+      `"${displayPendingOrderTitle(order)}" 주문을 입금완료 처리하고 이 입금 내역을 매핑완료로 바꿀까요?`,
+    );
+    if (!confirmed) return;
+
+    setCompletingDepositId(deposit.id);
+    try {
+      const supabase = createClient();
+      const purchase = Number(order.purchase_price_krw);
+      const profit = deposit.amount - purchase;
+      // 주문 완료값을 먼저 저장한 뒤 입금 내역을 매핑완료로 바꿉니다.
+      const orderResult = await supabase
+        .from("orders")
+        .update({
+          is_processed: true,
+          deposit_date: deposit.date,
+          deposit_amount_krw: deposit.amount,
+          deposit_memo: deposit.counterparty.trim() || null,
+          profit_krw: Number.isFinite(profit) ? profit : null,
+        })
+        .eq("id", order.id)
+        .eq("user_id", userId)
+        .eq("is_processed", false)
+        .select("id")
+        .single();
+
+      if (orderResult.error) {
+        window.alert(orderResult.error.message);
+        return;
+      }
+
+      const depositResult = await supabase
+        .from("bank_account_deposit")
+        .update({ bank_account_deposit_status: 1 }, { count: "exact" })
+        .eq("id", deposit.id)
+        .eq("bank_account_deposit_status", 0);
+
+      if (depositResult.error) {
+        window.alert(`주문은 완료 처리됐지만 입금 내역 상태 변경에 실패했습니다: ${depositResult.error.message}`);
+        return;
+      }
+
+      if (depositResult.count === 0) {
+        window.alert("이미 처리된 입금 내역입니다.");
+        await loadPage({ silent: true });
+        return;
+      }
+
+      setDeposits((prev) => prev.filter((item) => item.id !== deposit.id));
+      setPendingDepositOrders((prev) => prev.filter((item) => item.id !== order.id));
+      setExpandedDepositId(null);
+    } finally {
+      setCompletingDepositId(null);
+    }
+  };
+
   if (phase === "loading") {
     return (
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
@@ -646,48 +919,93 @@ export function CrawlOrdersPage() {
     );
   }).length;
   const needsCheckCount = orders.length - matchedMetaCount;
+  const activePageTitle = activeAutoRecommendPage === 0 ? "주문 내역 자동 추천" : "입금 내역 자동 추천";
+  const activePageDescription =
+    activeAutoRecommendPage === 0
+      ? "구매장부에 등록되지 않은 구매 주문 건을 표시합니다"
+      : "입금완료 처리되지 않은 미완료 주문건을 표시합니다";
+  const canGoPrev = activeAutoRecommendPage > 0;
+  const canGoNext = activeAutoRecommendPage < 1;
+  const renderDepositRecommendationList = (deposit: DepositWithAccount) => {
+    const recommendations = getDepositRecommendations(deposit, pendingDepositOrders);
 
-  return (
-    <div className="text-foreground mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 px-4 pb-24 pt-5 sm:px-6">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">자동 추천</h1>
-          <p className="text-muted-foreground mt-1 text-sm leading-snug break-words">
-            처리 대기 상태인 추천 주문만 표시합니다.
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-10 w-10"
-            disabled={isCrawlButtonDisabled}
-            aria-label={isCrawlButtonDisabled ? "크롤링 실행중" : "크롤링 실행"}
-            title={isCrawlButtonDisabled ? "크롤링 실행중…" : "크롤링 실행"}
-            onClick={startCrawl}
-          >
-            <RefreshCw className={cn("h-4 w-4", isCrawlButtonDisabled ? "animate-spin" : null)} aria-hidden />
-            <span className="sr-only">{isCrawlButtonDisabled ? "크롤링 실행중" : "크롤링 실행"}</span>
-          </Button>
-          <UserAccountMenu email={email ?? "?"} />
-        </div>
+    if (recommendations.length === 0) {
+      return (
+        <p className="rounded-xl bg-slate-50 px-3 py-4 text-center text-sm text-muted-foreground dark:bg-slate-900/50">
+          추천할 미완료 주문이 없습니다.
+        </p>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-2">
+        {recommendations.map(({ order, reason, similarity }) => {
+          // 후보 한 줄에 어떤 플랫폼/계정으로 구매했는지 한눈에 보여주려고 마스터에서 색상을 찾아 옵니다.
+          const platform = order.platform_id
+            ? master?.platforms.find((item) => item.id === order.platform_id) ?? null
+            : null;
+          const buyerAccount = order.buyer_account_id
+            ? master?.buyerAccounts.find((item) => item.id === order.buyer_account_id) ?? null
+            : null;
+          const platformColor = normalizeHexColor(platform?.color ?? "", DEFAULT_PLATFORM_COLOR);
+          const buyerAccountColor = normalizeHexColor(buyerAccount?.color ?? "", DEFAULT_BUYER_ACCOUNT_COLOR);
+          return (
+            <div
+              key={order.id}
+              className="flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-xs sm:flex-row sm:items-center sm:justify-between dark:border-slate-700 dark:bg-slate-900/60"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <p className="min-w-0 truncate text-sm font-semibold">{displayPendingOrderTitle(order)}</p>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                    {reason === "title" ? `일치율 ${similarity ?? 0}%` : "구매일 일치"}
+                  </span>
+                </div>
+                <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
+                  <span
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"
+                    title={platform?.name ?? "플랫폼 미지정"}
+                    aria-label={`플랫폼 ${platform?.name ?? "미지정"}`}
+                  >
+                    <Building2 className="h-3.5 w-3.5" style={{ color: platformColor }} aria-hidden />
+                  </span>
+                  <span
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"
+                    title={buyerAccount?.label ?? "구매계정 미지정"}
+                    aria-label={`구매계정 ${buyerAccount?.label ?? "미지정"}`}
+                  >
+                    <UserCircle className="h-3.5 w-3.5" style={{ color: buyerAccountColor }} aria-hidden />
+                  </span>
+                  <p className="min-w-0 flex-1 truncate text-xs text-slate-700 dark:text-slate-300">
+                    {order.product_name || "상품명 미정"}
+                  </p>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  구매일 {formatDepositDate(order.purchase_date)} · 구매금액 {formatKrw(order.purchase_price_krw)}
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="w-full sm:w-auto"
+                disabled={completingDepositId === deposit.id}
+                onClick={() => void completeDepositRecommendation(deposit, order)}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                완료처리
+              </Button>
+            </div>
+          );
+        })}
       </div>
-
-      {visibleCrawlNotice ? (
-        <div
-          role="status"
-          className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800 shadow-sm dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-200"
-        >
-          <RefreshCw className={cn("h-4 w-4 shrink-0", isCrawlNoticeSpinning ? "animate-spin" : null)} aria-hidden />
-          <span className="whitespace-pre-line">{visibleCrawlNotice}</span>
-        </div>
-      ) : null}
-
+    );
+  };
+  const orderAutoRecommendPage = (
+    <div className="flex w-full shrink-0 flex-col gap-5">
       <div className="grid min-w-0 grid-cols-3 gap-2 sm:gap-3">
         <div className="flex min-w-0 items-center gap-1.5 rounded-xl bg-white p-2 shadow-sm sm:gap-3 sm:rounded-2xl sm:p-4 dark:bg-slate-800">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-100 sm:h-11 sm:w-11 sm:rounded-2xl dark:bg-slate-700">
-            <Sparkles className="h-4 w-4 text-slate-600 sm:h-5 sm:w-5 dark:text-slate-300" aria-hidden />
+            <ShoppingBag className="h-4 w-4 text-slate-600 sm:h-5 sm:w-5 dark:text-slate-300" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] leading-tight text-muted-foreground break-keep sm:text-xs">대기 추천</p>
@@ -696,7 +1014,7 @@ export function CrawlOrdersPage() {
         </div>
         <div className="flex min-w-0 items-center gap-1.5 rounded-xl bg-emerald-50 p-2 shadow-sm sm:gap-3 sm:rounded-2xl sm:p-4 dark:bg-emerald-500/10">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-100 sm:h-11 sm:w-11 sm:rounded-2xl dark:bg-emerald-500/20">
-            <ShoppingBag className="h-4 w-4 text-emerald-600 sm:h-5 sm:w-5 dark:text-emerald-300" aria-hidden />
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 sm:h-5 sm:w-5 dark:text-emerald-300" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] leading-tight break-keep text-emerald-700 sm:text-xs dark:text-emerald-300">
@@ -906,6 +1224,304 @@ export function CrawlOrdersPage() {
           삭제하면 해당 추천 주문은 목록에서 숨겨집니다.
         </p>
       ) : null}
+    </div>
+  );
+  const depositAutoRecommendPage = (
+    <div className="flex w-full shrink-0 flex-col gap-5">
+      <section className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-100">입금 계좌</h2>
+          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+            {bankAccounts.length}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {bankAccounts.length === 0 ? (
+            <p className="text-muted-foreground py-4 text-center text-sm sm:col-span-2">등록된 입금 계좌가 없습니다.</p>
+          ) : (
+            bankAccounts.map((account) => (
+              <div
+                key={account.id}
+                className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-900/40"
+              >
+                <p className="truncate text-sm font-semibold">{account.bank_account_name}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">
+                  {account.bank} · {account.bank_account_number}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+        <div className="flex shrink-0 items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-100">
+              입금 미완료 목록
+            </h2>
+            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+              {deposits.length}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-4 max-h-[30rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y lg:hidden">
+          {deposits.length === 0 ? (
+            <p className="text-muted-foreground py-8 text-center text-sm">처리할 입금 내역이 없습니다.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {deposits.map((deposit) => {
+                const isExpanded = expandedDepositId === deposit.id;
+                return (
+                  <div
+                    key={deposit.id}
+                    className="rounded-xl border border-slate-200/80 bg-slate-50/60 shadow-xs dark:border-slate-700/70 dark:bg-slate-900/40"
+                  >
+                    <div className="flex min-w-0 items-center gap-2 pr-2">
+                      <button
+                        type="button"
+                        className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left"
+                        aria-expanded={isExpanded}
+                        onClick={() => setExpandedDepositId((current) => (current === deposit.id ? null : deposit.id))}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold">{deposit.counterparty}</p>
+                          <p className="mt-1 truncate text-xs text-muted-foreground">
+                            {formatDepositDate(deposit.date)} {formatDepositTime(deposit.time)} · {deposit.bank_account?.bank_account_name ?? "계좌 미확인"}
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-sm font-bold tabular-nums">{formatKrw(deposit.amount)}</p>
+                        <ChevronRight
+                          className={cn("h-5 w-5 shrink-0 text-muted-foreground transition-transform", isExpanded ? "rotate-90" : null)}
+                          aria-hidden
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingDepositId === deposit.id}
+                        className={cn(
+                          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-destructive/35 bg-destructive/10 text-destructive transition-colors",
+                          "hover:bg-destructive/15 active:bg-destructive/20 disabled:opacity-50",
+                        )}
+                        aria-label="입금 내역 삭제"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void deleteDepositFromList(deposit);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                      </button>
+                    </div>
+                    {isExpanded ? (
+                      <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+                        {renderDepositRecommendationList(deposit)}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 hidden overflow-hidden rounded-xl border shadow-xs dark:border-slate-700 lg:block">
+          <div className="max-h-[560px] overflow-y-auto overflow-x-hidden">
+            <Table className="w-full table-fixed" containerClassName="overflow-visible">
+              <TableHeader className="bg-slate-50/80 dark:bg-slate-700/40">
+                <TableRow>
+                  <TableHead className="w-[16%] px-3">입금일</TableHead>
+                  <TableHead className="w-[16%] px-2">계좌</TableHead>
+                  <TableHead className="w-[28%] px-2">입금자</TableHead>
+                  <TableHead className="w-[16%] px-2 text-right">금액</TableHead>
+                  <TableHead className="w-[10rem] px-3 text-right">
+                    <span className="sr-only">관리</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {deposits.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                      처리할 입금 내역이 없습니다.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  deposits.map((deposit) => {
+                    const isExpanded = expandedDepositId === deposit.id;
+                    const isDeleteVisible = hoveredDepositId === deposit.id || deletingDepositId === deposit.id;
+                    return (
+                      <Fragment key={deposit.id}>
+                        <TableRow
+                          role="button"
+                          tabIndex={0}
+                          aria-expanded={isExpanded}
+                          className="cursor-pointer border-l-2 border-l-slate-300 bg-slate-50/20 transition-colors hover:bg-slate-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-slate-500/60 dark:hover:bg-slate-700/30"
+                          onMouseEnter={() => setHoveredDepositId(deposit.id)}
+                          onMouseLeave={() => {
+                            setHoveredDepositId((currentId) => (currentId === deposit.id ? null : currentId));
+                          }}
+                          onFocus={() => setHoveredDepositId(deposit.id)}
+                          onBlur={(event) => {
+                            const nextTarget = event.relatedTarget;
+                            if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+                              setHoveredDepositId((currentId) => (currentId === deposit.id ? null : currentId));
+                            }
+                          }}
+                          onClick={() => setExpandedDepositId((current) => (current === deposit.id ? null : deposit.id))}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setExpandedDepositId((current) => (current === deposit.id ? null : deposit.id));
+                            }
+                          }}
+                        >
+                          <TableCell className="px-3 py-3">
+                            <p className="font-semibold">{formatDepositDate(deposit.date)}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{formatDepositTime(deposit.time)}</p>
+                          </TableCell>
+                          <TableCell className="min-w-0 px-2">
+                            <p className="truncate text-sm">{deposit.bank_account?.bank_account_name ?? "계좌 미확인"}</p>
+                          </TableCell>
+                          <TableCell className="min-w-0 px-2">
+                            <p className="truncate font-semibold">{deposit.counterparty}</p>
+                          </TableCell>
+                          <TableCell className="px-2 text-right font-bold tabular-nums">{formatKrw(deposit.amount)}</TableCell>
+                          <TableCell className="px-3 py-2 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                disabled={deletingDepositId === deposit.id}
+                                tabIndex={isDeleteVisible ? 0 : -1}
+                                className={cn(
+                                  buttonVariants({ variant: "destructive", size: "sm" }),
+                                  "h-8 rounded-full border-rose-200 bg-white/95 px-3 text-xs font-semibold text-rose-600 shadow-sm ring-1 ring-rose-100 transition-all hover:-translate-y-0.5 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 focus-visible:opacity-100 focus-visible:ring-rose-300 dark:border-rose-900/60 dark:bg-rose-950/70 dark:text-rose-200 dark:ring-rose-900/50 dark:hover:bg-rose-900/70",
+                                  isDeleteVisible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-1 opacity-0",
+                                )}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  void deleteDepositFromList(deposit);
+                                }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                                삭제하기
+                              </button>
+                              <ChevronRight
+                                className={cn("h-5 w-5 shrink-0 text-muted-foreground transition-transform", isExpanded ? "rotate-90" : null)}
+                                aria-hidden
+                              />
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded ? (
+                          <TableRow key={`${deposit.id}-recommendations`} className="bg-slate-50/60 hover:bg-slate-50/60 dark:bg-slate-900/30">
+                            <TableCell colSpan={5} className="px-3 py-3">
+                              {renderDepositRecommendationList(deposit)}
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      </section>
+
+      {deposits.length > 0 ? (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+          삭제하면 해당 입금 내역은 목록에서 숨겨집니다.
+        </p>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <div className="text-foreground mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 px-4 pb-24 pt-5 sm:px-6">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">{activePageTitle}</h1>
+          <p className="text-muted-foreground mt-1 text-sm leading-snug break-words">
+            {activePageDescription}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {activeAutoRecommendPage === 0 ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-10 w-10"
+              disabled={isCrawlButtonDisabled}
+              aria-label={isCrawlButtonDisabled ? "크롤링 실행중" : "크롤링 실행"}
+              title={isCrawlButtonDisabled ? "크롤링 실행중…" : "크롤링 실행"}
+              onClick={startCrawl}
+            >
+              <RefreshCw className={cn("h-4 w-4", isCrawlButtonDisabled ? "animate-spin" : null)} aria-hidden />
+              <span className="sr-only">{isCrawlButtonDisabled ? "크롤링 실행중" : "크롤링 실행"}</span>
+            </Button>
+          ) : null}
+          <UserAccountMenu email={email ?? "?"} />
+        </div>
+      </div>
+
+      {visibleCrawlNotice && activeAutoRecommendPage === 0 ? (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800 shadow-sm dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-200"
+        >
+          <RefreshCw className={cn("h-4 w-4 shrink-0", isCrawlNoticeSpinning ? "animate-spin" : null)} aria-hidden />
+          <span className="whitespace-pre-line">{visibleCrawlNotice}</span>
+        </div>
+      ) : null}
+
+      <div className="flex justify-center gap-1.5" aria-hidden>
+        <span className={cn("h-1.5 w-6 rounded-full transition-colors", activeAutoRecommendPage === 0 ? "bg-slate-900 dark:bg-slate-100" : "bg-slate-300 dark:bg-slate-700")} />
+        <span className={cn("h-1.5 w-6 rounded-full transition-colors", activeAutoRecommendPage === 1 ? "bg-slate-900 dark:bg-slate-100" : "bg-slate-300 dark:bg-slate-700")} />
+      </div>
+
+      <div className="relative">
+        {canGoPrev ? (
+          <button
+            type="button"
+            aria-label="이전 자동추천 페이지"
+            title="이전"
+            className="absolute left-1 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-700 shadow-md backdrop-blur transition-colors hover:bg-white sm:left-2 dark:border-slate-700 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-800"
+            onClick={() => showAutoRecommendPage(activeAutoRecommendPage - 1)}
+          >
+            <ChevronLeft className="h-5 w-5" aria-hidden />
+          </button>
+        ) : null}
+        {canGoNext ? (
+          <button
+            type="button"
+            aria-label="다음 자동추천 페이지"
+            title="다음"
+            className="absolute right-1 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-700 shadow-md backdrop-blur transition-colors hover:bg-white sm:right-2 dark:border-slate-700 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-800"
+            onClick={() => showAutoRecommendPage(activeAutoRecommendPage + 1)}
+          >
+            <ChevronRight className="h-5 w-5" aria-hidden />
+          </button>
+        ) : null}
+        <div
+          className="overflow-hidden touch-pan-y"
+          onTouchStart={handleSliderTouchStart}
+          onTouchEnd={handleSliderTouchEnd}
+        >
+          <div
+            className="flex transition-transform duration-300 ease-out"
+            style={{ transform: `translateX(-${activeAutoRecommendPage * 100}%)` }}
+          >
+            {orderAutoRecommendPage}
+            {depositAutoRecommendPage}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

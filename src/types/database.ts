@@ -10,6 +10,77 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      bank_account: {
+        Row: {
+          bank: string;
+          bank_account_name: string;
+          bank_account_number: string;
+          bank_code: string;
+          bank_password: string;
+          id: number;
+          resident_number: string;
+          user_id: string;
+        };
+        Insert: {
+          bank: string;
+          bank_account_name: string;
+          bank_account_number: string;
+          bank_code: string;
+          bank_password: string;
+          id?: number;
+          resident_number: string;
+          user_id?: string;
+        };
+        Update: {
+          bank?: string;
+          bank_account_name?: string;
+          bank_account_number?: string;
+          bank_code?: string;
+          bank_password?: string;
+          id?: number;
+          resident_number?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      bank_account_deposit: {
+        Row: {
+          amount: number;
+          bank_account_id: number;
+          bank_account_deposit_status: number;
+          counterparty: string;
+          date: string;
+          time: string | null;
+          id: number;
+        };
+        Insert: {
+          amount: number;
+          bank_account_id: number;
+          bank_account_deposit_status?: number;
+          counterparty: string;
+          date: string;
+          time?: string | null;
+          id?: number;
+        };
+        Update: {
+          amount?: number;
+          bank_account_id?: number;
+          bank_account_deposit_status?: number;
+          counterparty?: string;
+          date?: string;
+          time?: string | null;
+          id?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "bank_account_deposit_bank_account_id_fkey";
+            columns: ["bank_account_id"];
+            isOneToOne: false;
+            referencedRelation: "bank_account";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       buyer_accounts: {
         Row: {
           color: string;
