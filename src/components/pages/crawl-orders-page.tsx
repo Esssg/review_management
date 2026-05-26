@@ -43,10 +43,25 @@ type PendingDepositOrder = Pick<
   | "product_name"
   | "purchase_date"
   | "purchase_price_krw"
+  | "deposit_date"
+  | "deposit_amount_krw"
+  | "is_processed"
   | "is_item_delivered"
   | "platform_id"
   | "buyer_account_id"
 >;
+type DepositRecommendationStatus = "pending" | "completed";
+type DepositRecommendation = {
+  order: PendingDepositOrder;
+  reason: "title" | "date";
+  similarity: number | null;
+};
+type DepositRecommendationSection = {
+  status: DepositRecommendationStatus;
+  title: string;
+  emptyMessage: string;
+  recommendations: DepositRecommendation[];
+};
 type CapacitorWindow = Window & typeof globalThis & {
   Capacitor?: {
     isNativePlatform?: () => boolean;
@@ -63,7 +78,10 @@ const apkCrawlApiBaseUrl = process.env.NEXT_PUBLIC_CRAWL_API_BASE_URL?.trim() ||
 const DEFAULT_PLATFORM_COLOR = "#64748b";
 const DEFAULT_PAYMENT_METHOD_COLOR = "#7c3aed";
 const DEFAULT_BUYER_ACCOUNT_COLOR = "#64748b";
-const DEPOSIT_TITLE_SIMILARITY_MIN = 45;
+const DEPOSIT_TITLE_SIMILARITY_MIN = 1;
+const DEPOSIT_TIED_SIMILARITY_MIN = 1;
+const PENDING_DEPOSIT_RECOMMENDATION_LIMIT = 3;
+const COMPLETED_DEPOSIT_RECOMMENDATION_LIMIT = 2;
 
 const krwFormatter = new Intl.NumberFormat("ko-KR");
 
@@ -289,6 +307,19 @@ function similarityPercent(left: string, right: string) {
   return Math.max(0, Math.round((1 - previous[b.length] / Math.max(a.length, b.length)) * 100));
 }
 
+function areNamesLikelySamePerson(left: string | null | undefined, right: string | null | undefined) {
+  const a = normalizeForSimilarity(left ?? "");
+  const b = normalizeForSimilarity(right ?? "");
+  if (!a || !b) return false;
+
+  // 계좌주명은 성까지 있고 구매계정명은 이름만 있는 경우가 많아 포함 관계도 같은 사람으로 봅니다.
+  return a.includes(b) || b.includes(a) || similarityPercent(a, b) >= 60;
+}
+
+function isDepositBuyerAccountMatched(deposit: DepositWithAccount, buyerAccount: BuyerAccount | null) {
+  return areNamesLikelySamePerson(deposit.bank_account?.bank_account_name, buyerAccount?.label);
+}
+
 function readCounterpartyDatePrefix(counterparty: string) {
   const prefix = counterparty.trim().slice(0, 4);
   return /^\d{4}$/.test(prefix) ? prefix : null;
@@ -299,33 +330,71 @@ function purchaseDateToMonthDay(date: string) {
   return match ? `${match[2]}${match[3]}` : "";
 }
 
-function getDepositRecommendations(deposit: DepositWithAccount, pendingOrders: PendingDepositOrder[]) {
+function includeTiedTitleRecommendations(candidates: DepositRecommendation[], limit: number) {
+  if (candidates.length <= limit) return candidates;
+
+  const limited = candidates.slice(0, limit);
+  const boundarySimilarity = limited.at(-1)?.similarity ?? null;
+  if (boundarySimilarity == null || boundarySimilarity < DEPOSIT_TIED_SIMILARITY_MIN) return limited;
+
+  const tiedCount = candidates.filter((candidate) => candidate.similarity === boundarySimilarity).length;
+  if (tiedCount < 3) return limited;
+
+  // 제한선에 걸린 일치율이 3건 이상 동율이면 같은 점수의 주문을 숨기지 않습니다.
+  return candidates.filter((candidate, index) => index < limit || candidate.similarity === boundarySimilarity);
+}
+
+function getDepositRecommendations(
+  deposit: DepositWithAccount,
+  orders: PendingDepositOrder[],
+  limit: number,
+) {
   const counterparty = deposit.counterparty.trim();
 
   // 입금자명 후보는 운영자가 바로 판단할 수 있게 정확/유사 일치율이 높은 순서로 제한합니다.
-  const titleMatches = pendingOrders
+  const titleMatches = orders
     .map((order) => ({
       order,
       reason: "title" as const,
       similarity: similarityPercent(counterparty, order.title?.trim() ?? ""),
     }))
     .filter((candidate) => candidate.similarity >= DEPOSIT_TITLE_SIMILARITY_MIN)
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, 3);
+    .sort((a, b) => b.similarity - a.similarity);
 
-  if (titleMatches.length > 0) return titleMatches;
+  if (titleMatches.length > 0) return includeTiedTitleRecommendations(titleMatches, limit);
 
   const monthDay = readCounterpartyDatePrefix(counterparty);
   if (!monthDay) return [];
 
-  return pendingOrders
+  return orders
     .filter((order) => purchaseDateToMonthDay(order.purchase_date) === monthDay)
-    .slice(0, 3)
+    .slice(0, limit)
     .map((order) => ({
       order,
       reason: "date" as const,
       similarity: null,
     }));
+}
+
+function getDepositRecommendationSections(deposit: DepositWithAccount, orders: PendingDepositOrder[]): DepositRecommendationSection[] {
+  // 입금 한 건에서 바로 처리할 수 있도록 미완료와 이미 완료된 주문 후보를 함께 보여줍니다.
+  const pendingOrders = orders.filter((order) => !order.is_processed);
+  const completedOrders = orders.filter((order) => order.is_processed);
+
+  return [
+    {
+      status: "pending",
+      title: "미완료 주문",
+      emptyMessage: "추천할 미완료 주문이 없습니다.",
+      recommendations: getDepositRecommendations(deposit, pendingOrders, PENDING_DEPOSIT_RECOMMENDATION_LIMIT),
+    },
+    {
+      status: "completed",
+      title: "완료 주문",
+      emptyMessage: "추천할 완료 주문이 없습니다.",
+      recommendations: getDepositRecommendations(deposit, completedOrders, COMPLETED_DEPOSIT_RECOMMENDATION_LIMIT),
+    },
+  ];
 }
 
 function AutoRecommendMetaChips({
@@ -435,7 +504,7 @@ export function CrawlOrdersPage() {
   const [platformAccounts, setPlatformAccounts] = useState<PlatformAccountRow[]>([]);
   const [bankAccounts, setBankAccounts] = useState<DepositBankAccountSummary[]>([]);
   const [deposits, setDeposits] = useState<DepositWithAccount[]>([]);
-  const [pendingDepositOrders, setPendingDepositOrders] = useState<PendingDepositOrder[]>([]);
+  const [depositRecommendationOrders, setDepositRecommendationOrders] = useState<PendingDepositOrder[]>([]);
   const [expandedDepositId, setExpandedDepositId] = useState<number | null>(null);
   const [completingDepositId, setCompletingDepositId] = useState<number | null>(null);
   const [deletingDepositId, setDeletingDepositId] = useState<number | null>(null);
@@ -535,10 +604,9 @@ export function CrawlOrdersPage() {
       supabase
         .from("orders")
         .select(
-          "id, title, product_name, purchase_date, purchase_price_krw, is_item_delivered, platform_id, buyer_account_id",
+          "id, title, product_name, purchase_date, purchase_price_krw, deposit_date, deposit_amount_krw, is_processed, is_item_delivered, platform_id, buyer_account_id",
         )
         .eq("user_id", user.id)
-        .eq("is_processed", false)
         .order("purchase_date", { ascending: true }),
     ]);
 
@@ -561,7 +629,7 @@ export function CrawlOrdersPage() {
     setPlatformAccounts(platformAccountsResult.data ?? []);
     setBankAccounts((bankAccountsResult.data ?? []) as DepositBankAccountSummary[]);
     setDeposits((depositsResult.data ?? []) as DepositWithAccount[]);
-    setPendingDepositOrders((pendingOrdersResult.data ?? []) as PendingDepositOrder[]);
+    setDepositRecommendationOrders((pendingOrdersResult.data ?? []) as PendingDepositOrder[]);
     setPhase("ready");
   }, [router, selectedId]);
 
@@ -814,7 +882,40 @@ export function CrawlOrdersPage() {
       }
 
       setDeposits((prev) => prev.filter((item) => item.id !== deposit.id));
-      setPendingDepositOrders((prev) => prev.filter((item) => item.id !== order.id));
+      setDepositRecommendationOrders((prev) => prev.filter((item) => item.id !== order.id));
+      setExpandedDepositId(null);
+    } finally {
+      setCompletingDepositId(null);
+    }
+  };
+
+  const mapCompletedDepositRecommendation = async (deposit: DepositWithAccount, order: PendingDepositOrder) => {
+    const confirmed = window.confirm(
+      `"${displayPendingOrderTitle(order)}" 완료 주문으로 확인하고 이 입금 내역을 매핑완료로 바꿀까요?`,
+    );
+    if (!confirmed) return;
+
+    setCompletingDepositId(deposit.id);
+    try {
+      const supabase = createClient();
+      // 이미 완료된 주문은 입금 정보를 덮어쓰지 않고 입금 내역만 처리 완료로 숨깁니다.
+      const { error, count } = await supabase
+        .from("bank_account_deposit")
+        .update({ bank_account_deposit_status: 1 }, { count: "exact" })
+        .eq("id", deposit.id)
+        .eq("bank_account_deposit_status", 0);
+
+      if (error) {
+        window.alert(error.message);
+        return;
+      }
+      if (count === 0) {
+        window.alert("이미 처리된 입금 내역입니다.");
+        await loadPage({ silent: true });
+        return;
+      }
+
+      setDeposits((prev) => prev.filter((item) => item.id !== deposit.id));
       setExpandedDepositId(null);
     } finally {
       setCompletingDepositId(null);
@@ -923,80 +1024,127 @@ export function CrawlOrdersPage() {
   const activePageDescription =
     activeAutoRecommendPage === 0
       ? "구매장부에 등록되지 않은 구매 주문 건을 표시합니다"
-      : "입금완료 처리되지 않은 미완료 주문건을 표시합니다";
+      : "입금 내역과 일치할 가능성이 높은 주문건을 표시합니다";
   const canGoPrev = activeAutoRecommendPage > 0;
   const canGoNext = activeAutoRecommendPage < 1;
   const renderDepositRecommendationList = (deposit: DepositWithAccount) => {
-    const recommendations = getDepositRecommendations(deposit, pendingDepositOrders);
+    const recommendationSections = getDepositRecommendationSections(deposit, depositRecommendationOrders);
+    const totalRecommendationCount = recommendationSections.reduce(
+      (sum, section) => sum + section.recommendations.length,
+      0,
+    );
 
-    if (recommendations.length === 0) {
+    if (totalRecommendationCount === 0) {
       return (
         <p className="rounded-xl bg-slate-50 px-3 py-4 text-center text-sm text-muted-foreground dark:bg-slate-900/50">
-          추천할 미완료 주문이 없습니다.
+          추천할 주문이 없습니다.
         </p>
       );
     }
 
     return (
-      <div className="flex flex-col gap-2">
-        {recommendations.map(({ order, reason, similarity }) => {
-          // 후보 한 줄에 어떤 플랫폼/계정으로 구매했는지 한눈에 보여주려고 마스터에서 색상을 찾아 옵니다.
-          const platform = order.platform_id
-            ? master?.platforms.find((item) => item.id === order.platform_id) ?? null
-            : null;
-          const buyerAccount = order.buyer_account_id
-            ? master?.buyerAccounts.find((item) => item.id === order.buyer_account_id) ?? null
-            : null;
-          const platformColor = normalizeHexColor(platform?.color ?? "", DEFAULT_PLATFORM_COLOR);
-          const buyerAccountColor = normalizeHexColor(buyerAccount?.color ?? "", DEFAULT_BUYER_ACCOUNT_COLOR);
-          return (
-            <div
-              key={order.id}
-              className="flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-xs sm:flex-row sm:items-center sm:justify-between dark:border-slate-700 dark:bg-slate-900/60"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <p className="min-w-0 truncate text-sm font-semibold">{displayPendingOrderTitle(order)}</p>
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-                    {reason === "title" ? `일치율 ${similarity ?? 0}%` : "구매일 일치"}
-                  </span>
-                </div>
-                <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
-                  <span
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"
-                    title={platform?.name ?? "플랫폼 미지정"}
-                    aria-label={`플랫폼 ${platform?.name ?? "미지정"}`}
-                  >
-                    <Building2 className="h-3.5 w-3.5" style={{ color: platformColor }} aria-hidden />
-                  </span>
-                  <span
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800"
-                    title={buyerAccount?.label ?? "구매계정 미지정"}
-                    aria-label={`구매계정 ${buyerAccount?.label ?? "미지정"}`}
-                  >
-                    <UserCircle className="h-3.5 w-3.5" style={{ color: buyerAccountColor }} aria-hidden />
-                  </span>
-                  <p className="min-w-0 flex-1 truncate text-xs text-slate-700 dark:text-slate-300">
-                    {order.product_name || "상품명 미정"}
-                  </p>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  구매일 {formatDepositDate(order.purchase_date)} · 구매금액 {formatKrw(order.purchase_price_krw)}
-                </p>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                className="w-full sm:w-auto"
-                disabled={completingDepositId === deposit.id}
-                onClick={() => void completeDepositRecommendation(deposit, order)}
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
-                완료처리
-              </Button>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {recommendationSections.map((section) => (
+          <div key={section.status} className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">{section.title}</p>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                {section.recommendations.length}
+              </span>
             </div>
-          );
-        })}
+            {section.recommendations.length === 0 ? (
+              <p className="rounded-xl bg-slate-50 px-3 py-3 text-center text-xs text-muted-foreground dark:bg-slate-900/50">
+                {section.emptyMessage}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {section.recommendations.map(({ order, reason, similarity }) => {
+                  // 후보 한 줄에 어떤 플랫폼/계정으로 구매했는지 한눈에 보여주려고 마스터에서 색상을 찾아 옵니다.
+                  const platform = order.platform_id
+                    ? master?.platforms.find((item) => item.id === order.platform_id) ?? null
+                    : null;
+                  const buyerAccount = order.buyer_account_id
+                    ? master?.buyerAccounts.find((item) => item.id === order.buyer_account_id) ?? null
+                    : null;
+                  const platformColor = normalizeHexColor(platform?.color ?? "", DEFAULT_PLATFORM_COLOR);
+                  const buyerAccountColor = normalizeHexColor(buyerAccount?.color ?? "", DEFAULT_BUYER_ACCOUNT_COLOR);
+                  const isAccountOwnerMatched = isDepositBuyerAccountMatched(deposit, buyerAccount);
+                  return (
+                    <div
+                      key={order.id}
+                      className={cn(
+                        "flex min-w-0 flex-col gap-3 rounded-xl border p-3 shadow-xs sm:flex-row sm:items-center sm:justify-between",
+                        isAccountOwnerMatched
+                          ? "border-amber-200 bg-amber-50/80 ring-1 ring-amber-200 dark:border-amber-500/40 dark:bg-amber-500/10 dark:ring-amber-500/25"
+                          : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/60",
+                      )}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <p className="min-w-0 truncate text-sm font-semibold">{displayPendingOrderTitle(order)}</p>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                            {reason === "title" ? `일치율 ${similarity ?? 0}%` : "구매일 일치"}
+                          </span>
+                          {isAccountOwnerMatched ? (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-200 dark:ring-amber-500/30">
+                              계좌주 일치
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+                          <span
+                            className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium dark:border-slate-700 dark:bg-slate-800"
+                            title={platform?.name ?? "플랫폼 미지정"}
+                            aria-label={`플랫폼 ${platform?.name ?? "미지정"}`}
+                          >
+                            <Building2 className="h-3.5 w-3.5" style={{ color: platformColor }} aria-hidden />
+                            <span className="truncate" style={{ color: platformColor }}>{platform?.name ?? "미지정"}</span>
+                          </span>
+                          <span
+                            className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium dark:border-slate-700 dark:bg-slate-800"
+                            title={buyerAccount?.label ?? "구매계정 미지정"}
+                            aria-label={`구매계정 ${buyerAccount?.label ?? "미지정"}`}
+                          >
+                            <UserCircle className="h-3.5 w-3.5" style={{ color: buyerAccountColor }} aria-hidden />
+                            <span className="truncate" style={{ color: buyerAccountColor }}>{buyerAccount?.label ?? "미지정"}</span>
+                          </span>
+                          <p className="min-w-0 flex-1 basis-full truncate text-xs text-slate-700 sm:basis-auto dark:text-slate-300">
+                            {order.product_name || "상품명 미정"}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          구매일 {formatDepositDate(order.purchase_date)} · 구매금액 {formatKrw(order.purchase_price_krw)}
+                        </p>
+                        {order.is_processed ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            기존 입금일 {order.deposit_date ? formatDepositDate(order.deposit_date) : "-"} · 기존 입금금액 {formatKrw(order.deposit_amount_krw)}
+                          </p>
+                        ) : null}
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={order.is_processed ? "outline" : "default"}
+                        className="w-full sm:w-auto"
+                        disabled={completingDepositId === deposit.id}
+                        onClick={() => {
+                          if (order.is_processed) {
+                            void mapCompletedDepositRecommendation(deposit, order);
+                            return;
+                          }
+                          void completeDepositRecommendation(deposit, order);
+                        }}
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                        {order.is_processed ? "매핑완료" : "완료처리"}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     );
   };
