@@ -62,19 +62,14 @@ type DepositRecommendationSection = {
   emptyMessage: string;
   recommendations: DepositRecommendation[];
 };
-type CapacitorWindow = Window & typeof globalThis & {
-  Capacitor?: {
-    isNativePlatform?: () => boolean;
-  };
-};
 
 type PagePhase = "loading" | "ready" | "error";
 
 const crawlListHref = "/menu-4";
-// 웹(Vercel) 빌드는 같은 도메인의 서버 프록시를 사용하고, 서버 라우트가 없는 APK 빌드만
-// NEXT_PUBLIC_CRAWL_API_BASE_URL로 지정한 외부 크롤링 서버를 직접 호출합니다.
-const crawlProxyPath = "/api/crawl/coupang";
-const apkCrawlApiBaseUrl = process.env.NEXT_PUBLIC_CRAWL_API_BASE_URL?.trim() || crawlProxyPath;
+// 웹과 앱 모두 CORS가 허용된 같은 HTTPS 크롤링 API를 직접 호출합니다.
+const crawlApiUrl =
+  process.env.NEXT_PUBLIC_CRAWL_API_BASE_URL?.trim() ||
+  "https://review-manager-api.jinitlab.com/crawl/coupang";
 const DEFAULT_PLATFORM_COLOR = "#64748b";
 const DEFAULT_PAYMENT_METHOD_COLOR = "#7c3aed";
 const DEFAULT_BUYER_ACCOUNT_COLOR = "#64748b";
@@ -84,17 +79,6 @@ const PENDING_DEPOSIT_RECOMMENDATION_LIMIT = 3;
 const COMPLETED_DEPOSIT_RECOMMENDATION_LIMIT = 2;
 
 const krwFormatter = new Intl.NumberFormat("ko-KR");
-
-function isNativeCapacitorRuntime() {
-  if (typeof window === "undefined") return false;
-  return (window as CapacitorWindow).Capacitor?.isNativePlatform?.() === true;
-}
-
-function getCrawlApiBaseUrl() {
-  // 웹 번들에 APK용 환경변수가 섞여도 브라우저에서는 CORS를 피하려고 항상 프록시를 사용합니다.
-  if (process.env.NEXT_PUBLIC_BUILD_TARGET === "apk" && isNativeCapacitorRuntime()) return apkCrawlApiBaseUrl;
-  return crawlProxyPath;
-}
 
 function readValue(row: CrawlOrderRow, keys: string[]) {
   for (const key of keys) {
@@ -712,12 +696,12 @@ export function CrawlOrdersPage() {
     };
 
     const requests = platformAccounts.map((account) => {
-      // 절대 URL(`http://...`)과 상대 경로(`/api/...`) 둘 다 받을 수 있게 직접 쿼리스트링을 붙입니다.
+      // 계정별 크롤링 범위를 쿼리스트링에 담아 HTTPS API로 직접 요청합니다.
       const params = new URLSearchParams({
         platform_account_id: account.id,
         max_pages: "5",
       });
-      const requestUrl = `${getCrawlApiBaseUrl()}?${params.toString()}`;
+      const requestUrl = `${crawlApiUrl}?${params.toString()}`;
 
       // 응답 본문은 사용하지 않고, HTTP 성공 범위(2xx)로 계정별 요청 결과를 표시합니다.
       return fetch(requestUrl, {
@@ -725,8 +709,6 @@ export function CrawlOrdersPage() {
         cache: "no-store",
       }).then((response) => {
         const accountName = displayPlatformAccountName(account);
-        const upstreamStatus = response.headers.get("X-Crawl-Upstream-Status") ?? String(response.status);
-        const upstreamStatusText = response.headers.get("X-Crawl-Upstream-Status-Text") ?? response.statusText;
 
         console.info("[crawl] response", {
           accountId: account.id,
@@ -734,8 +716,6 @@ export function CrawlOrdersPage() {
           ok: response.ok,
           status: response.status,
           statusText: response.statusText,
-          upstreamStatus,
-          upstreamStatusText,
           url: response.url,
         });
 
@@ -744,7 +724,9 @@ export function CrawlOrdersPage() {
           return;
         }
 
-        const statusLabel = upstreamStatusText ? `${upstreamStatus} ${upstreamStatusText}` : upstreamStatus;
+        const statusLabel = response.statusText
+          ? `${response.status} ${response.statusText}`
+          : String(response.status);
         updateAccountNotice(account, `${accountName}계정 크롤링 실패 (HTTP ${statusLabel})`);
       }).catch((error: unknown) => {
         const accountName = displayPlatformAccountName(account);
