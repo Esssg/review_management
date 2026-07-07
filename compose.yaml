@@ -1,0 +1,14 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # 브라우저용 환경변수는 실행 시점이 아니라 이미지 빌드 시 전달해야 합니다.
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?NEXT_PUBLIC_SUPABASE_URL 값을 .env에 입력하세요}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?NEXT_PUBLIC_SUPABASE_ANON_KEY 값을 .env에 입력하세요}
+        NEXT_PUBLIC_CRAWL_API_BASE_URL: ${NEXT_PUBLIC_CRAWL_API_BASE_URL:-}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    init: true
+    restart: unless-stopped

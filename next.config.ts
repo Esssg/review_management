@@ -12,9 +12,15 @@ const extraAllowedDevOrigins =
 
 // Capacitor APK 빌드만 정적 export(`out/`)가 필요하므로 BUILD_TARGET으로 빌드 모드를 분리합니다.
 const isApkBuild = process.env.BUILD_TARGET === "apk";
+// Docker 빌드는 실행에 필요한 파일만 담은 경량 서버 이미지를 만들기 위해 standalone 출력을 사용합니다.
+const isDockerBuild = process.env.BUILD_TARGET === "docker";
 
 const nextConfig: NextConfig = {
-  ...(isApkBuild ? { output: "export" as const } : {}),
+  ...(isApkBuild
+    ? { output: "export" as const }
+    : isDockerBuild
+      ? { output: "standalone" as const }
+      : {}),
   allowedDevOrigins: [
     "192.168.*.*",
     "10.*.*.*",

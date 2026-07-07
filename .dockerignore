@@ -1,0 +1,16 @@
+# 로컬 의존성·빌드 결과·비밀값은 이미지 빌드 컨텍스트에 포함하지 않습니다.
+node_modules
+.next
+out
+.git
+.env
+.env.*
+!.env.example
+
+# 웹 이미지 생성에 필요하지 않은 네이티브·DB·로컬 작업 파일입니다.
+android
+supabase
+scripts
+docs
+*.log
+*.tsbuildinfo

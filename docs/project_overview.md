@@ -39,6 +39,38 @@
 - `npm run cap:open:android` / `cap:open:ios`: 네이티브 IDE 열기
 - `npm run cap:apk:debug`: `next build` → `cap sync android` → 디버그 APK 빌드. 산출물: `android/app/build/outputs/apk/debug/app-debug.apk`
 - `npm run cap:apk:release`: `next build` → `cap sync android` → 서명된 릴리스 APK 빌드. `android/keystore.properties`가 있어야 자동 서명됨. 산출물: `android/app/build/outputs/apk/release/app-release.apk`
+- `docker compose up --build -d`: Docker 전용 standalone 웹 이미지를 빌드하고 백그라운드에서 실행
+
+## Docker Compose로 웹 실행
+
+Docker는 전체 Next.js 기능을 지원하는 프로덕션 서버 모드로 실행합니다. APK용 정적 export와는 별도이며, `BUILD_TARGET=docker`일 때만 `output: "standalone"`을 사용해 실행에 필요한 파일만 최종 이미지에 포함합니다.
+
+1. 환경변수 파일을 만들고 Supabase 값을 입력합니다.
+
+```bash
+cp .env.example .env
+```
+
+필수 값은 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`입니다. 외부 접속 포트는 `APP_PORT`로 바꿀 수 있으며 기본값은 `3000`입니다.
+
+2. 이미지를 빌드하고 컨테이너를 실행합니다.
+
+```bash
+docker compose up --build -d
+```
+
+3. 브라우저에서 `http://localhost:3000`으로 접속합니다. `APP_PORT`를 바꿨다면 해당 포트로 접속합니다.
+
+```bash
+# 실행 상태와 로그 확인
+docker compose ps
+docker compose logs -f web
+
+# 종료 및 컨테이너 제거
+docker compose down
+```
+
+`NEXT_PUBLIC_*` 환경변수는 `next build` 시 브라우저 번들에 고정됩니다. 값을 변경한 경우 `docker compose up --build -d`로 이미지를 다시 빌드해야 합니다. 실제 `.env` 파일은 Git과 Docker 빌드 컨텍스트에서 제외됩니다.
 
 ## 내장형 APK 빌드 요약
 
