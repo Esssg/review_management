@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -55,27 +55,82 @@ export type OrderWithRelations = OrderRow & {
   purchase_info_templates?: PurchaseTemplateRow | null;
 };
 
+const krwCurrencyFormatter = new Intl.NumberFormat("ko-KR", {
+  style: "currency",
+  currency: "KRW",
+  maximumFractionDigits: 0,
+});
+
+const koreaDateFormatter = new Intl.DateTimeFormat("ko-KR", {
+  dateStyle: "medium",
+  timeZone: "Asia/Seoul",
+});
+
 function formatKrw(amount: number | string | null) {
   if (amount === null || amount === undefined) return "—";
   const n = Number(amount);
   if (Number.isNaN(n)) return amount;
-  return new Intl.NumberFormat("ko-KR", {
-    style: "currency",
-    currency: "KRW",
-    maximumFractionDigits: 0,
-  }).format(n);
+  return krwCurrencyFormatter.format(n);
 }
 
 function formatDate(isoDate: string | null) {
   if (!isoDate) return "—";
-  return new Intl.DateTimeFormat("ko-KR", {
-    dateStyle: "medium",
-    timeZone: "Asia/Seoul",
-  }).format(new Date(isoDate + "T00:00:00"));
+  return koreaDateFormatter.format(new Date(isoDate + "T00:00:00"));
 }
 
-const ORDER_LIST_SELECT =
-  "*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)" as const;
+export const ORDER_LIST_SELECT = `
+  id,
+  user_id,
+  product_name,
+  is_processed,
+  purchase_date,
+  deposit_date,
+  purchase_price_krw,
+  deposit_amount_krw,
+  profit_krw,
+  is_item_delivered,
+  deposit_memo,
+  notes,
+  product_url,
+  scheduled_purchase_at,
+  order_number,
+  screenshot_storage_path,
+  order_status,
+  created_at,
+  updated_at,
+  title,
+  platform_id,
+  payment_method_id,
+  buyer_account_id,
+  review_photo_count,
+  review_char_count,
+  purchase_info_template_id,
+  ai_review,
+  ai_review_user_prompt,
+  platforms(id, name, color),
+  payment_methods(id, name, color),
+  buyer_accounts(id, label, color),
+  purchase_info_templates(
+    id,
+    user_id,
+    title,
+    buyer_name,
+    recipient_name,
+    login_id,
+    phone,
+    address,
+    bank_account_number,
+    account_holder,
+    created_at,
+    updated_at
+  )
+` as const;
+
+export type OrderListCounts = {
+  total: number | null;
+  pending: number | null;
+  completed: number | null;
+};
 
 function parseDepositAmountInput(raw: string): number | null {
   const t = raw.trim().replace(/,/g, "");
@@ -1228,7 +1283,7 @@ function FilterPanel({
   );
 }
 
-function OrderCardItem({
+const OrderCardItem = memo(function OrderCardItem({
   row,
   isDeleting,
   isSwiped,
@@ -1350,12 +1405,176 @@ function OrderCardItem({
       ) : null}
     </div>
   );
+});
+
+type SearchableOrder = {
+  order: OrderWithRelations;
+  searchText: string;
+};
+
+function buildOrderSearchText(order: OrderWithRelations) {
+  return `${order.title ?? ""} ${order.product_name} ${order.notes ?? ""}`.trim().toLowerCase();
 }
 
-export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
+function prepareSearchableOrders(orders: OrderWithRelations[]) {
+  return orders.map((order) => ({ order, searchText: buildOrderSearchText(order) }));
+}
+
+function filterSearchableOrders(
+  sourceOrders: SearchableOrder[],
+  search: string,
+  fromDate: string,
+  toDate: string,
+) {
+  const query = search.trim().toLowerCase();
+  return sourceOrders
+    .filter(({ order, searchText }) => {
+      if (fromDate && order.purchase_date < fromDate) return false;
+      if (toDate && order.purchase_date > toDate) return false;
+      return query ? searchText.includes(query) : true;
+    })
+    .map(({ order }) => order);
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+
+  return matches;
+}
+
+function findVirtualIndex(offsets: number[], value: number) {
+  let low = 0;
+  let high = Math.max(0, offsets.length - 1);
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    if ((offsets[mid] ?? 0) <= value) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return Math.max(0, low - 2);
+}
+
+function useVirtualRange<T>(
+  items: T[],
+  estimateSize: (item: T) => number,
+  overscan = 6,
+) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
+
+  const offsets = useMemo(() => {
+    const next = [0];
+    for (const item of items) {
+      next.push((next.at(-1) ?? 0) + Math.max(1, estimateSize(item)));
+    }
+    return next;
+  }, [estimateSize, items]);
+
+  const totalSize = offsets.at(-1) ?? 0;
+
+  const updateViewport = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const next = { scrollTop: el.scrollTop, height: el.clientHeight };
+    setViewport((current) => (
+      current.scrollTop === next.scrollTop && current.height === next.height ? current : next
+    ));
+  }, []);
+
+  useLayoutEffect(() => {
+    updateViewport();
+  }, [items.length, totalSize, updateViewport]);
+
+  const range = useMemo(() => {
+    if (items.length === 0) return { start: 0, end: 0 };
+    if (viewport.height <= 0) return { start: 0, end: Math.min(items.length, 24) };
+
+    const start = Math.max(0, findVirtualIndex(offsets, viewport.scrollTop) - overscan);
+    const end = Math.min(
+      items.length,
+      findVirtualIndex(offsets, viewport.scrollTop + viewport.height) + overscan + 2,
+    );
+    return { start, end };
+  }, [items.length, offsets, overscan, viewport.height, viewport.scrollTop]);
+
+  const virtualItems = useMemo(
+    () => items.slice(range.start, range.end).map((item, index) => ({ item, index: range.start + index })),
+    [items, range.end, range.start],
+  );
+
+  return {
+    scrollRef,
+    onScroll: updateViewport,
+    virtualItems,
+    topPadding: offsets[range.start] ?? 0,
+    bottomPadding: Math.max(0, totalSize - (offsets[range.end] ?? totalSize)),
+  };
+}
+
+function displayCount(value: number | null) {
+  return value === null ? "…" : value.toLocaleString("ko-KR");
+}
+
+function OrderListLoading({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col gap-2 py-1" aria-label={`${label} 불러오는 중`}>
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={index} className="h-[4.75rem] animate-pulse rounded-xl bg-slate-100 dark:bg-slate-700/60" />
+      ))}
+    </div>
+  );
+}
+
+function TableLoadingRow({ colSpan }: { colSpan: number }) {
+  return (
+    <>
+      {Array.from({ length: 6 }).map((_, index) => (
+        <TableRow key={index}>
+          <TableCell colSpan={colSpan} className="px-3 py-2">
+            <div className="h-10 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-700/60" />
+          </TableCell>
+        </TableRow>
+      ))}
+    </>
+  );
+}
+
+export function OrdersTable({
+  pendingOrders,
+  completedOrders,
+  counts,
+  isCountsLoading,
+  isPendingLoading,
+  isCompletedLoading,
+  onLoadCompleted,
+  onOrderPatched,
+  onOrderDeleted,
+}: {
+  pendingOrders: OrderWithRelations[];
+  completedOrders: OrderWithRelations[] | null;
+  counts: OrderListCounts;
+  isCountsLoading: boolean;
+  isPendingLoading: boolean;
+  isCompletedLoading: boolean;
+  onLoadCompleted: () => Promise<void>;
+  onOrderPatched: (previous: OrderWithRelations, updated: OrderWithRelations) => void;
+  onOrderDeleted: (deleted: OrderWithRelations) => void;
+}) {
   const router = useRouter();
-  const supabase = createClient();
-  const [localOrders, setLocalOrders] = useState(orders);
+  const supabase = useMemo(() => createClient(), []);
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
   const [pendingSearch, setPendingSearch] = useState("");
   const [pendingFromDate, setPendingFromDate] = useState("");
   const [pendingToDate, setPendingToDate] = useState("");
@@ -1366,13 +1585,35 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
   const [swipedRowId, setSwipedRowId] = useState<string | null>(null);
   const [showPendingFilter, setShowPendingFilter] = useState(false);
   const [showCompletedFilter, setShowCompletedFilter] = useState(false);
+  const [showCompletedOrders, setShowCompletedOrders] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [pendingCompleteMenuId, setPendingCompleteMenuId] = useState<string | null>(null);
   const [completedActionsMenuId, setCompletedActionsMenuId] = useState<string | null>(null);
 
-  const patchLocalOrder = useCallback((updated: OrderWithRelations) => {
-    setLocalOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
-  }, []);
+  const deferredPendingSearch = useDeferredValue(pendingSearch);
+  const deferredCompletedSearch = useDeferredValue(completedSearch);
+  const completedList = useMemo(() => completedOrders ?? [], [completedOrders]);
+
+  const pendingSearchableOrders = useMemo(() => prepareSearchableOrders(pendingOrders), [pendingOrders]);
+  const completedSearchableOrders = useMemo(() => prepareSearchableOrders(completedList), [completedList]);
+
+  const visiblePendingOrders = useMemo(
+    () => filterSearchableOrders(pendingSearchableOrders, deferredPendingSearch, pendingFromDate, pendingToDate),
+    [deferredPendingSearch, pendingFromDate, pendingSearchableOrders, pendingToDate],
+  );
+
+  const visibleCompletedOrders = useMemo(
+    () => filterSearchableOrders(completedSearchableOrders, deferredCompletedSearch, completedFromDate, completedToDate),
+    [completedFromDate, completedSearchableOrders, completedToDate, deferredCompletedSearch],
+  );
+
+  const totalCount = counts.total;
+  const pendingCount = counts.pending;
+  const completedCount = counts.completed;
+  const completedPct =
+    totalCount !== null && completedCount !== null && totalCount > 0
+      ? Math.round((completedCount / totalCount) * 100)
+      : null;
 
   const toggleExpanded = (id: string) => {
     setPendingCompleteMenuId(null);
@@ -1384,68 +1625,27 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
     router.push(`/orders/detail?id=${encodeURIComponent(id)}`);
   };
 
-  const pendingCount = useMemo(
-    () => localOrders.filter((o) => !o.is_processed).length,
-    [localOrders],
-  );
-  const completedCount = localOrders.length - pendingCount;
-  const completedPct =
-    localOrders.length > 0 ? Math.round((completedCount / localOrders.length) * 100) : 0;
-
-  useEffect(() => {
-    setLocalOrders(orders);
-  }, [orders]);
-
-  const filterOrders = (
-    sourceOrders: OrderWithRelations[],
-    search: string,
-    fromDate: string,
-    toDate: string,
-  ) => {
-    const query = search.trim().toLowerCase();
-    return sourceOrders
-      .filter((o) => {
-        if (fromDate && o.purchase_date < fromDate) return false;
-        if (toDate && o.purchase_date > toDate) return false;
-        if (!query) return true;
-        return `${o.title ?? ""} ${o.product_name} ${o.notes ?? ""}`.toLowerCase().includes(query);
-      })
-      .sort((a, b) => {
-        const d = b.purchase_date.localeCompare(a.purchase_date);
-        return d !== 0 ? d : b.created_at.localeCompare(a.created_at);
-      });
-  };
-
-  const pendingOrders = useMemo(
-    () =>
-      filterOrders(
-        localOrders.filter((o) => !o.is_processed),
-        pendingSearch,
-        pendingFromDate,
-        pendingToDate,
-      ),
-    [localOrders, pendingSearch, pendingFromDate, pendingToDate],
+  const handlePatched = useCallback(
+    (previous: OrderWithRelations, updated: OrderWithRelations) => {
+      setPendingCompleteMenuId(null);
+      setCompletedActionsMenuId(null);
+      setExpandedOrderId((prev) => (prev === previous.id && previous.is_processed !== updated.is_processed ? null : prev));
+      onOrderPatched(previous, updated);
+    },
+    [onOrderPatched],
   );
 
-  const completedOrders = useMemo(
-    () =>
-      filterOrders(
-        localOrders.filter((o) => o.is_processed),
-        completedSearch,
-        completedFromDate,
-        completedToDate,
-      ),
-    [localOrders, completedSearch, completedFromDate, completedToDate],
-  );
-
-  const handleDelete = async (row: OrderRow) => {
+  const handleDelete = async (row: OrderWithRelations) => {
     const confirmed = window.confirm(`"${row.product_name}" 주문을 삭제할까요?`);
     if (!confirmed) return;
     setDeletingId(row.id);
     try {
       const { error } = await supabase.from("orders").delete().eq("id", row.id);
-      if (error) { window.alert(`삭제 중 오류: ${error.message}`); return; }
-      setLocalOrders((prev) => prev.filter((o) => o.id !== row.id));
+      if (error) {
+        window.alert(`삭제 중 오류: ${error.message}`);
+        return;
+      }
+      onOrderDeleted(row);
       setSwipedRowId((prev) => (prev === row.id ? null : prev));
       setExpandedOrderId((prev) => (prev === row.id ? null : prev));
     } finally {
@@ -1453,13 +1653,30 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
     }
   };
 
-  if (localOrders.length === 0) {
-    return (
-      <p className="text-muted-foreground text-sm">
-        등록된 구매 건이 없습니다. 주문추가 버튼으로 첫 주문을 등록해보세요.
-      </p>
-    );
-  }
+  const handleToggleCompletedOrders = () => {
+    const next = !showCompletedOrders;
+    setShowCompletedOrders(next);
+    if (!next) {
+      setShowCompletedFilter(false);
+      return;
+    }
+    void onLoadCompleted();
+  };
+
+  const mobilePendingSize = useCallback(
+    (row: OrderWithRelations) => (expandedOrderId === row.id ? 430 : 92),
+    [expandedOrderId],
+  );
+  const mobileCompletedSize = useCallback(
+    (row: OrderWithRelations) => (expandedOrderId === row.id ? 250 : 92),
+    [expandedOrderId],
+  );
+  const tableRowSize = useCallback(() => 64, []);
+
+  const pendingMobileVirtual = useVirtualRange(visiblePendingOrders, mobilePendingSize);
+  const pendingTableVirtual = useVirtualRange(visiblePendingOrders, tableRowSize);
+  const completedMobileVirtual = useVirtualRange(visibleCompletedOrders, mobileCompletedSize);
+  const completedTableVirtual = useVirtualRange(visibleCompletedOrders, tableRowSize);
 
   return (
     <div className="flex min-h-0 flex-col gap-5">
@@ -1474,7 +1691,9 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
             <p className="text-[10px] leading-tight text-muted-foreground break-keep sm:text-xs">
               전체 주문
             </p>
-            <p className="text-lg font-bold tabular-nums sm:text-2xl">{localOrders.length}</p>
+            <p className="text-lg font-bold tabular-nums sm:text-2xl" aria-busy={isCountsLoading}>
+              {displayCount(totalCount)}
+            </p>
           </div>
         </div>
 
@@ -1488,7 +1707,7 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
               입금 미완료
             </p>
             <p className="text-lg font-bold tabular-nums text-amber-800 sm:text-2xl dark:text-amber-200">
-              {pendingCount}
+              {displayCount(pendingCount)}
             </p>
           </div>
         </div>
@@ -1504,19 +1723,21 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
                 입금 완료
               </p>
               <p className="text-lg font-bold tabular-nums text-emerald-800 sm:text-2xl dark:text-emerald-200">
-                {completedCount}
+                {displayCount(completedCount)}
               </p>
             </div>
           </div>
           <div className="min-w-0 space-y-0.5 pl-[calc(2rem+0.375rem)] sm:space-y-1 sm:pl-0">
             <div className="flex justify-between gap-1 text-[9px] text-emerald-700/70 sm:text-[11px] dark:text-emerald-400/70">
               <span className="truncate">전체 대비</span>
-              <span className="shrink-0 font-semibold tabular-nums">{completedPct}%</span>
+              <span className="shrink-0 font-semibold tabular-nums">
+                {completedPct === null ? "…" : `${completedPct}%`}
+              </span>
             </div>
             <div className="h-1 w-full overflow-hidden rounded-full bg-emerald-200/60 sm:h-1.5 dark:bg-emerald-900/40">
               <div
                 className="h-full rounded-full bg-emerald-500 transition-all duration-500 dark:bg-emerald-400"
-                style={{ width: `${completedPct}%` }}
+                style={{ width: `${completedPct ?? 0}%` }}
               />
             </div>
           </div>
@@ -1531,7 +1752,7 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
               미완료 주문
             </h2>
             <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
-              {pendingOrders.length}
+              {visiblePendingOrders.length.toLocaleString("ko-KR")}
             </span>
           </div>
           <button
@@ -1569,36 +1790,14 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
           </div>
         )}
 
-        {/* 좁은 화면·앱: block 스크롤 박스 + 안쪽 flex (flex 컨테이너에만 max-h 주면 WebView에서 스크롤 높이가 안 잡히는 경우 있음) */}
-        <div className="mt-4 max-h-[22rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y lg:hidden">
-          <div className="flex flex-col gap-2">
-            {pendingOrders.length === 0 ? (
-              <p className="text-muted-foreground text-sm">조건에 맞는 미완료 주문이 없습니다.</p>
-            ) : (
-              pendingOrders.map((row) => (
-                <OrderCardItem
-                  key={row.id}
-                  row={row}
-                  isDeleting={deletingId === row.id}
-                  isSwiped={swipedRowId === row.id}
-                  isExpanded={expandedOrderId === row.id}
-                  onToggleExpand={() => toggleExpanded(row.id)}
-                  onEditOrder={() => goToOrderDetail(row.id)}
-                  onDelete={() => void handleDelete(row)}
-                  onSwipeLeft={() => setSwipedRowId(row.id)}
-                  onSwipeCancel={() => setSwipedRowId(null)}
-                  supabase={supabase}
-                  onPatchOrder={patchLocalOrder}
-                />
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* 넓은 화면: 테이블 + 섹션 내 스크롤 */}
-        <div className="mt-4 hidden overflow-hidden rounded-xl border shadow-xs dark:border-slate-700 lg:block">
-          <div className="max-h-96 overflow-y-auto overflow-x-auto lg:max-h-[560px]">
-            <Table className="min-w-[52rem]">
+        {isDesktop ? (
+          <div className="mt-4 overflow-hidden rounded-xl border shadow-xs dark:border-slate-700">
+            <div
+              ref={pendingTableVirtual.scrollRef}
+              onScroll={pendingTableVirtual.onScroll}
+              className="max-h-96 overflow-y-auto overflow-x-auto lg:max-h-[560px]"
+            >
+              <Table className="min-w-[52rem]">
               <TableHeader className="bg-slate-50/80 dark:bg-slate-700/40">
                 <TableRow>
                   <TableHead className="px-3">주문 정보</TableHead>
@@ -1610,7 +1809,9 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pendingOrders.length === 0 ? (
+                {isPendingLoading ? (
+                  <TableLoadingRow colSpan={6} />
+                ) : visiblePendingOrders.length === 0 ? (
                   <TableRow>
                     <TableCell
                       colSpan={6}
@@ -1620,9 +1821,15 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  pendingOrders.map((row) => (
-                    <TableRow
-                      key={row.id}
+                  <>
+                    {pendingTableVirtual.topPadding > 0 ? (
+                      <TableRow aria-hidden>
+                        <TableCell colSpan={6} className="border-0 p-0" style={{ height: pendingTableVirtual.topPadding }} />
+                      </TableRow>
+                    ) : null}
+                    {pendingTableVirtual.virtualItems.map(({ item: row }) => (
+                      <TableRow
+                        key={row.id}
                       tabIndex={0}
                       role="button"
                       aria-label={`${row.product_name} 주문 상세`}
@@ -1672,45 +1879,97 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
                         <OrderDetailChips row={row} density="table" />
                       </TableCell>
                       <TableCell className="relative whitespace-nowrap px-3 py-2 align-top">
-                        <WebPendingCompleteDropdown
-                          row={row}
-                          isOpen={pendingCompleteMenuId === row.id}
-                          onClose={() => setPendingCompleteMenuId(null)}
+                          <WebPendingCompleteDropdown
+                            row={row}
+                            isOpen={pendingCompleteMenuId === row.id}
+                            onClose={() => setPendingCompleteMenuId(null)}
                           onToggle={() =>
                             setPendingCompleteMenuId((prev) => (prev === row.id ? null : row.id))
                           }
                           supabase={supabase}
-                          onPatched={patchLocalOrder}
+                          onPatched={(updated) => handlePatched(row, updated)}
                         />
                       </TableCell>
                     </TableRow>
-                  ))
+                    ))}
+                    {pendingTableVirtual.bottomPadding > 0 ? (
+                      <TableRow aria-hidden>
+                        <TableCell colSpan={6} className="border-0 p-0" style={{ height: pendingTableVirtual.bottomPadding }} />
+                      </TableRow>
+                    ) : null}
+                  </>
                 )}
               </TableBody>
             </Table>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div
+            ref={pendingMobileVirtual.scrollRef}
+            onScroll={pendingMobileVirtual.onScroll}
+            className="mt-4 max-h-[22rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y"
+          >
+            {isPendingLoading ? (
+              <OrderListLoading label="미완료 주문" />
+            ) : visiblePendingOrders.length === 0 ? (
+              <p className="text-muted-foreground text-sm">조건에 맞는 미완료 주문이 없습니다.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {pendingMobileVirtual.topPadding > 0 ? <div aria-hidden style={{ height: pendingMobileVirtual.topPadding }} /> : null}
+                {pendingMobileVirtual.virtualItems.map(({ item: row }) => (
+                  <OrderCardItem
+                    key={row.id}
+                    row={row}
+                    isDeleting={deletingId === row.id}
+                    isSwiped={swipedRowId === row.id}
+                    isExpanded={expandedOrderId === row.id}
+                    onToggleExpand={() => toggleExpanded(row.id)}
+                    onEditOrder={() => goToOrderDetail(row.id)}
+                    onDelete={() => void handleDelete(row)}
+                    onSwipeLeft={() => setSwipedRowId(row.id)}
+                    onSwipeCancel={() => setSwipedRowId(null)}
+                    supabase={supabase}
+                    onPatchOrder={(updated) => handlePatched(row, updated)}
+                  />
+                ))}
+                {pendingMobileVirtual.bottomPadding > 0 ? <div aria-hidden style={{ height: pendingMobileVirtual.bottomPadding }} /> : null}
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       {/* ── 완료 주문 섹션 ─────────────────────────── */}
       <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
         <div className="flex shrink-0 items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold tracking-tight text-emerald-700 dark:text-emerald-300">
+          <button
+            type="button"
+            onClick={handleToggleCompletedOrders}
+            className="flex min-w-0 items-center gap-2 text-left"
+            aria-expanded={showCompletedOrders}
+          >
+            <ChevronDown
+              className={cn("h-4 w-4 shrink-0 text-emerald-700 transition-transform dark:text-emerald-300", showCompletedOrders && "rotate-180")}
+              aria-hidden
+            />
+            <span className="text-base font-semibold tracking-tight text-emerald-700 dark:text-emerald-300">
               완료 주문
-            </h2>
-            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200">
-              {completedOrders.length}
             </span>
-          </div>
+            <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200">
+              {showCompletedOrders && completedOrders !== null
+                ? visibleCompletedOrders.length.toLocaleString("ko-KR")
+                : displayCount(completedCount)}
+            </span>
+          </button>
           <button
             type="button"
             onClick={() => setShowCompletedFilter((v) => !v)}
+            disabled={!showCompletedOrders}
             className={cn(
               "flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors",
               showCompletedFilter
                 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300",
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:text-slate-300",
             )}
           >
             <Filter className="h-3.5 w-3.5" />
@@ -1718,7 +1977,7 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
           </button>
         </div>
 
-        {showCompletedFilter && (
+        {showCompletedOrders && showCompletedFilter && (
           <div className="mt-3 shrink-0">
             <FilterPanel
               search={completedSearch}
@@ -1738,35 +1997,15 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
           </div>
         )}
 
-        <div className="mt-4 max-h-[22rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y lg:hidden">
-          <div className="flex flex-col gap-2">
-            {completedOrders.length === 0 ? (
-              <p className="text-muted-foreground text-sm">조건에 맞는 완료 주문이 없습니다.</p>
-            ) : (
-              completedOrders.map((row) => (
-                <OrderCardItem
-                  key={row.id}
-                  row={row}
-                  isDeleting={deletingId === row.id}
-                  isSwiped={swipedRowId === row.id}
-                  isExpanded={expandedOrderId === row.id}
-                  onToggleExpand={() => toggleExpanded(row.id)}
-                  onEditOrder={() => goToOrderDetail(row.id)}
-                  onDelete={() => void handleDelete(row)}
-                  onSwipeLeft={() => setSwipedRowId(row.id)}
-                  onSwipeCancel={() => setSwipedRowId(null)}
-                  supabase={supabase}
-                  onPatchOrder={patchLocalOrder}
-                />
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* 넓은 화면: 테이블 + 섹션 내 스크롤 */}
-        <div className="mt-4 hidden overflow-hidden rounded-xl border shadow-xs dark:border-slate-700 lg:block">
-          <div className="max-h-96 overflow-y-auto overflow-x-auto lg:max-h-[560px]">
-            <Table className="min-w-[58rem]">
+        {showCompletedOrders ? (
+          isDesktop ? (
+            <div className="mt-4 overflow-hidden rounded-xl border shadow-xs dark:border-slate-700">
+              <div
+                ref={completedTableVirtual.scrollRef}
+                onScroll={completedTableVirtual.onScroll}
+                className="max-h-96 overflow-y-auto overflow-x-auto lg:max-h-[560px]"
+              >
+                <Table className="min-w-[58rem]">
               <TableHeader className="bg-slate-50/80 dark:bg-slate-700/40">
                 <TableRow>
                   <TableHead className="px-3">주문 정보</TableHead>
@@ -1779,7 +2018,9 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {completedOrders.length === 0 ? (
+                {isCompletedLoading && completedOrders === null ? (
+                  <TableLoadingRow colSpan={7} />
+                ) : visibleCompletedOrders.length === 0 ? (
                   <TableRow>
                     <TableCell
                       colSpan={7}
@@ -1789,9 +2030,15 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  completedOrders.map((row) => (
-                    <TableRow
-                      key={row.id}
+                  <>
+                    {completedTableVirtual.topPadding > 0 ? (
+                      <TableRow aria-hidden>
+                        <TableCell colSpan={7} className="border-0 p-0" style={{ height: completedTableVirtual.topPadding }} />
+                      </TableRow>
+                    ) : null}
+                    {completedTableVirtual.virtualItems.map(({ item: row }) => (
+                      <TableRow
+                        key={row.id}
                       tabIndex={0}
                       role="button"
                       aria-label={`${row.product_name} 주문 상세`}
@@ -1856,16 +2103,57 @@ export function OrdersTable({ orders }: { orders: OrderWithRelations[] }) {
                             goToOrderDetail(row.id);
                           }}
                           supabase={supabase}
-                          onPatched={patchLocalOrder}
+                          onPatched={(updated) => handlePatched(row, updated)}
                         />
                       </TableCell>
                     </TableRow>
-                  ))
+                    ))}
+                    {completedTableVirtual.bottomPadding > 0 ? (
+                      <TableRow aria-hidden>
+                        <TableCell colSpan={7} className="border-0 p-0" style={{ height: completedTableVirtual.bottomPadding }} />
+                      </TableRow>
+                    ) : null}
+                  </>
                 )}
               </TableBody>
             </Table>
-          </div>
-        </div>
+              </div>
+            </div>
+          ) : (
+            <div
+              ref={completedMobileVirtual.scrollRef}
+              onScroll={completedMobileVirtual.onScroll}
+              className="mt-4 max-h-[22rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y"
+            >
+              {isCompletedLoading && completedOrders === null ? (
+                <OrderListLoading label="완료 주문" />
+              ) : visibleCompletedOrders.length === 0 ? (
+                <p className="text-muted-foreground text-sm">조건에 맞는 완료 주문이 없습니다.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {completedMobileVirtual.topPadding > 0 ? <div aria-hidden style={{ height: completedMobileVirtual.topPadding }} /> : null}
+                  {completedMobileVirtual.virtualItems.map(({ item: row }) => (
+                    <OrderCardItem
+                      key={row.id}
+                      row={row}
+                      isDeleting={deletingId === row.id}
+                      isSwiped={swipedRowId === row.id}
+                      isExpanded={expandedOrderId === row.id}
+                      onToggleExpand={() => toggleExpanded(row.id)}
+                      onEditOrder={() => goToOrderDetail(row.id)}
+                      onDelete={() => void handleDelete(row)}
+                      onSwipeLeft={() => setSwipedRowId(row.id)}
+                      onSwipeCancel={() => setSwipedRowId(null)}
+                      supabase={supabase}
+                      onPatchOrder={(updated) => handlePatched(row, updated)}
+                    />
+                  ))}
+                  {completedMobileVirtual.bottomPadding > 0 ? <div aria-hidden style={{ height: completedMobileVirtual.bottomPadding }} /> : null}
+                </div>
+              )}
+            </div>
+          )
+        ) : null}
       </section>
     </div>
   );

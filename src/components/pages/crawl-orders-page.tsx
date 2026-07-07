@@ -50,6 +50,10 @@ type PendingDepositOrder = Pick<
   | "platform_id"
   | "buyer_account_id"
 >;
+type PreparedDepositOrder = PendingDepositOrder & {
+  normalizedTitle: string;
+  purchaseMonthDay: string;
+};
 type DepositRecommendationStatus = "pending" | "completed";
 type DepositRecommendation = {
   order: PendingDepositOrder;
@@ -269,6 +273,10 @@ function normalizeForSimilarity(value: string) {
 function similarityPercent(left: string, right: string) {
   const a = normalizeForSimilarity(left);
   const b = normalizeForSimilarity(right);
+  return similarityPercentNormalized(a, b);
+}
+
+function similarityPercentNormalized(a: string, b: string) {
   if (!a || !b) return 0;
   if (a === b) return 100;
 
@@ -334,17 +342,18 @@ function includeTiedTitleRecommendations(candidates: DepositRecommendation[], li
 
 function getDepositRecommendations(
   deposit: DepositWithAccount,
-  orders: PendingDepositOrder[],
+  orders: PreparedDepositOrder[],
   limit: number,
 ) {
   const counterparty = deposit.counterparty.trim();
+  const normalizedCounterparty = normalizeForSimilarity(counterparty);
 
   // 입금자명 후보는 운영자가 바로 판단할 수 있게 정확/유사 일치율이 높은 순서로 제한합니다.
   const titleMatches = orders
     .map((order) => ({
       order,
       reason: "title" as const,
-      similarity: similarityPercent(counterparty, order.title?.trim() ?? ""),
+      similarity: similarityPercentNormalized(normalizedCounterparty, order.normalizedTitle),
     }))
     .filter((candidate) => candidate.similarity >= DEPOSIT_TITLE_SIMILARITY_MIN)
     .sort((a, b) => b.similarity - a.similarity);
@@ -355,7 +364,7 @@ function getDepositRecommendations(
   if (!monthDay) return [];
 
   return orders
-    .filter((order) => purchaseDateToMonthDay(order.purchase_date) === monthDay)
+    .filter((order) => order.purchaseMonthDay === monthDay)
     .slice(0, limit)
     .map((order) => ({
       order,
@@ -364,7 +373,7 @@ function getDepositRecommendations(
     }));
 }
 
-function getDepositRecommendationSections(deposit: DepositWithAccount, orders: PendingDepositOrder[]): DepositRecommendationSection[] {
+function getDepositRecommendationSections(deposit: DepositWithAccount, orders: PreparedDepositOrder[]): DepositRecommendationSection[] {
   // 입금 한 건에서 바로 처리할 수 있도록 미완료와 이미 완료된 주문 후보를 함께 보여줍니다.
   const pendingOrders = orders.filter((order) => !order.is_processed);
   const completedOrders = orders.filter((order) => order.is_processed);
@@ -510,6 +519,8 @@ export function CrawlOrdersPage() {
   const [bankAccounts, setBankAccounts] = useState<DepositBankAccountSummary[]>([]);
   const [deposits, setDeposits] = useState<DepositWithAccount[]>([]);
   const [depositRecommendationOrders, setDepositRecommendationOrders] = useState<PendingDepositOrder[]>([]);
+  const [hasLoadedDepositData, setHasLoadedDepositData] = useState(false);
+  const [isDepositDataLoading, setIsDepositDataLoading] = useState(false);
   const [expandedDepositId, setExpandedDepositId] = useState<number | null>(null);
   const [completingDepositId, setCompletingDepositId] = useState<number | null>(null);
   const [deletingDepositId, setDeletingDepositId] = useState<number | null>(null);
@@ -568,7 +579,7 @@ export function CrawlOrdersPage() {
       return;
     }
 
-    const [ordersResult, masterData, platformAccountsResult, bankAccountsResult, depositsResult, pendingOrdersResult] = await Promise.all([
+    const [ordersResult, masterData, platformAccountsResult] = await Promise.all([
       supabase
         .from("crawl_orders")
         .select("*")
@@ -580,48 +591,12 @@ export function CrawlOrdersPage() {
         .from("platform_accounts")
         .select("id, name, status")
         .eq("user_id", user.id),
-      // 입금 자동추천 화면에는 민감 인증값을 빼고 운영자가 확인할 계좌 정보만 가져옵니다.
-      supabase
-        .from("bank_account")
-        .select("id, bank_account_name, bank, bank_account_number")
-        .eq("user_id", user.id)
-        .order("id", { ascending: true }),
-      // 미완료 입금 내역만 오래된 입금 순서대로 보여줘서 처리 누락을 먼저 확인합니다.
-      supabase
-        .from("bank_account_deposit")
-        .select(`
-          id,
-          bank_account_id,
-          date,
-          time,
-          counterparty,
-          amount,
-          bank_account_deposit_status,
-          bank_account:bank_account_id (
-            bank_account_name,
-            bank,
-            bank_account_number
-          )
-        `)
-        .eq("bank_account_deposit_status", 0)
-        .order("date", { ascending: true })
-        .order("time", { ascending: true }),
-      supabase
-        .from("orders")
-        .select(
-          "id, title, product_name, purchase_date, purchase_price_krw, deposit_date, deposit_amount_krw, is_processed, is_item_delivered, platform_id, buyer_account_id",
-        )
-        .eq("user_id", user.id)
-        .order("purchase_date", { ascending: true }),
     ]);
 
-    if (ordersResult.error || platformAccountsResult.error || bankAccountsResult.error || depositsResult.error || pendingOrdersResult.error) {
+    if (ordersResult.error || platformAccountsResult.error) {
       setErrorMessage(
         ordersResult.error?.message ??
         platformAccountsResult.error?.message ??
-        bankAccountsResult.error?.message ??
-        depositsResult.error?.message ??
-        pendingOrdersResult.error?.message ??
         "조회 오류가 발생했습니다.",
       );
       setPhase("error");
@@ -632,21 +607,130 @@ export function CrawlOrdersPage() {
     setSelectedOrder(null);
     setMaster(masterData);
     setPlatformAccounts(platformAccountsResult.data ?? []);
-    setBankAccounts((bankAccountsResult.data ?? []) as DepositBankAccountSummary[]);
-    setDeposits((depositsResult.data ?? []) as DepositWithAccount[]);
-    setDepositRecommendationOrders((pendingOrdersResult.data ?? []) as PendingDepositOrder[]);
+    if (!silent) {
+      setBankAccounts([]);
+      setDeposits([]);
+      setDepositRecommendationOrders([]);
+      setExpandedDepositId(null);
+      setHasLoadedDepositData(false);
+    }
     setPhase("ready");
   }, [router, selectedId]);
+
+  const loadDepositRecommendationData = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
+    if (!userId || isDepositDataLoading) return;
+    if (!force && hasLoadedDepositData) return;
+
+    setIsDepositDataLoading(true);
+    try {
+      const supabase = createClient();
+      const [bankAccountsResult, depositsResult, pendingOrdersResult] = await Promise.all([
+        // 입금 자동추천 화면에는 민감 인증값을 빼고 운영자가 확인할 계좌 정보만 가져옵니다.
+        supabase
+          .from("bank_account")
+          .select("id, bank_account_name, bank, bank_account_number")
+          .eq("user_id", userId)
+          .order("id", { ascending: true }),
+        // 미완료 입금 내역만 오래된 입금 순서대로 보여줘서 처리 누락을 먼저 확인합니다.
+        supabase
+          .from("bank_account_deposit")
+          .select(`
+            id,
+            bank_account_id,
+            date,
+            time,
+            counterparty,
+            amount,
+            bank_account_deposit_status,
+            bank_account:bank_account_id (
+              bank_account_name,
+              bank,
+              bank_account_number
+            )
+          `)
+          .eq("bank_account_deposit_status", 0)
+          .order("date", { ascending: true })
+          .order("time", { ascending: true }),
+        supabase
+          .from("orders")
+          .select(
+            "id, title, product_name, purchase_date, purchase_price_krw, deposit_date, deposit_amount_krw, is_processed, is_item_delivered, platform_id, buyer_account_id",
+          )
+          .eq("user_id", userId)
+          .order("purchase_date", { ascending: true }),
+      ]);
+
+      if (bankAccountsResult.error || depositsResult.error || pendingOrdersResult.error) {
+        setErrorMessage(
+          bankAccountsResult.error?.message ??
+          depositsResult.error?.message ??
+          pendingOrdersResult.error?.message ??
+          "조회 오류가 발생했습니다.",
+        );
+        setPhase("error");
+        return;
+      }
+
+      setBankAccounts((bankAccountsResult.data ?? []) as DepositBankAccountSummary[]);
+      setDeposits((depositsResult.data ?? []) as DepositWithAccount[]);
+      setDepositRecommendationOrders((pendingOrdersResult.data ?? []) as PendingDepositOrder[]);
+      setHasLoadedDepositData(true);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+      setPhase("error");
+    } finally {
+      setIsDepositDataLoading(false);
+    }
+  }, [hasLoadedDepositData, isDepositDataLoading, userId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadPage(), 0);
     return () => window.clearTimeout(timer);
   }, [loadPage]);
 
+  useEffect(() => {
+    if (phase !== "ready" || selectedId || activeAutoRecommendPage !== 1) return;
+    void loadDepositRecommendationData();
+  }, [activeAutoRecommendPage, loadDepositRecommendationData, phase, selectedId]);
+
   const draftOrder = useMemo(() => {
     if (!selectedOrder || !userId || !master) return null;
     return crawlOrderToDraft(selectedOrder, userId, master);
   }, [master, selectedOrder, userId]);
+
+  const preparedDepositRecommendationOrders = useMemo<PreparedDepositOrder[]>(
+    () =>
+      depositRecommendationOrders.map((order) => ({
+        ...order,
+        normalizedTitle: normalizeForSimilarity(order.title?.trim() ?? ""),
+        purchaseMonthDay: purchaseDateToMonthDay(order.purchase_date),
+      })),
+    [depositRecommendationOrders],
+  );
+
+  const depositRecommendationVersion = useMemo(
+    () => preparedDepositRecommendationOrders.map((order) => `${order.id}:${order.is_processed}:${order.deposit_amount_krw ?? ""}`).join("|"),
+    [preparedDepositRecommendationOrders],
+  );
+
+  const recommendationCacheRef = useRef(new Map<string, {
+    sections: DepositRecommendationSection[];
+    highlightedOrderId: string | null;
+    totalRecommendationCount: number;
+  }>());
+
+  useEffect(() => {
+    recommendationCacheRef.current.clear();
+  }, [depositRecommendationVersion]);
+
+  const platformById = useMemo(
+    () => new Map((master?.platforms ?? []).map((item) => [item.id, item])),
+    [master?.platforms],
+  );
+  const buyerAccountById = useMemo(
+    () => new Map((master?.buyerAccounts ?? []).map((item) => [item.id, item])),
+    [master?.buyerAccounts],
+  );
 
   const hasRunningCrawl = platformAccounts.some((account) => account.status === true);
   const isCrawlButtonDisabled = hasRunningCrawl || isStartingCrawl;
@@ -822,7 +906,7 @@ export function CrawlOrdersPage() {
       }
       if (count === 0) {
         window.alert("이미 처리된 입금 내역입니다.");
-        await loadPage();
+        await loadDepositRecommendationData({ force: true });
         return;
       }
 
@@ -880,7 +964,7 @@ export function CrawlOrdersPage() {
 
       if (depositResult.count === 0) {
         window.alert("이미 처리된 입금 내역입니다.");
-        await loadPage({ silent: true });
+        await loadDepositRecommendationData({ force: true });
         return;
       }
 
@@ -914,7 +998,7 @@ export function CrawlOrdersPage() {
       }
       if (count === 0) {
         window.alert("이미 처리된 입금 내역입니다.");
-        await loadPage({ silent: true });
+        await loadDepositRecommendationData({ force: true });
         return;
       }
 
@@ -1031,12 +1115,22 @@ export function CrawlOrdersPage() {
   const canGoPrev = activeAutoRecommendPage > 0;
   const canGoNext = activeAutoRecommendPage < 1;
   const renderDepositRecommendationList = (deposit: DepositWithAccount) => {
-    const recommendationSections = getDepositRecommendationSections(deposit, depositRecommendationOrders);
-    const highlightedOrderId = findTopSimilarityRecommendationOrderId(deposit, recommendationSections);
-    const totalRecommendationCount = recommendationSections.reduce(
-      (sum, section) => sum + section.recommendations.length,
-      0,
-    );
+    const cacheKey = `${deposit.id}:${deposit.amount}:${deposit.counterparty}:${depositRecommendationVersion}`;
+    const cached = recommendationCacheRef.current.get(cacheKey);
+    const recommendationResult = cached ?? (() => {
+      const sections = getDepositRecommendationSections(deposit, preparedDepositRecommendationOrders);
+      const highlightedOrderId = findTopSimilarityRecommendationOrderId(deposit, sections);
+      const totalRecommendationCount = sections.reduce(
+        (sum, section) => sum + section.recommendations.length,
+        0,
+      );
+      const next = { sections, highlightedOrderId, totalRecommendationCount };
+      recommendationCacheRef.current.set(cacheKey, next);
+      return next;
+    })();
+    const recommendationSections = recommendationResult.sections;
+    const highlightedOrderId = recommendationResult.highlightedOrderId;
+    const totalRecommendationCount = recommendationResult.totalRecommendationCount;
 
     if (totalRecommendationCount === 0) {
       return (
@@ -1064,12 +1158,8 @@ export function CrawlOrdersPage() {
               <div className="flex flex-col gap-2">
                 {section.recommendations.map(({ order, reason, similarity }) => {
                   // 후보 한 줄에 어떤 플랫폼/계정으로 구매했는지 한눈에 보여주려고 마스터에서 색상을 찾아 옵니다.
-                  const platform = order.platform_id
-                    ? master?.platforms.find((item) => item.id === order.platform_id) ?? null
-                    : null;
-                  const buyerAccount = order.buyer_account_id
-                    ? master?.buyerAccounts.find((item) => item.id === order.buyer_account_id) ?? null
-                    : null;
+                  const platform = order.platform_id ? platformById.get(order.platform_id) ?? null : null;
+                  const buyerAccount = order.buyer_account_id ? buyerAccountById.get(order.buyer_account_id) ?? null : null;
                   const platformColor = normalizeHexColor(platform?.color ?? "", DEFAULT_PLATFORM_COLOR);
                   const buyerAccountColor = normalizeHexColor(buyerAccount?.color ?? "", DEFAULT_BUYER_ACCOUNT_COLOR);
                   const isAccountOwnerMatched = isDepositBuyerAccountMatched(deposit, buyerAccount);
@@ -1166,7 +1256,7 @@ export function CrawlOrdersPage() {
       </div>
     );
   };
-  const orderAutoRecommendPage = (
+  const renderOrderAutoRecommendPage = () => (
     <div className="flex w-full shrink-0 flex-col gap-5">
       <div className="grid min-w-0 grid-cols-3 gap-2 sm:gap-3">
         <div className="flex min-w-0 items-center gap-1.5 rounded-xl bg-white p-2 shadow-sm sm:gap-3 sm:rounded-2xl sm:p-4 dark:bg-slate-800">
@@ -1392,7 +1482,7 @@ export function CrawlOrdersPage() {
       ) : null}
     </div>
   );
-  const depositAutoRecommendPage = (
+  const renderDepositAutoRecommendPage = () => (
     <div className="flex w-full shrink-0 flex-col gap-5">
       <section className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
         <div className="flex items-center justify-between gap-3">
@@ -1402,7 +1492,9 @@ export function CrawlOrdersPage() {
           </span>
         </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {bankAccounts.length === 0 ? (
+          {isDepositDataLoading && !hasLoadedDepositData ? (
+            <p className="text-muted-foreground py-4 text-center text-sm sm:col-span-2">불러오는 중…</p>
+          ) : bankAccounts.length === 0 ? (
             <p className="text-muted-foreground py-4 text-center text-sm sm:col-span-2">등록된 입금 계좌가 없습니다.</p>
           ) : (
             bankAccounts.map((account) => (
@@ -1433,7 +1525,9 @@ export function CrawlOrdersPage() {
         </div>
 
         <div className="mt-4 max-h-[30rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y lg:hidden">
-          {deposits.length === 0 ? (
+          {isDepositDataLoading && !hasLoadedDepositData ? (
+            <p className="text-muted-foreground py-8 text-center text-sm">불러오는 중…</p>
+          ) : deposits.length === 0 ? (
             <p className="text-muted-foreground py-8 text-center text-sm">처리할 입금 내역이 없습니다.</p>
           ) : (
             <div className="flex flex-col gap-2">
@@ -1507,7 +1601,13 @@ export function CrawlOrdersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {deposits.length === 0 ? (
+                {isDepositDataLoading && !hasLoadedDepositData ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                      불러오는 중…
+                    </TableCell>
+                  </TableRow>
+                ) : deposits.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} className="px-3 py-8 text-center text-sm text-muted-foreground">
                       처리할 입금 내역이 없습니다.
@@ -1679,12 +1779,8 @@ export function CrawlOrdersPage() {
           onTouchStart={handleSliderTouchStart}
           onTouchEnd={handleSliderTouchEnd}
         >
-          <div
-            className="flex transition-transform duration-300 ease-out"
-            style={{ transform: `translateX(-${activeAutoRecommendPage * 100}%)` }}
-          >
-            {orderAutoRecommendPage}
-            {depositAutoRecommendPage}
+          <div className="transition-opacity duration-150 ease-out">
+            {activeAutoRecommendPage === 0 ? renderOrderAutoRecommendPage() : renderDepositAutoRecommendPage()}
           </div>
         </div>
       </div>
