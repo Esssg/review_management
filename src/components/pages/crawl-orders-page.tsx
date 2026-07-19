@@ -81,8 +81,31 @@ const DEPOSIT_TITLE_SIMILARITY_MIN = 1;
 const DEPOSIT_TIED_SIMILARITY_MIN = 1;
 const PENDING_DEPOSIT_RECOMMENDATION_LIMIT = 3;
 const COMPLETED_DEPOSIT_RECOMMENDATION_LIMIT = 2;
+const DEPOSIT_RECOMMENDATION_PAGE_SIZE = 1000;
 
 const krwFormatter = new Intl.NumberFormat("ko-KR");
+
+type RecommendationPageResult<T> = {
+  data: T[];
+  error: { message: string } | null;
+};
+
+// Supabase API의 최대 반환 건수를 넘어도 추천 후보를 빠짐없이 모읍니다.
+async function fetchAllRecommendationPages<T>(
+  fetchPage: (from: number, to: number) => Promise<RecommendationPageResult<T>>,
+) {
+  const rows: T[] = [];
+
+  for (let from = 0; ; from += DEPOSIT_RECOMMENDATION_PAGE_SIZE) {
+    const page = await fetchPage(from, from + DEPOSIT_RECOMMENDATION_PAGE_SIZE - 1);
+    if (page.error) return { data: null, error: page.error };
+
+    rows.push(...page.data);
+    if (page.data.length < DEPOSIT_RECOMMENDATION_PAGE_SIZE) {
+      return { data: rows, error: null };
+    }
+  }
+}
 
 function readValue(row: CrawlOrderRow, keys: string[]) {
   for (const key of keys) {
@@ -631,33 +654,52 @@ export function CrawlOrdersPage() {
           .select("id, bank_account_name, bank, bank_account_number")
           .eq("user_id", userId)
           .order("id", { ascending: true }),
-        // 미완료 입금 내역만 오래된 입금 순서대로 보여줘서 처리 누락을 먼저 확인합니다.
-        supabase
-          .from("bank_account_deposit")
-          .select(`
-            id,
-            bank_account_id,
-            date,
-            time,
-            counterparty,
-            amount,
-            bank_account_deposit_status,
-            bank_account:bank_account_id (
-              bank_account_name,
-              bank,
-              bank_account_number
+        // 미완료 입금 내역은 오래된 순서를 유지하며 모든 페이지를 가져옵니다.
+        fetchAllRecommendationPages<DepositWithAccount>(async (from, to) => {
+          const result = await supabase
+            .from("bank_account_deposit")
+            .select(`
+              id,
+              bank_account_id,
+              date,
+              time,
+              counterparty,
+              amount,
+              bank_account_deposit_status,
+              bank_account:bank_account_id (
+                bank_account_name,
+                bank,
+                bank_account_number
+              )
+            `)
+            .eq("bank_account_deposit_status", 0)
+            .order("date", { ascending: true })
+            .order("time", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to);
+
+          return {
+            data: (result.data ?? []) as DepositWithAccount[],
+            error: result.error,
+          };
+        }),
+        // 주문도 구매일과 ID 순서로 끝까지 가져와 최근 주문이 추천에서 누락되지 않게 합니다.
+        fetchAllRecommendationPages<PendingDepositOrder>(async (from, to) => {
+          const result = await supabase
+            .from("orders")
+            .select(
+              "id, title, product_name, purchase_date, purchase_price_krw, deposit_date, deposit_amount_krw, is_processed, is_item_delivered, platform_id, buyer_account_id",
             )
-          `)
-          .eq("bank_account_deposit_status", 0)
-          .order("date", { ascending: true })
-          .order("time", { ascending: true }),
-        supabase
-          .from("orders")
-          .select(
-            "id, title, product_name, purchase_date, purchase_price_krw, deposit_date, deposit_amount_krw, is_processed, is_item_delivered, platform_id, buyer_account_id",
-          )
-          .eq("user_id", userId)
-          .order("purchase_date", { ascending: true }),
+            .eq("user_id", userId)
+            .order("purchase_date", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to);
+
+          return {
+            data: (result.data ?? []) as PendingDepositOrder[],
+            error: result.error,
+          };
+        }),
       ]);
 
       if (bankAccountsResult.error || depositsResult.error || pendingOrdersResult.error) {
@@ -672,8 +714,8 @@ export function CrawlOrdersPage() {
       }
 
       setBankAccounts((bankAccountsResult.data ?? []) as DepositBankAccountSummary[]);
-      setDeposits((depositsResult.data ?? []) as DepositWithAccount[]);
-      setDepositRecommendationOrders((pendingOrdersResult.data ?? []) as PendingDepositOrder[]);
+      setDeposits(depositsResult.data ?? []);
+      setDepositRecommendationOrders(pendingOrdersResult.data ?? []);
       setHasLoadedDepositData(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
