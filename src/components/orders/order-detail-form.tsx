@@ -313,6 +313,7 @@ export function OrderDetailForm({
   const supabase = createClient();
   const isEditMode = Boolean(order);
   const isImportMode = Boolean(draftOrder && importActions);
+  const isNewOrderMode = !isEditMode && !isImportMode;
   // 크롤링 주문은 실제 orders 행이 아니므로, 값 채우기용 초안으로만 사용합니다.
   const initialOrder = order ?? draftOrder;
 
@@ -322,6 +323,10 @@ export function OrderDetailForm({
   const [platformId, setPlatformId] = useState(initialOrder?.platform_id ?? "");
   const [paymentMethodId, setPaymentMethodId] = useState(initialOrder?.payment_method_id ?? "");
   const [buyerAccountId, setBuyerAccountId] = useState(initialOrder?.buyer_account_id ?? "");
+  // 새 주문에서는 같은 구매 정보로 계정별 주문을 각각 만들기 위해 여러 계정을 보관합니다.
+  const [buyerAccountIds, setBuyerAccountIds] = useState<string[]>(() =>
+    initialOrder?.buyer_account_id ? [initialOrder.buyer_account_id] : [],
+  );
   const [linkedPurchaseTemplateId, setLinkedPurchaseTemplateId] = useState(
     initialOrder?.purchase_info_template_id ?? "",
   );
@@ -357,6 +362,8 @@ export function OrderDetailForm({
   /** 부모 `order.ai_review` 중 마지막으로 반영한 값(재생성 직후 DB는 아직 옛값일 때 로컬 결과를 덮지 않기 위함) */
   const lastSyncedServerAiReviewRef = useRef<string | undefined>(undefined);
   const isCurrentlyProcessed = isProcessed === "true";
+  const isMultipleBuyerAccounts = isNewOrderMode && buyerAccountIds.length > 1;
+  const selectedBuyerAccountIds = isNewOrderMode ? buyerAccountIds : buyerAccountId ? [buyerAccountId] : [];
 
   const [baseline, setBaseline] = useState<OrderFormSnapshot | null>(null);
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
@@ -579,6 +586,16 @@ export function OrderDetailForm({
     }
   };
 
+  // 같은 계정을 두 번 저장하지 않도록, 새 주문의 선택 목록에서만 계정을 추가하거나 뺍니다.
+  const toggleBuyerAccountId = (accountId: string) => {
+    const nextBuyerAccountIds = buyerAccountIds.includes(accountId)
+      ? buyerAccountIds.filter((id) => id !== accountId)
+      : [...buyerAccountIds, accountId];
+    // 두 주문 이상에 같은 번호가 저장되지 않도록, 두 번째 계정을 고를 때 주문번호를 비웁니다.
+    if (nextBuyerAccountIds.length > 1) setOrderNumber("");
+    setBuyerAccountIds(nextBuyerAccountIds);
+  };
+
   const normalizeNumber = (value: unknown, fieldLabel: string) => {
     const trimmed = String(value ?? "").trim();
     if (!trimmed) {
@@ -605,7 +622,9 @@ export function OrderDetailForm({
     return { value: parsed };
   };
 
-  const buildPayload = (nextIsProcessed: boolean): { payload?: Database["public"]["Tables"]["orders"]["Insert"]; error?: string } => {
+  const buildPayload = (
+    nextIsProcessed: boolean,
+  ): { payloads?: Database["public"]["Tables"]["orders"]["Insert"][]; error?: string } => {
     const kakaoRoomNameValue = kakaoRoomName.trim();
     const orderNumberValue = orderNumber.trim();
     const productNameValue = productName.trim();
@@ -618,7 +637,7 @@ export function OrderDetailForm({
       !productNameValue ||
       !platformId ||
       !paymentMethodId ||
-      !buyerAccountId ||
+      selectedBuyerAccountIds.length === 0 ||
       !purchaseDateValue ||
       (isItemDelivered !== "true" && isItemDelivered !== "false")
     ) {
@@ -627,9 +646,9 @@ export function OrderDetailForm({
 
     const selectedPlatform = platforms.find((p) => p.id === platformId);
     const selectedMethod = paymentMethods.find((m) => m.id === paymentMethodId);
-    const selectedAccount = buyerAccounts.find((a) => a.id === buyerAccountId);
+    const hasValidBuyerAccounts = selectedBuyerAccountIds.every((id) => buyerAccounts.some((account) => account.id === id));
 
-    if (!selectedPlatform || !selectedMethod || !selectedAccount) {
+    if (!selectedPlatform || !selectedMethod || !hasValidBuyerAccounts) {
       return { error: "선택한 항목이 유효하지 않습니다. 페이지를 새로고침 후 다시 시도해 주세요." };
     }
 
@@ -672,13 +691,14 @@ export function OrderDetailForm({
     }
 
     return {
-      payload: {
+      // 여러 계정 선택 시 주문번호는 주문별 고유값이므로 모든 새 주문에서 비웁니다.
+      payloads: selectedBuyerAccountIds.map((selectedBuyerAccountId) => ({
         title: kakaoRoomNameValue,
-        order_number: orderNumberValue || null,
+        order_number: isMultipleBuyerAccounts ? null : orderNumberValue || null,
         product_name: productNameValue,
         platform_id: platformId,
         payment_method_id: paymentMethodId,
-        buyer_account_id: buyerAccountId,
+        buyer_account_id: selectedBuyerAccountId,
         purchase_info_template_id: templateIdValue || null,
         purchase_date: purchaseDateValue,
         deposit_date,
@@ -699,7 +719,7 @@ export function OrderDetailForm({
             }
           : {}),
         ai_review_user_prompt: aiExtraInput.trim() || null,
-      } satisfies Database["public"]["Tables"]["orders"]["Insert"],
+      })) satisfies Database["public"]["Tables"]["orders"]["Insert"][],
     };
   };
 
@@ -707,14 +727,14 @@ export function OrderDetailForm({
     setToast(null);
     setIsSaving(true);
     try {
-      const { payload, error } = buildPayload(nextIsProcessed);
-      if (error || !payload) {
+      const { payloads, error } = buildPayload(nextIsProcessed);
+      if (error || !payloads) {
         setToast({ type: "error", message: error ?? "입력값을 확인해 주세요." });
         return false;
       }
 
       if (isImportMode && importActions) {
-        const result = await importActions.onSave(payload);
+        const result = await importActions.onSave(payloads[0]);
         if (result.error) {
           setToast({ type: "error", message: result.error });
           return false;
@@ -723,8 +743,8 @@ export function OrderDetailForm({
       }
 
       const query = isEditMode
-        ? supabase.from("orders").update(payload).eq("id", order!.id)
-        : supabase.from("orders").insert(payload);
+        ? supabase.from("orders").update(payloads[0]).eq("id", order!.id)
+        : supabase.from("orders").insert(payloads);
       const { error: saveError } = await query;
 
       if (saveError) {
@@ -839,14 +859,14 @@ export function OrderDetailForm({
     setAiStreamError(null);
     setAiGenerating(true);
 
-    const { payload, error: payloadError } = buildPayload(isProcessed === "true");
-    if (payloadError || !payload) {
+    const { payloads, error: payloadError } = buildPayload(isProcessed === "true");
+    if (payloadError || !payloads) {
       setAiGenerating(false);
       setToast({ type: "error", message: payloadError ?? "입력값을 확인해 주세요." });
       return;
     }
 
-    const { error: preSaveError } = await supabase.from("orders").update(payload).eq("id", order.id);
+    const { error: preSaveError } = await supabase.from("orders").update(payloads[0]).eq("id", order.id);
     if (preSaveError) {
       setAiGenerating(false);
       setToast({ type: "error", message: preSaveError.message });
@@ -1112,7 +1132,7 @@ export function OrderDetailForm({
                 </FormRow>
               </div>
             </div>
-            <div className="grid grid-cols-3 items-start gap-x-2 gap-y-0 sm:gap-x-3">
+            <div className={cn("grid items-start gap-x-2 gap-y-0 sm:gap-x-3", isNewOrderMode ? "grid-cols-2" : "grid-cols-3")}>
               <div className="min-w-0">
                 <FormRow label="결제 플랫폼" required>
                   <EntitySelect
@@ -1139,21 +1159,60 @@ export function OrderDetailForm({
                   />
                 </FormRow>
               </div>
-              <div className="min-w-0">
+              <div className={cn("min-w-0", isNewOrderMode && "col-span-2")}>
                 <FormRow label="구매 계정" required>
-                  <EntitySelect
-                    icon={UserCircle}
-                    aria-label="구매 계정"
-                    value={buyerAccountId}
-                    onChange={setBuyerAccountId}
-                    options={buyerAccounts.map((a) => ({ id: a.id, name: a.label }))}
-                    placeholder="구매 계정을 선택해 주세요"
-                    emptyHint="등록된 구매 계정이 없습니다. 설정에서 추가해 주세요."
-                  />
+                  {isNewOrderMode ? (
+                    buyerAccounts.length === 0 ? (
+                      <EntitySelect
+                        icon={UserCircle}
+                        aria-label="구매 계정"
+                        value=""
+                        onChange={() => undefined}
+                        options={[]}
+                        emptyHint="등록된 구매 계정이 없습니다. 설정에서 추가해 주세요."
+                      />
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {buyerAccounts.map((account) => {
+                          const isSelected = buyerAccountIds.includes(account.id);
+                          return (
+                            <button
+                              key={account.id}
+                              type="button"
+                              aria-pressed={isSelected}
+                              onClick={() => toggleBuyerAccountId(account.id)}
+                              className={cn(
+                                "flex min-h-10 min-w-0 items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors touch-manipulation",
+                                isSelected
+                                  ? "border-primary bg-primary/12 text-foreground ring-1 ring-primary/25 dark:bg-primary/20"
+                                  : "border-input bg-background hover:bg-muted/50 active:bg-muted/70 dark:bg-input/30",
+                              )}
+                            >
+                              <span className="truncate">{account.label}</span>
+                              {isSelected ? <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" aria-hidden /> : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )
+                  ) : (
+                    <EntitySelect
+                      icon={UserCircle}
+                      aria-label="구매 계정"
+                      value={buyerAccountId}
+                      onChange={setBuyerAccountId}
+                      options={buyerAccounts.map((a) => ({ id: a.id, name: a.label }))}
+                      placeholder="구매 계정을 선택해 주세요"
+                      emptyHint="등록된 구매 계정이 없습니다. 설정에서 추가해 주세요."
+                    />
+                  )}
                 </FormRow>
               </div>
             </div>
-            <FormRow label="주문번호" hint="선택 · 비워도 저장됩니다">
+            <FormRow
+              label="주문번호"
+              hint={isMultipleBuyerAccounts ? "다중 선택 시 입력할 수 없습니다" : "선택 · 비워도 저장됩니다"}
+            >
               <div className="flex h-10 w-full min-w-0 overflow-hidden rounded-xl border border-input bg-background shadow-sm transition-shadow focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30">
                 <span
                   className="flex w-10 shrink-0 items-center justify-center self-stretch border-r border-border/60 bg-muted/40 dark:bg-muted/25"
@@ -1164,12 +1223,18 @@ export function OrderDetailForm({
                 <Input
                   value={orderNumber}
                   onChange={(event) => setOrderNumber(event.target.value)}
+                  disabled={isMultipleBuyerAccounts}
                   className="h-10 min-w-0 flex-1 rounded-none border-0 bg-transparent px-3 shadow-none focus-visible:ring-0 md:text-sm"
                   autoComplete="off"
-                  placeholder="쇼핑몰 주문번호 등"
+                  placeholder={isMultipleBuyerAccounts ? "여러 주문 생성 시 주문번호는 비워집니다" : "쇼핑몰 주문번호 등"}
                   inputMode="text"
                 />
               </div>
+              {isMultipleBuyerAccounts ? (
+                <p className="text-muted-foreground mt-2 text-xs leading-snug">
+                  여러 구매계정의 주문을 함께 만들면 주문번호는 저장되지 않습니다.
+                </p>
+              ) : null}
             </FormRow>
             <div className="grid grid-cols-2 gap-x-3 gap-y-0 sm:gap-x-4">
               <div className="min-w-0">
