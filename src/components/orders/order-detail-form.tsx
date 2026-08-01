@@ -298,6 +298,7 @@ export function OrderDetailForm({
   order,
   draftOrder,
   importActions,
+  crawlPaymentMethod,
   platforms,
   paymentMethods,
   buyerAccounts,
@@ -305,6 +306,7 @@ export function OrderDetailForm({
   order?: OrderWithRelations;
   draftOrder?: DraftOrderWithRelations;
   importActions?: ImportActions;
+  crawlPaymentMethod?: string;
   platforms: Platform[];
   paymentMethods: PaymentMethod[];
   buyerAccounts: BuyerAccount[];
@@ -1157,6 +1159,12 @@ export function OrderDetailForm({
                     placeholder="결제 방식을 선택해 주세요"
                     emptyHint="등록된 결제 수단이 없습니다. 설정에서 추가해 주세요."
                   />
+                  {isImportMode ? (
+                    // 자동 추천을 검수할 때 선택된 결제 방식과 크롤링 원문을 바로 비교할 수 있게 보여줍니다.
+                    <p className="text-muted-foreground mt-1.5 break-words px-1 text-xs leading-relaxed">
+                      크롤링 결제방식: <span className="text-foreground font-medium">{crawlPaymentMethod || "—"}</span>
+                    </p>
+                  ) : null}
                 </FormRow>
               </div>
               <div className={cn("min-w-0", isNewOrderMode && "col-span-2")}>

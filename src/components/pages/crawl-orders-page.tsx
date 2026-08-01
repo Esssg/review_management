@@ -1089,6 +1089,7 @@ export function CrawlOrdersPage() {
         <OrderDetailForm
           key={selectedOrder.id}
           draftOrder={draftOrder}
+          crawlPaymentMethod={readText(selectedOrder, ["payment_method"])}
           importActions={{
             afterSaveHref: crawlListHref,
             afterDeleteHref: crawlListHref,
