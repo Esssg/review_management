@@ -7,6 +7,7 @@ import {
   AlertCircle,
   Bot,
   Building2,
+  CalendarClock,
   CalendarDays,
   CheckCircle2,
   Clipboard,
@@ -33,20 +34,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
 import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
+import { getKoreaDateInputValue } from "@/lib/korea-date";
+import { normalizeOrderMatchText } from "@/lib/order-workflow";
 import { streamAiReviewFromEdge } from "@/lib/stream-ai-review";
 import { createClient } from "@/lib/supabase/client";
 import type { BuyerAccount, PaymentMethod, Platform } from "@/lib/master-data";
+import {
+  getOrCreateUserPreferences,
+  type OrderSaveAction,
+  type UserPreferences,
+} from "@/lib/user-preferences";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/types/database";
-
-type OrderRow = Database["public"]["Tables"]["orders"]["Row"];
-
-type OrderWithRelations = OrderRow & {
-  platforms: { id: string; name: string; color: string } | null;
-  payment_methods: { id: string; name: string; color: string } | null;
-  buyer_accounts: { id: string; label: string; color: string } | null;
-  purchase_info_templates?: PurchaseTemplateRow | null;
-};
+import type { OrderRow, OrderWithRelations } from "@/types/orders";
 
 type DraftOrderWithRelations = Partial<
   Omit<
@@ -64,11 +64,94 @@ type DraftOrderWithRelations = Partial<
 };
 
 type ImportActions = {
-  onSave: (payload: Database["public"]["Tables"]["orders"]["Insert"]) => Promise<{ error?: string }>;
-  onDelete: () => Promise<{ error?: string }>;
+  onSave: (payload: Database["public"]["Tables"]["orders"]["Insert"]) => Promise<{ error?: string; redirectHref?: string }>;
+  onDelete: () => Promise<{ error?: string; redirectHref?: string }>;
   afterSaveHref: string;
   afterDeleteHref: string;
   deleteConfirmLabel?: string;
+};
+
+type NewOrderDraft = {
+  version: 1;
+  title: string;
+  order_number: string;
+  product_name: string;
+  platform_id: string;
+  payment_method_id: string;
+  buyer_account_ids: string[];
+  purchase_info_template_id: string;
+  purchase_date: string;
+  purchase_price: string;
+  review_photo_count: string;
+  review_char_count: string;
+  is_item_delivered: string;
+  is_processed: string;
+  deposit_date: string;
+  deposit_amount: string;
+  deposit_memo: string;
+  notes: string;
+  product_url: string;
+  scheduled_purchase_at: string;
+  order_status: string;
+  ai_review_user_prompt: string;
+};
+
+type DuplicateCandidate = Pick<
+  OrderRow,
+  "id" | "title" | "product_name" | "purchase_date" | "order_number" | "buyer_account_id" | "purchase_price_krw"
+>;
+
+function parseNewOrderDraft(value: Database["public"]["Tables"]["user_order_drafts"]["Row"]["draft_data"]): NewOrderDraft | null {
+  if (!value || typeof value !== "object" || Array.isArray(value) || value.version !== 1) return null;
+
+  const readText = (key: keyof NewOrderDraft) => {
+    const field = value[key];
+    return typeof field === "string" ? field : "";
+  };
+  const accountIds = Array.isArray(value.buyer_account_ids)
+    ? value.buyer_account_ids.filter((id): id is string => typeof id === "string")
+    : [];
+
+  return {
+    version: 1,
+    title: readText("title"),
+    order_number: readText("order_number"),
+    product_name: readText("product_name"),
+    platform_id: readText("platform_id"),
+    payment_method_id: readText("payment_method_id"),
+    buyer_account_ids: accountIds,
+    purchase_info_template_id: readText("purchase_info_template_id"),
+    purchase_date: readText("purchase_date"),
+    purchase_price: readText("purchase_price"),
+    review_photo_count: readText("review_photo_count"),
+    review_char_count: readText("review_char_count"),
+    is_item_delivered: readText("is_item_delivered"),
+    is_processed: readText("is_processed"),
+    deposit_date: readText("deposit_date"),
+    deposit_amount: readText("deposit_amount"),
+    deposit_memo: readText("deposit_memo"),
+    notes: readText("notes"),
+    product_url: readText("product_url"),
+    scheduled_purchase_at: readText("scheduled_purchase_at"),
+    order_status: readText("order_status"),
+    ai_review_user_prompt: readText("ai_review_user_prompt"),
+  };
+}
+
+export type OrderFormSummary = {
+  title: string;
+  productName: string;
+  purchasePrice: number;
+  depositAmount: number;
+  isProcessed: boolean;
+  isItemDelivered: boolean | null;
+  platformName: string;
+  paymentMethodName: string;
+  buyerAccountNames: string[];
+  templateName: string;
+  scheduledPurchaseAt: string;
+  missingFields: string[];
+  duplicateCount: number;
 };
 
 /** buildPayload와 동일 범위의 필드만 비교(저장 여부 판단) */
@@ -89,8 +172,20 @@ type OrderFormSnapshot = {
   is_item_delivered: string;
   is_processed: string;
   deposit_memo: string;
+  notes: string;
+  product_url: string;
+  scheduled_purchase_at: string;
+  order_status: string;
   ai_review_user_prompt: string;
 };
+
+function toDateTimeLocalValue(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
 
 function orderRowToSnapshot(o: OrderWithRelations): OrderFormSnapshot {
   return {
@@ -110,6 +205,10 @@ function orderRowToSnapshot(o: OrderWithRelations): OrderFormSnapshot {
     is_item_delivered: o.is_item_delivered ? "true" : "false",
     is_processed: o.is_processed ? "true" : "false",
     deposit_memo: (o.deposit_memo ?? "").trim(),
+    notes: (o.notes ?? "").trim(),
+    product_url: (o.product_url ?? "").trim(),
+    scheduled_purchase_at: toDateTimeLocalValue(o.scheduled_purchase_at),
+    order_status: (o.order_status ?? "").trim(),
     ai_review_user_prompt: (o.ai_review_user_prompt ?? "").trim(),
   };
 }
@@ -295,6 +394,8 @@ export function OrderDetailForm({
   draftOrder,
   importActions,
   crawlPaymentMethod,
+  userId,
+  onSummaryChange,
   platforms,
   paymentMethods,
   buyerAccounts,
@@ -303,6 +404,8 @@ export function OrderDetailForm({
   draftOrder?: DraftOrderWithRelations;
   importActions?: ImportActions;
   crawlPaymentMethod?: string;
+  userId?: string;
+  onSummaryChange?: (summary: OrderFormSummary) => void;
   platforms: Platform[];
   paymentMethods: PaymentMethod[];
   buyerAccounts: BuyerAccount[];
@@ -331,7 +434,7 @@ export function OrderDetailForm({
   const [purchaseDate, setPurchaseDate] = useState(() => {
     if (initialOrder?.purchase_date) return initialOrder.purchase_date;
     if (isImportMode) return "";
-    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
+    return getKoreaDateInputValue();
   });
   const [depositDate, setDepositDate] = useState(initialOrder?.deposit_date ?? "");
   const [purchasePrice, setPurchasePrice] = useState<string>(
@@ -349,6 +452,12 @@ export function OrderDetailForm({
   );
   const [isProcessed, setIsProcessed] = useState(initialOrder?.is_processed ? "true" : "false");
   const [depositMemo, setDepositMemo] = useState(initialOrder?.deposit_memo ?? "");
+  const [notes, setNotes] = useState(initialOrder?.notes ?? "");
+  const [productUrl, setProductUrl] = useState(initialOrder?.product_url ?? "");
+  const [scheduledPurchaseAt, setScheduledPurchaseAt] = useState(
+    toDateTimeLocalValue(initialOrder?.scheduled_purchase_at),
+  );
+  const [orderStatus, setOrderStatus] = useState(initialOrder?.order_status ?? "");
   const [toast, setToast] = useState<ToastState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [purchaseTemplates, setPurchaseTemplates] = useState<PurchaseTemplateRow[]>([]);
@@ -356,12 +465,27 @@ export function OrderDetailForm({
   const [aiReviewText, setAiReviewText] = useState(initialOrder?.ai_review ?? "");
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiStreamError, setAiStreamError] = useState<string | null>(null);
+  const [workflowUserId, setWorkflowUserId] = useState(userId ?? "");
+  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [orderSaveAction, setOrderSaveAction] = useState<OrderSaveAction>("ledger");
+  const [availableDraft, setAvailableDraft] = useState<NewOrderDraft | null>(null);
+  const [draftReady, setDraftReady] = useState(!isNewOrderMode);
+  const [duplicateCandidates, setDuplicateCandidates] = useState<DuplicateCandidate[]>([]);
+  const [duplicateConfirmOpen, setDuplicateConfirmOpen] = useState(false);
+  const pendingDuplicateSaveRef = useRef<{
+    isProcessed: boolean;
+    onSuccess: () => void;
+  } | null>(null);
+  const importRedirectHrefRef = useRef<string | null>(null);
   const lastAiOrderIdRef = useRef<string | undefined>(undefined);
   /** 부모 `order.ai_review` 중 마지막으로 반영한 값(재생성 직후 DB는 아직 옛값일 때 로컬 결과를 덮지 않기 위함) */
   const lastSyncedServerAiReviewRef = useRef<string | undefined>(undefined);
   const isCurrentlyProcessed = isProcessed === "true";
   const isMultipleBuyerAccounts = isNewOrderMode && buyerAccountIds.length > 1;
-  const selectedBuyerAccountIds = isNewOrderMode ? buyerAccountIds : buyerAccountId ? [buyerAccountId] : [];
+  const selectedBuyerAccountIds = useMemo(
+    () => (isNewOrderMode ? buyerAccountIds : buyerAccountId ? [buyerAccountId] : []),
+    [buyerAccountId, buyerAccountIds, isNewOrderMode],
+  );
 
   const [baseline, setBaseline] = useState<OrderFormSnapshot | null>(null);
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
@@ -401,6 +525,10 @@ export function OrderDetailForm({
       is_item_delivered: isItemDelivered,
       is_processed: isProcessed,
       deposit_memo: depositMemo.trim(),
+      notes: notes.trim(),
+      product_url: productUrl.trim(),
+      scheduled_purchase_at: scheduledPurchaseAt,
+      order_status: orderStatus.trim(),
       ai_review_user_prompt: aiExtraInput.trim(),
     };
   }, [
@@ -420,6 +548,10 @@ export function OrderDetailForm({
     isItemDelivered,
     isProcessed,
     depositMemo,
+    notes,
+    productUrl,
+    scheduledPurchaseAt,
+    orderStatus,
     aiExtraInput,
   ]);
 
@@ -527,6 +659,273 @@ export function OrderDetailForm({
       cancelled = true;
     };
   }, []);
+
+  const applyNewOrderDraft = useCallback((draft: NewOrderDraft) => {
+    setKakaoRoomName(draft.title);
+    setOrderNumber(draft.order_number);
+    setProductName(draft.product_name);
+    setPlatformId(draft.platform_id);
+    setPaymentMethodId(draft.payment_method_id);
+    setBuyerAccountIds(draft.buyer_account_ids);
+    setLinkedPurchaseTemplateId(draft.purchase_info_template_id);
+    setPurchaseDate(draft.purchase_date);
+    setPurchasePrice(draft.purchase_price);
+    setReviewPhotoCount(draft.review_photo_count);
+    setReviewCharCount(draft.review_char_count);
+    setIsItemDelivered(draft.is_item_delivered);
+    setIsProcessed(draft.is_processed || "false");
+    setDepositDate(draft.deposit_date);
+    setDepositAmount(draft.deposit_amount);
+    setDepositMemo(draft.deposit_memo);
+    setNotes(draft.notes);
+    setProductUrl(draft.product_url);
+    setScheduledPurchaseAt(draft.scheduled_purchase_at);
+    setOrderStatus(draft.order_status);
+    setAiExtraInput(draft.ai_review_user_prompt);
+  }, []);
+
+  useEffect(() => {
+    if (!isNewOrderMode) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        let currentUserId = userId ?? "";
+        if (!currentUserId) {
+          const { data } = await supabase.auth.getUser();
+          currentUserId = data.user?.id ?? "";
+        }
+        if (!currentUserId || cancelled) return;
+
+        setWorkflowUserId(currentUserId);
+        const [nextPreferences, draftResult] = await Promise.all([
+          getOrCreateUserPreferences(supabase, currentUserId),
+          supabase.from("user_order_drafts").select("draft_data").eq("user_id", currentUserId).maybeSingle(),
+        ]);
+        if (cancelled) return;
+        if (draftResult.error) throw draftResult.error;
+
+        setPreferences(nextPreferences);
+        setOrderSaveAction(nextPreferences.order_save_action as OrderSaveAction);
+
+        // 복제 주문에는 복제된 값을 유지하고, 완전히 새 주문일 때만 기본값 또는 최근값을 채웁니다.
+        if (!initialOrder) {
+          setPlatformId(nextPreferences.default_platform_id ?? nextPreferences.recent_platform_id ?? "");
+          setPaymentMethodId(
+            nextPreferences.default_payment_method_id ?? nextPreferences.recent_payment_method_id ?? "",
+          );
+          const preferredAccountId =
+            nextPreferences.default_buyer_account_id ?? nextPreferences.recent_buyer_account_id;
+          setBuyerAccountIds(preferredAccountId ? [preferredAccountId] : []);
+          setLinkedPurchaseTemplateId(
+            nextPreferences.default_purchase_info_template_id
+              ?? nextPreferences.recent_purchase_info_template_id
+              ?? "",
+          );
+        }
+
+        const parsedDraft = draftResult.data ? parseNewOrderDraft(draftResult.data.draft_data) : null;
+        if (parsedDraft) {
+          setAvailableDraft(parsedDraft);
+          setDraftReady(false);
+        } else {
+          setDraftReady(true);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        setDraftReady(true);
+        setToast({
+          type: "error",
+          message: error instanceof Error ? error.message : "사용자 설정을 불러오지 못했습니다.",
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // 신규 주문 컴포넌트가 생성될 때 한 번만 서버 초안과 설정을 읽습니다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNewOrderMode, userId]);
+
+  const newOrderDraft = useMemo<NewOrderDraft>(() => ({
+    version: 1,
+    title: kakaoRoomName,
+    order_number: orderNumber,
+    product_name: productName,
+    platform_id: platformId,
+    payment_method_id: paymentMethodId,
+    buyer_account_ids: buyerAccountIds,
+    purchase_info_template_id: linkedPurchaseTemplateId,
+    purchase_date: purchaseDate,
+    purchase_price: purchasePrice,
+    review_photo_count: reviewPhotoCount,
+    review_char_count: reviewCharCount,
+    is_item_delivered: isItemDelivered,
+    is_processed: isProcessed,
+    deposit_date: depositDate,
+    deposit_amount: depositAmount,
+    deposit_memo: depositMemo,
+    notes,
+    product_url: productUrl,
+    scheduled_purchase_at: scheduledPurchaseAt,
+    order_status: orderStatus,
+    ai_review_user_prompt: aiExtraInput,
+  }), [
+    aiExtraInput,
+    buyerAccountIds,
+    depositAmount,
+    depositDate,
+    depositMemo,
+    isItemDelivered,
+    isProcessed,
+    kakaoRoomName,
+    linkedPurchaseTemplateId,
+    notes,
+    orderNumber,
+    orderStatus,
+    paymentMethodId,
+    platformId,
+    productName,
+    productUrl,
+    purchaseDate,
+    purchasePrice,
+    reviewCharCount,
+    reviewPhotoCount,
+    scheduledPurchaseAt,
+  ]);
+
+  useEffect(() => {
+    if (!isNewOrderMode || !workflowUserId || !draftReady) return;
+
+    const hasMeaningfulInput = Boolean(
+      newOrderDraft.title.trim()
+      || newOrderDraft.order_number.trim()
+      || newOrderDraft.product_name.trim()
+      || (Number(newOrderDraft.purchase_price) || 0) > 0
+      || newOrderDraft.review_photo_count.trim()
+      || newOrderDraft.review_char_count.trim()
+      || newOrderDraft.is_item_delivered
+      || newOrderDraft.deposit_date
+      || newOrderDraft.deposit_amount.trim()
+      || newOrderDraft.deposit_memo.trim()
+      || newOrderDraft.notes.trim()
+      || newOrderDraft.product_url.trim()
+      || newOrderDraft.scheduled_purchase_at,
+    );
+
+    const timer = window.setTimeout(() => {
+      if (hasMeaningfulInput) {
+        void supabase.from("user_order_drafts").upsert(
+          { user_id: workflowUserId, draft_data: newOrderDraft },
+          { onConflict: "user_id" },
+        );
+      } else {
+        void supabase.from("user_order_drafts").delete().eq("user_id", workflowUserId);
+      }
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [draftReady, isNewOrderMode, newOrderDraft, supabase, workflowUserId]);
+
+  useEffect(() => {
+    if (!isNewOrderMode || !draftReady) return;
+    const normalizedProduct = normalizeOrderMatchText(productName);
+    const normalizedOrderNumber = orderNumber.trim();
+    if ((!normalizedProduct || !purchaseDate) && !normalizedOrderNumber) {
+      setDuplicateCandidates([]);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const fields = "id, title, product_name, purchase_date, order_number, buyer_account_id, purchase_price_krw";
+        const matches = new Map<string, DuplicateCandidate>();
+
+        if (normalizedOrderNumber) {
+          const { data } = await supabase
+            .from("orders")
+            .select(fields)
+            .eq("order_number", normalizedOrderNumber)
+            .limit(5);
+          for (const row of data ?? []) matches.set(row.id, row);
+        }
+
+        if (normalizedProduct && purchaseDate) {
+          const { data } = await supabase
+            .from("orders")
+            .select(fields)
+            .eq("purchase_date", purchaseDate)
+            .limit(100);
+          for (const row of data ?? []) {
+            const sameProduct = normalizeOrderMatchText(row.product_name) === normalizedProduct;
+            const sameAccount = buyerAccountIds.length === 0 || buyerAccountIds.includes(row.buyer_account_id ?? "");
+            if (sameProduct && sameAccount) matches.set(row.id, row);
+          }
+        }
+
+        if (!cancelled) setDuplicateCandidates([...matches.values()].slice(0, 5));
+      })();
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [buyerAccountIds, draftReady, isNewOrderMode, orderNumber, productName, purchaseDate, supabase]);
+
+  const formSummary = useMemo<OrderFormSummary>(() => {
+    const missingFields: string[] = [];
+    if (!kakaoRoomName.trim()) missingFields.push("카톡방 이름");
+    if (!productName.trim()) missingFields.push("물품명");
+    if (!platformId) missingFields.push("플랫폼");
+    if (!paymentMethodId) missingFields.push("결제 방식");
+    if (selectedBuyerAccountIds.length === 0) missingFields.push("구매 계정");
+    if (!purchaseDate) missingFields.push("구매일");
+    if (!String(purchasePrice).trim()) missingFields.push("구매가격");
+    if (isItemDelivered !== "true" && isItemDelivered !== "false") missingFields.push("배송 여부");
+
+    return {
+      title: kakaoRoomName.trim(),
+      productName: productName.trim(),
+      purchasePrice: Number(purchasePrice) || 0,
+      depositAmount: Number(depositAmount) || 0,
+      isProcessed: isProcessed === "true",
+      isItemDelivered: isItemDelivered === "true" ? true : isItemDelivered === "false" ? false : null,
+      platformName: platforms.find((item) => item.id === platformId)?.name ?? "",
+      paymentMethodName: paymentMethods.find((item) => item.id === paymentMethodId)?.name ?? "",
+      buyerAccountNames: selectedBuyerAccountIds
+        .map((id) => buyerAccounts.find((item) => item.id === id)?.label)
+        .filter((name): name is string => Boolean(name)),
+      templateName: purchaseTemplates.find((item) => item.id === linkedPurchaseTemplateId)?.title ?? "",
+      scheduledPurchaseAt,
+      missingFields,
+      duplicateCount: duplicateCandidates.length,
+    };
+  }, [
+    buyerAccounts,
+    duplicateCandidates.length,
+    depositAmount,
+    isItemDelivered,
+    isProcessed,
+    kakaoRoomName,
+    linkedPurchaseTemplateId,
+    paymentMethodId,
+    paymentMethods,
+    platformId,
+    platforms,
+    productName,
+    purchaseDate,
+    purchasePrice,
+    purchaseTemplates,
+    scheduledPurchaseAt,
+    selectedBuyerAccountIds,
+  ]);
+
+  useEffect(() => {
+    onSummaryChange?.(formSummary);
+  }, [formSummary, onSummaryChange]);
 
   const kakaoPasteLine = useMemo(() => {
     if (!linkedPurchaseTemplateId) return "";
@@ -652,6 +1051,15 @@ export function OrderDetailForm({
       return { error: "선택한 구매 정보 템플릿을 찾을 수 없습니다. 다시 선택해 주세요." };
     }
 
+    let scheduledPurchaseIso: string | null = null;
+    if (scheduledPurchaseAt) {
+      const scheduledDate = new Date(scheduledPurchaseAt);
+      if (Number.isNaN(scheduledDate.getTime())) {
+        return { error: "구매 예정 시각을 다시 확인해 주세요." };
+      }
+      scheduledPurchaseIso = scheduledDate.toISOString();
+    }
+
     return {
       // 여러 계정 선택 시 주문번호는 주문별 고유값이므로 모든 새 주문에서 비웁니다.
       payloads: selectedBuyerAccountIds.map((selectedBuyerAccountId) => ({
@@ -671,13 +1079,13 @@ export function OrderDetailForm({
         is_item_delivered: isItemDelivered === "true",
         is_processed: nextIsProcessed,
         deposit_memo,
+        notes: notes.trim() || null,
+        product_url: productUrl.trim() || null,
+        scheduled_purchase_at: scheduledPurchaseIso,
+        order_status: orderStatus.trim() || null,
         ...(isImportMode
           ? {
-              notes: draftOrder?.notes ?? null,
-              product_url: draftOrder?.product_url ?? null,
-              scheduled_purchase_at: draftOrder?.scheduled_purchase_at ?? null,
               screenshot_storage_path: draftOrder?.screenshot_storage_path ?? null,
-              order_status: draftOrder?.order_status ?? null,
             }
           : {}),
         ai_review_user_prompt: aiExtraInput.trim() || null,
@@ -701,6 +1109,7 @@ export function OrderDetailForm({
           setToast({ type: "error", message: result.error });
           return false;
         }
+        importRedirectHrefRef.current = result.redirectHref ?? null;
         return true;
       }
 
@@ -712,6 +1121,32 @@ export function OrderDetailForm({
       if (saveError) {
         setToast({ type: "error", message: saveError.message });
         return false;
+      }
+
+      if (isNewOrderMode && workflowUserId) {
+        // 주문 저장 성공은 설정 저장 실패와 분리해 중복 주문이 생기지 않도록 합니다.
+        await Promise.allSettled([
+          supabase.from("user_preferences").upsert(
+            {
+              user_id: workflowUserId,
+              recent_platform_id: platformId || null,
+              recent_payment_method_id: paymentMethodId || null,
+              recent_buyer_account_id: selectedBuyerAccountIds[0] ?? null,
+              recent_purchase_info_template_id: linkedPurchaseTemplateId || null,
+              order_save_action: orderSaveAction,
+            },
+            { onConflict: "user_id" },
+          ),
+          supabase.from("user_order_drafts").delete().eq("user_id", workflowUserId),
+        ]);
+        setPreferences((current) => current ? {
+          ...current,
+          recent_platform_id: platformId || null,
+          recent_payment_method_id: paymentMethodId || null,
+          recent_buyer_account_id: selectedBuyerAccountIds[0] ?? null,
+          recent_purchase_info_template_id: linkedPurchaseTemplateId || null,
+          order_save_action: orderSaveAction,
+        } : current);
       }
 
       return true;
@@ -736,14 +1171,14 @@ export function OrderDetailForm({
         return;
       }
 
-      router.push(importActions.afterDeleteHref);
+      router.push(result.redirectHref ?? importActions.afterDeleteHref);
       router.refresh();
     } finally {
       setIsSaving(false);
     }
   };
 
-  const saveOrder = async ({
+  const commitSaveOrder = async ({
     isProcessed: nextProcessed,
     onSuccess,
   }: {
@@ -752,6 +1187,100 @@ export function OrderDetailForm({
   }) => {
     const ok = await persistOrder(nextProcessed);
     if (ok) onSuccess();
+  };
+
+  const saveOrder = (request: { isProcessed: boolean; onSuccess: () => void }) => {
+    if (isNewOrderMode && duplicateCandidates.length > 0) {
+      pendingDuplicateSaveRef.current = request;
+      setDuplicateConfirmOpen(true);
+      return;
+    }
+    void commitSaveOrder(request);
+  };
+
+  const confirmDuplicateSave = () => {
+    const request = pendingDuplicateSaveRef.current;
+    pendingDuplicateSaveRef.current = null;
+    setDuplicateConfirmOpen(false);
+    if (request) void commitSaveOrder(request);
+  };
+
+  const resetNewOrderFields = (keepSharedValues: boolean) => {
+    setOrderNumber("");
+    setDepositDate("");
+    setDepositAmount("");
+    setDepositMemo("");
+    setIsProcessed("false");
+    setScheduledPurchaseAt("");
+    setOrderStatus("");
+    setNotes("");
+    setAiExtraInput("");
+    if (keepSharedValues) return;
+
+    setKakaoRoomName("");
+    setProductName("");
+    setPurchasePrice("0");
+    setReviewPhotoCount("");
+    setReviewCharCount("");
+    setProductUrl("");
+    setIsItemDelivered("");
+    setPurchaseDate(getKoreaDateInputValue());
+    // 방금 저장한 선택값이 서버 상태 반영을 기다리지 않아도 다음 빈 주문에 바로 이어지게 합니다.
+    setPlatformId(preferences?.default_platform_id ?? platformId ?? preferences?.recent_platform_id ?? "");
+    setPaymentMethodId(
+      preferences?.default_payment_method_id ?? paymentMethodId ?? preferences?.recent_payment_method_id ?? "",
+    );
+    const preferredAccountId = preferences?.default_buyer_account_id
+      ?? selectedBuyerAccountIds[0]
+      ?? preferences?.recent_buyer_account_id;
+    setBuyerAccountIds(preferredAccountId ? [preferredAccountId] : []);
+    setLinkedPurchaseTemplateId(
+      preferences?.default_purchase_info_template_id
+        ?? linkedPurchaseTemplateId
+        ?? preferences?.recent_purchase_info_template_id
+        ?? "",
+    );
+  };
+
+  const handleNewOrderSaved = () => {
+    if (orderSaveAction === "ledger") {
+      router.push("/");
+      router.refresh();
+      return;
+    }
+
+    resetNewOrderFields(orderSaveAction === "same");
+    setDuplicateCandidates([]);
+    setToast({
+      type: "success",
+      message: orderSaveAction === "same" ? "저장했습니다. 같은 정보로 다음 주문을 입력할 수 있습니다." : "저장했습니다. 새 입력 화면을 비웠습니다.",
+    });
+  };
+
+  const updateOrderSaveAction = (action: OrderSaveAction) => {
+    setOrderSaveAction(action);
+    setPreferences((current) => (current ? { ...current, order_save_action: action } : current));
+    if (workflowUserId) {
+      void supabase.from("user_preferences").upsert(
+        { user_id: workflowUserId, order_save_action: action },
+        { onConflict: "user_id" },
+      );
+    }
+  };
+
+  const restoreAvailableDraft = () => {
+    if (availableDraft) applyNewOrderDraft(availableDraft);
+    setAvailableDraft(null);
+    setDraftReady(true);
+    setToast({ type: "success", message: "다른 기기에도 저장된 임시 내용을 불러왔습니다." });
+  };
+
+  const discardAvailableDraft = () => {
+    setAvailableDraft(null);
+    setDraftReady(true);
+    if (workflowUserId) {
+      void supabase.from("user_order_drafts").delete().eq("user_id", workflowUserId);
+    }
   };
 
   const closeLeaveFlow = () => {
@@ -877,6 +1406,74 @@ export function OrderDetailForm({
   return (
     <div className="relative flex flex-col gap-5 pb-8">
       {toast ? <OrderFormToast toast={toast} /> : null}
+
+      {availableDraft && !draftReady ? (
+        <div className="rounded-2xl border border-primary/25 bg-primary/5 p-4 shadow-xs" role="status">
+          <div className="flex items-start gap-3">
+            <Clipboard className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">저장 중이던 주문이 있습니다</p>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                서버에 자동 저장된 임시 내용을 이어서 입력하거나, 현재 화면의 값으로 새로 시작할 수 있습니다.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" size="sm" onClick={restoreAvailableDraft}>이어 작성</Button>
+                <Button type="button" size="sm" variant="outline" onClick={discardAvailableDraft}>임시 내용 버리기</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {duplicateCandidates.length > 0 ? (
+        <div className="rounded-2xl border border-amber-300/70 bg-amber-50 p-4 text-amber-950 shadow-xs dark:border-amber-500/30 dark:bg-amber-950/25 dark:text-amber-100">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">비슷한 기존 주문 {duplicateCandidates.length}건을 찾았습니다</p>
+              <p className="mt-1 text-xs leading-relaxed opacity-80">주문번호가 같거나 구매일·상품·구매계정이 일치합니다.</p>
+              <div className="mt-3 grid gap-2">
+                {duplicateCandidates.map((candidate) => (
+                  <Link
+                    key={candidate.id}
+                    href={`/orders/detail?id=${candidate.id}`}
+                    target="_blank"
+                    className="rounded-lg border border-amber-300/60 bg-background/70 px-3 py-2 text-sm hover:bg-background"
+                  >
+                    <span className="font-medium">{candidate.title || candidate.product_name}</span>
+                    <span className="ml-2 opacity-70">{candidate.purchase_date} · {formatKrw(candidate.purchase_price_krw)}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {duplicateConfirmOpen ? (
+        <div
+          className="fixed inset-0 z-[195] flex items-end justify-center bg-black/45 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center sm:p-6"
+          role="presentation"
+          onClick={() => setDuplicateConfirmOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="duplicate-save-title"
+            className="w-full max-w-sm rounded-2xl bg-card p-5 text-card-foreground shadow-2xl ring-1 ring-black/10"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="duplicate-save-title" className="text-lg font-semibold">그래도 주문을 추가할까요?</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              비슷한 주문 {duplicateCandidates.length}건이 있습니다. 기존 주문을 확인했으며 별도 주문이 맞을 때만 추가해 주세요.
+            </p>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <Button type="button" variant="outline" onClick={() => setDuplicateConfirmOpen(false)}>취소</Button>
+              <Button type="button" disabled={isSaving} onClick={confirmDuplicateSave}>그래도 추가</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {leaveModalOpen ? (
         <div
@@ -1225,9 +1822,65 @@ export function OrderDetailForm({
         </CardContent>
       </Card>
 
+      <details
+        className="group rounded-2xl border bg-card text-card-foreground shadow-sm ring-1 ring-border/60"
+      >
+        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:hidden">
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-700 ring-1 ring-sky-500/20 dark:text-sky-300">
+              <CalendarClock className="h-4 w-4" aria-hidden />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold">추가 정보</span>
+              <span className="block text-xs text-muted-foreground">구매 일정·상품 링크·메모</span>
+            </span>
+          </span>
+          <span className="text-xs font-medium text-muted-foreground group-open:hidden">펼치기</span>
+          <span className="hidden text-xs font-medium text-muted-foreground group-open:inline">접기</span>
+        </summary>
+        <div className="border-t border-border/60 px-4 pb-2">
+          <div className="grid gap-x-4 sm:grid-cols-2">
+            <FormRow label="구매 예정 시각" hint="선택">
+              <Input
+                type="datetime-local"
+                value={scheduledPurchaseAt}
+                onChange={(event) => setScheduledPurchaseAt(event.target.value)}
+                className="h-10 rounded-xl md:text-sm"
+              />
+            </FormRow>
+            <FormRow label="주문 상태" hint="선택">
+              <Input
+                value={orderStatus}
+                onChange={(event) => setOrderStatus(event.target.value)}
+                placeholder="예: 결제 대기, 발송 준비"
+                className="h-10 rounded-xl md:text-sm"
+              />
+            </FormRow>
+          </div>
+          <FormRow label="상품 URL" hint="선택">
+            <Input
+              type="url"
+              value={productUrl}
+              onChange={(event) => setProductUrl(event.target.value)}
+              placeholder="https://"
+              className="h-10 rounded-xl md:text-sm"
+            />
+          </FormRow>
+          <FormRow label="메모" hint="선택">
+            <textarea
+              rows={3}
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              className={controlTextareaClass}
+              placeholder="주문 처리에 필요한 메모를 적어 주세요"
+            />
+          </FormRow>
+        </div>
+      </details>
+
       {isEditMode && order ? (
-        <Card className="shadow-sm ring-border/60" size="sm">
-          <CardHeader className="border-border/60 border-b pb-4">
+        <details className="group rounded-2xl border bg-card text-card-foreground shadow-sm ring-1 ring-border/60">
+          <summary className="cursor-pointer list-none border-border/60 px-4 py-4 marker:hidden group-open:border-b">
             <div className="flex items-start gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/12 text-violet-800 ring-1 ring-violet-500/20 dark:bg-violet-500/15 dark:text-violet-200 dark:ring-violet-400/25">
                 <Bot className="h-5 w-5" strokeWidth={1.75} aria-hidden />
@@ -1238,8 +1891,10 @@ export function OrderDetailForm({
                   Gemini로 초안을 만들고 이 주문에 자동 저장합니다. 생성 중에 다른 화면으로 이동해도 서버에서 끝까지 처리된 뒤 여기에 반영됩니다(다시 들어오면 최신 내용이 보입니다).
                 </CardDescription>
               </div>
+              <span className="ml-auto shrink-0 text-xs font-medium text-muted-foreground group-open:hidden">펼치기</span>
+              <span className="ml-auto hidden shrink-0 text-xs font-medium text-muted-foreground group-open:inline">접기</span>
             </div>
-          </CardHeader>
+          </summary>
           <CardContent className="space-y-4 pt-0">
             <div className="space-y-2 py-2">
               <Label className="text-foreground text-sm font-medium">AI에게 전달할 추가 정보</Label>
@@ -1299,7 +1954,7 @@ export function OrderDetailForm({
               />
             </div>
           </CardContent>
-        </Card>
+        </details>
       ) : null}
 
       <Card className="bg-muted/20 shadow-sm ring-border/50 dark:bg-muted/10" size="sm">
@@ -1380,7 +2035,7 @@ export function OrderDetailForm({
                 saveOrder({
                   isProcessed: false,
                   onSuccess: () => {
-                    router.push(importActions.afterSaveHref);
+                    router.push(importRedirectHrefRef.current ?? importActions.afterSaveHref);
                     router.refresh();
                   },
                 })
@@ -1504,17 +2159,29 @@ export function OrderDetailForm({
             "bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] supports-[padding:max(0px)]:pb-[max(0.5rem,env(safe-area-inset-bottom))]",
           )}
         >
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <Label htmlFor="order-save-action" className="shrink-0 text-xs font-medium text-muted-foreground">
+              저장 후
+            </Label>
+            <select
+              id="order-save-action"
+              value={orderSaveAction}
+              onChange={(event) => updateOrderSaveAction(event.target.value as OrderSaveAction)}
+              className={cn(controlSelectClass, "h-9 max-w-56 text-xs")}
+            >
+              <option value="ledger">구매장부로 이동</option>
+              <option value="same">같은 정보로 계속 등록</option>
+              <option value="blank">빈 입력 화면 열기</option>
+            </select>
+          </div>
           <button
             type="button"
-            disabled={isSaving}
+            disabled={isSaving || !draftReady}
             className={cn(buttonVariants({ variant: "default", size: "default" }), "h-11 w-full touch-manipulation")}
             onClick={() =>
               saveOrder({
                 isProcessed: isProcessed === "true",
-                onSuccess: () => {
-                  router.push("/");
-                  router.refresh();
-                },
+                onSuccess: handleNewOrderSaved,
               })
             }
           >

@@ -162,74 +162,33 @@ export function PurchaseInfoTemplateForm({ template }: { template?: PurchaseTemp
             </div>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="divide-y divide-border/50">
-            <FormRow label="제목" required hint="목록에서 이 이름으로만 보입니다">
-              <Input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="h-10 rounded-xl md:text-sm"
-                autoComplete="off"
-                placeholder="예: 단골 A방"
-              />
-            </FormRow>
-            <FormRow label="구매자">
-              <Input
-                value={buyerName}
-                onChange={(e) => setBuyerName(e.target.value)}
-                className="h-10 rounded-xl md:text-sm"
-                autoComplete="name"
-              />
-            </FormRow>
-            <FormRow label="수취인">
-              <Input
-                value={recipientName}
-                onChange={(e) => setRecipientName(e.target.value)}
-                className="h-10 rounded-xl md:text-sm"
-                autoComplete="off"
-              />
-            </FormRow>
-            <FormRow label="아이디">
-              <Input
-                value={loginId}
-                onChange={(e) => setLoginId(e.target.value)}
-                className="h-10 rounded-xl md:text-sm"
-                autoComplete="username"
-              />
-            </FormRow>
-            <FormRow label="연락처">
-              <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="h-10 rounded-xl md:text-sm"
-                autoComplete="tel"
-                inputMode="tel"
-              />
-            </FormRow>
-            <FormRow label="주소">
-              <textarea
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                className={textareaClass}
-                autoComplete="street-address"
-              />
-            </FormRow>
-            <FormRow label="은행계좌번호">
-              <Input
-                value={bankAccountNumber}
-                onChange={(e) => setBankAccountNumber(e.target.value)}
-                className="h-10 rounded-xl md:text-sm"
-                autoComplete="off"
-                inputMode="numeric"
-              />
-            </FormRow>
-            <FormRow label="예금주">
-              <Input
-                value={accountHolder}
-                onChange={(e) => setAccountHolder(e.target.value)}
-                className="h-10 rounded-xl md:text-sm"
-                autoComplete="off"
-              />
-            </FormRow>
+            {/* 입력 목적별로 묶어 긴 폼에서도 현재 위치를 쉽게 파악할 수 있게 합니다. */}
+            <div className="grid gap-6 py-4">
+              <section>
+                <h3 className="text-xs font-semibold tracking-wide text-primary">템플릿 구분</h3>
+                <FormRow label="제목" required hint="목록에서 이 이름으로만 보입니다">
+                  <Input value={title} onChange={(e) => setTitle(e.target.value)} className="h-10 rounded-xl md:text-sm" autoComplete="off" placeholder="예: 단골 A방" />
+                </FormRow>
+              </section>
+
+              <section className="border-t border-border/60 pt-5">
+                <h3 className="text-xs font-semibold tracking-wide text-primary">구매·배송 정보</h3>
+                <div className="grid gap-x-4 sm:grid-cols-2">
+                  <FormRow label="구매자"><Input value={buyerName} onChange={(e) => setBuyerName(e.target.value)} className="h-10 rounded-xl md:text-sm" autoComplete="name" /></FormRow>
+                  <FormRow label="수취인"><Input value={recipientName} onChange={(e) => setRecipientName(e.target.value)} className="h-10 rounded-xl md:text-sm" autoComplete="off" /></FormRow>
+                  <FormRow label="연락처"><Input value={phone} onChange={(e) => setPhone(e.target.value)} className="h-10 rounded-xl md:text-sm" autoComplete="tel" inputMode="tel" /></FormRow>
+                </div>
+                <FormRow label="주소"><textarea value={address} onChange={(e) => setAddress(e.target.value)} className={textareaClass} autoComplete="street-address" /></FormRow>
+              </section>
+
+              <section className="border-t border-border/60 pt-5">
+                <h3 className="text-xs font-semibold tracking-wide text-primary">계정·환급 정보</h3>
+                <FormRow label="아이디"><Input value={loginId} onChange={(e) => setLoginId(e.target.value)} className="h-10 rounded-xl md:text-sm" autoComplete="username" /></FormRow>
+                <div className="grid gap-x-4 sm:grid-cols-2">
+                  <FormRow label="은행계좌번호"><Input value={bankAccountNumber} onChange={(e) => setBankAccountNumber(e.target.value)} className="h-10 rounded-xl md:text-sm" autoComplete="off" inputMode="numeric" /></FormRow>
+                  <FormRow label="예금주"><Input value={accountHolder} onChange={(e) => setAccountHolder(e.target.value)} className="h-10 rounded-xl md:text-sm" autoComplete="off" /></FormRow>
+                </div>
+              </section>
             </div>
           </CardContent>
         </Card>

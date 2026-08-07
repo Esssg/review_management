@@ -374,6 +374,33 @@ export type Database = {
         };
         Relationships: [];
       };
+      saved_order_views: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          filters: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          name: string;
+          filters?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          name?: string;
+          filters?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       user_ai_review_profiles: {
         Row: {
           user_id: string;
@@ -402,6 +429,78 @@ export type Database = {
           region?: string | null;
           occupation?: string | null;
           extra_context?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      user_order_drafts: {
+        Row: {
+          user_id: string;
+          draft_data: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id?: string;
+          draft_data?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          draft_data?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      user_preferences: {
+        Row: {
+          user_id: string;
+          default_platform_id: string | null;
+          default_payment_method_id: string | null;
+          default_buyer_account_id: string | null;
+          default_purchase_info_template_id: string | null;
+          recent_platform_id: string | null;
+          recent_payment_method_id: string | null;
+          recent_buyer_account_id: string | null;
+          recent_purchase_info_template_id: string | null;
+          order_save_action: string;
+          auto_advance_recommendations: boolean;
+          ledger_density: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id?: string;
+          default_platform_id?: string | null;
+          default_payment_method_id?: string | null;
+          default_buyer_account_id?: string | null;
+          default_purchase_info_template_id?: string | null;
+          recent_platform_id?: string | null;
+          recent_payment_method_id?: string | null;
+          recent_buyer_account_id?: string | null;
+          recent_purchase_info_template_id?: string | null;
+          order_save_action?: string;
+          auto_advance_recommendations?: boolean;
+          ledger_density?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          default_platform_id?: string | null;
+          default_payment_method_id?: string | null;
+          default_buyer_account_id?: string | null;
+          default_purchase_info_template_id?: string | null;
+          recent_platform_id?: string | null;
+          recent_payment_method_id?: string | null;
+          recent_buyer_account_id?: string | null;
+          recent_purchase_info_template_id?: string | null;
+          order_save_action?: string;
+          auto_advance_recommendations?: boolean;
+          ledger_density?: string;
           created_at?: string;
           updated_at?: string;
         };

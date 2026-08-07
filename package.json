@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "gen:types": "npx --yes supabase@latest gen types typescript --linked --schema public > src/types/database.gen.ts"
   },
   "dependencies": {
@@ -34,6 +35,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vite": "^6.4.3",
+    "vitest": "^3.2.7"
   }
 }

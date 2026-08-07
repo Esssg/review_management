@@ -1,7 +1,7 @@
 # DB 가이드 (Supabase)
 
 기준 프로젝트: `xhjjoxzwpgqlodflaiix`  
-최종 업데이트: 2026-05-25
+최종 업데이트: 2026-08-08
 
 ## 1) 현재 DB에 있는 테이블
 
@@ -13,6 +13,9 @@
 - `purchase_info_templates` — 카톡 등에 붙여넣을 구매 정보 템플릿 (RLS 활성화)
 - `user_ai_review_profiles` — AI 리뷰 생성용 사용자 기본 프로필(비식별 위주, RLS 활성화)
 - `user_item_settings` — 시스템 기본 항목 숨김 설정 (RLS 활성화)
+- `user_preferences` — 주문 작성 기본값·최근값과 화면 동작 설정 (사용자당 0~1행, RLS 활성화)
+- `user_order_drafts` — 기기 간 동기화되는 신규 주문 임시저장 (사용자당 0~1행, RLS 활성화)
+- `saved_order_views` — 사용자가 이름 붙여 저장한 주문 원장 필터 (RLS 활성화)
 - `users` — Auth 사용자와 1:1 사용자 프로필(`user_id`, 표시 `name`, RLS 활성화). `auth.users` INSERT 트리거로 행 생성
 - `bank_account` — 사용자별 입금 계좌 정보 (RLS 활성화)
 - `bank_account_deposit` — 입금 계좌별 입금 내역 (RLS 활성화)
@@ -23,7 +26,7 @@
 
 ### `public.orders`
 
-행 수(조회 시점): 약 100건 | RLS: 활성화
+행 수(조회 시점): 1,646건 | RLS: 활성화
 
 #### 컬럼 정의 및 의미
 
@@ -188,6 +191,59 @@
 
 ---
 
+### `public.user_preferences`
+
+행 수: 0건 | RLS: 활성화 (`auth.uid() = user_id` 소유자 정책)
+
+| 컬럼 | 타입 | Nullable | 의미 |
+|---|---|---|---|
+| `user_id` | uuid | NO | PK 겸 사용자 ID (`auth.users.id` FK) |
+| `default_platform_id` | uuid | YES | 신규 주문의 기본 플랫폼 |
+| `default_payment_method_id` | uuid | YES | 신규 주문의 기본 결제수단 |
+| `default_buyer_account_id` | uuid | YES | 신규 주문의 기본 구매계정 |
+| `default_purchase_info_template_id` | uuid | YES | 신규 주문의 기본 구매정보 템플릿 |
+| `recent_platform_id` | uuid | YES | 마지막 저장 주문에서 사용한 플랫폼 |
+| `recent_payment_method_id` | uuid | YES | 마지막 저장 주문에서 사용한 결제수단 |
+| `recent_buyer_account_id` | uuid | YES | 마지막 저장 주문에서 사용한 구매계정 |
+| `recent_purchase_info_template_id` | uuid | YES | 마지막 저장 주문에서 사용한 템플릿 |
+| `order_save_action` | text | NO | 저장 후 이동 방식 (`ledger`, `same`, `blank`) |
+| `auto_advance_recommendations` | boolean | NO | 자동추천 처리 후 다음 항목 자동 이동 여부 |
+| `ledger_density` | text | NO | 주문 원장 밀도 (`compact`, `comfortable`) |
+| `created_at` | timestamptz | NO | 생성 시각 |
+| `updated_at` | timestamptz | NO | 수정 시각 |
+
+기본값보다 최근값을 우선하지 않습니다. 사용자가 지정한 기본값이 있으면 기본값을 쓰고, 없을 때만 최근 저장값을 신규 주문에 적용합니다.
+
+---
+
+### `public.user_order_drafts`
+
+행 수: 0건 | RLS: 활성화 (`auth.uid() = user_id` 소유자 정책)
+
+| 컬럼 | 타입 | Nullable | 의미 |
+|---|---|---|---|
+| `user_id` | uuid | NO | PK 겸 사용자 ID (`auth.users.id` FK) |
+| `draft_data` | jsonb | NO | 신규 주문의 비민감 입력값. 주소·연락처·계좌번호 등 템플릿 원문은 저장하지 않음 |
+| `created_at` | timestamptz | NO | 생성 시각 |
+| `updated_at` | timestamptz | NO | 마지막 자동저장 시각 |
+
+---
+
+### `public.saved_order_views`
+
+행 수: 0건 | RLS: 활성화 (`auth.uid() = user_id` 소유자 정책)
+
+| 컬럼 | 타입 | Nullable | 의미 |
+|---|---|---|---|
+| `id` | uuid | NO | 저장된 보기 고유 ID (PK) |
+| `user_id` | uuid | NO | 소유 사용자 ID (`auth.users.id` FK) |
+| `name` | text | NO | 보기 이름(공백 제거 기준 1~40자, 사용자 안에서 중복 불가) |
+| `filters` | jsonb | NO | 검색·상태·기간·정렬 등 URL과 공유하는 원장 필터 |
+| `created_at` | timestamptz | NO | 생성 시각 |
+| `updated_at` | timestamptz | NO | 수정 시각 |
+
+---
+
 ### `public.users`
 
 행 수: `auth.users`와 동일(가입·백필 후) | RLS: 활성화 (`auth.uid() = user_id`로 조회·본인 행의 `name`만 수정; `email`은 DB 권한상 클라이언트에서 갱신 불가)
@@ -273,7 +329,8 @@ supabase
 ---
 
 ## 4) 참고
-- `public.orders`, `public.purchase_info_templates`, `public.buyer_accounts`, `public.platforms`, `public.payment_methods`, `public.user_ai_review_profiles`, `public.user_item_settings`, `public.users`, `public.bank_account`, `public.bank_account_deposit`는 RLS가 활성화되어 있습니다.
+- `public.orders`, `public.purchase_info_templates`, `public.buyer_accounts`, `public.platforms`, `public.payment_methods`, `public.user_ai_review_profiles`, `public.user_item_settings`, `public.user_preferences`, `public.user_order_drafts`, `public.saved_order_views`, `public.users`, `public.bank_account`, `public.bank_account_deposit`는 RLS가 활성화되어 있습니다.
+- `user_preferences`, `user_order_drafts`, `saved_order_views`는 `anon` 테이블 권한을 제거했고, 로그인한 `authenticated` 역할만 RLS 소유자 정책 안에서 조회·추가·수정·삭제할 수 있습니다.
 - `platforms` / `payment_methods`는 시스템 기본 행(`user_id` IS NULL)을 모든 인증 사용자가 조회할 수 있습니다. INSERT·DELETE는 `user_id = auth.uid()`인 행만 가능하고, UPDATE(색상)는 시스템/본인 행 모두 허용됩니다.
 - 쓰기 시 FK 컬럼(`platform_id`, `payment_method_id`, `buyer_account_id`)을 사용합니다.
 - AI 리뷰 생성은 Supabase Edge Function `generate-ai-review`에서 Gemini를 호출하고, 완료 시 `orders.ai_review`를 갱신합니다. 배포 후 프로젝트 시크릿에 `GEMINI_API_KEY`를 설정하고 `supabase functions deploy generate-ai-review`로 배포해야 합니다. 선택 환경 변수: `GEMINI_MODEL`(기본 `gemini-2.5-flash-lite`, 무료 티 권장). 값은 **모델 id만**(`gemini-2.5-flash`, `gemini-2.0-flash` 등). `models/` 접두어는 Edge에서 제거합니다. `gemini-1.5-flash` 등 1.5 계열은 404가 나는 경우가 많아 `gemini-2.5-flash-lite`로 치환합니다. 신규 프로젝트 JWT(ES256)와의 호환을 위해 `supabase/config.toml`에서 이 함수는 `verify_jwt=false`이며, 함수 코드에서 `auth.getUser()`로 사용자를 검증합니다.

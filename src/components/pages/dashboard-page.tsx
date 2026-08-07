@@ -5,10 +5,11 @@ import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
 
 import { UserAccountMenu } from "@/components/auth/user-account-menu";
+import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { OrdersDashboard } from "@/components/orders/orders-dashboard";
 import { createClient } from "@/lib/supabase/client";
 import { exportDashboardExcel } from "@/lib/export-dashboard-excel";
-import type { OrderWithRelations } from "@/components/orders/orders-table";
+import type { OrderWithRelations } from "@/types/orders";
 
 export function DashboardPage() {
   const router = useRouter();
@@ -78,6 +79,7 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2 self-start">
+          <GlobalSearchTrigger />
           <button
             type="button"
             aria-label="엑셀로 내보내기"
@@ -98,7 +100,7 @@ export function DashboardPage() {
           <UserAccountMenu email={email ?? "?"} />
         </div>
       </div>
-      <OrdersDashboard orders={orders} />
+      <OrdersDashboard orders={orders} userEmail={email ?? ""} />
     </div>
   );
 }

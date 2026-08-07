@@ -1,4 +1,4 @@
-import type { OrderWithRelations } from "@/components/orders/orders-table";
+import type { OrderWithRelations } from "@/types/orders";
 
 export type MonthlyStat = {
   month: string;

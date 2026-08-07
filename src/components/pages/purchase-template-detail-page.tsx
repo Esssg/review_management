@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { PurchaseInfoTemplateForm } from "@/components/purchase-templates/purchase-info-template-form";
+import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { buttonVariants } from "@/components/ui/button";
 import type { PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import { createClient } from "@/lib/supabase/client";
@@ -100,9 +101,12 @@ export function PurchaseTemplateDetailPage() {
           <h1 className="text-2xl font-semibold tracking-tight">템플릿 수정</h1>
           <p className="text-muted-foreground mt-1 text-sm">필드를 고친 뒤 저장하면 설정 목록에 반영됩니다.</p>
         </div>
-        <Link href="/settings" className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit shrink-0")}>
-          설정으로
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          <GlobalSearchTrigger />
+          <Link href="/settings" className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit shrink-0")}>
+            설정으로
+          </Link>
+        </div>
       </div>
 
       <PurchaseInfoTemplateForm template={row} />

@@ -1,17 +1,19 @@
 "use client";
 
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
   Banknote,
   Bot,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clipboard,
   Clock,
+  Copy,
   CreditCard,
   Filter,
   Images,
@@ -20,6 +22,9 @@ import {
   PackageCheck,
   PencilLine,
   RotateCcw,
+  Rows3,
+  Save,
+  Search,
   ShoppingBag,
   Trash2,
   Type,
@@ -43,17 +48,12 @@ import {
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
 import { hexToRgba, normalizeHexColor } from "@/lib/color";
 import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
+import { getKoreaDateInputValue } from "@/lib/korea-date";
+import { matchesPurchaseSchedule, type PurchaseScheduleFilter } from "@/lib/order-workflow";
+import { getOrCreateUserPreferences, type LedgerDensity } from "@/lib/user-preferences";
 import { cn } from "@/lib/utils";
-import type { Database } from "@/types/database";
-
-type OrderRow = Database["public"]["Tables"]["orders"]["Row"];
-
-export type OrderWithRelations = OrderRow & {
-  platforms: { id: string; name: string; color: string } | null;
-  payment_methods: { id: string; name: string; color: string } | null;
-  buyer_accounts: { id: string; label: string; color: string } | null;
-  purchase_info_templates?: PurchaseTemplateRow | null;
-};
+import type { Database, Json } from "@/types/database";
+import { ORDER_LIST_SELECT, type OrderWithRelations } from "@/types/orders";
 
 const krwCurrencyFormatter = new Intl.NumberFormat("ko-KR", {
   style: "currency",
@@ -63,6 +63,14 @@ const krwCurrencyFormatter = new Intl.NumberFormat("ko-KR", {
 
 const koreaDateFormatter = new Intl.DateTimeFormat("ko-KR", {
   dateStyle: "medium",
+  timeZone: "Asia/Seoul",
+});
+
+const koreaScheduleFormatter = new Intl.DateTimeFormat("ko-KR", {
+  month: "numeric",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
   timeZone: "Asia/Seoul",
 });
 
@@ -77,54 +85,6 @@ function formatDate(isoDate: string | null) {
   if (!isoDate) return "—";
   return koreaDateFormatter.format(new Date(isoDate + "T00:00:00"));
 }
-
-export const ORDER_LIST_SELECT = `
-  id,
-  user_id,
-  product_name,
-  is_processed,
-  purchase_date,
-  deposit_date,
-  purchase_price_krw,
-  deposit_amount_krw,
-  profit_krw,
-  is_item_delivered,
-  deposit_memo,
-  notes,
-  product_url,
-  scheduled_purchase_at,
-  order_number,
-  screenshot_storage_path,
-  order_status,
-  created_at,
-  updated_at,
-  title,
-  platform_id,
-  payment_method_id,
-  buyer_account_id,
-  review_photo_count,
-  review_char_count,
-  purchase_info_template_id,
-  ai_review,
-  ai_review_user_prompt,
-  platforms(id, name, color),
-  payment_methods(id, name, color),
-  buyer_accounts(id, label, color),
-  purchase_info_templates(
-    id,
-    user_id,
-    title,
-    buyer_name,
-    recipient_name,
-    login_id,
-    phone,
-    address,
-    bank_account_number,
-    account_holder,
-    created_at,
-    updated_at
-  )
-` as const;
 
 export type OrderListCounts = {
   total: number | null;
@@ -144,22 +104,10 @@ function profitFromDepositAndPurchase(deposit: number, purchase: number): number
   return Math.round((deposit - purchase) * 100) / 100;
 }
 
-/** 입금 기본일은 운영 기준 시간대인 한국 날짜로 채운다. */
-function getTodayDateInputValue() {
-  const parts = new Intl.DateTimeFormat("en", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${byType.year}-${byType.month}-${byType.day}`;
-}
-
 function addDaysToDateInput(value: string, days: number) {
-  const base = value.trim() || getTodayDateInputValue();
+  const base = value.trim() || getKoreaDateInputValue();
   const [year, month, day] = base.split("-").map(Number);
-  if (!year || !month || !day) return getTodayDateInputValue();
+  if (!year || !month || !day) return getKoreaDateInputValue();
   const next = new Date(Date.UTC(year, month - 1, day + days));
   return next.toISOString().slice(0, 10);
 }
@@ -171,7 +119,7 @@ function adjustDepositAmountInput(value: string, fallbackAmount: number | string
 
 function getDefaultDepositValues(row: OrderWithRelations) {
   return {
-    date: row.deposit_date?.trim() || getTodayDateInputValue(),
+    date: row.deposit_date?.trim() || getKoreaDateInputValue(),
     amount:
       row.deposit_amount_krw != null
         ? String(row.deposit_amount_krw)
@@ -512,6 +460,11 @@ function OrderDetailChips({
   const showPhotos = photos !== null && photos !== undefined;
   const showChars = chars !== null && chars !== undefined;
   const linkedTemplate = row.purchase_info_templates;
+  // 예약 구매는 목록을 훑을 때 바로 놓치지 않도록 상태 칩으로 함께 노출한다.
+  const scheduledPurchase = row.scheduled_purchase_at
+    ? new Date(row.scheduled_purchase_at)
+    : null;
+  const hasValidSchedule = scheduledPurchase && !Number.isNaN(scheduledPurchase.getTime());
 
   return (
     <div
@@ -545,6 +498,20 @@ function OrderDetailChips({
             style={{ color: accountColor }}
           >
             {accountLabel}
+          </span>
+        </span>
+      ) : null}
+      {hasValidSchedule ? (
+        <span
+          className={cn(
+            chipClassMaybeWrap,
+            "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/70 dark:bg-sky-950/40 dark:text-sky-300",
+          )}
+          title="구매 예정 시각"
+        >
+          <CalendarClock className={iconClass} aria-hidden />
+          <span className={cn(chipText)}>
+            예정 · {koreaScheduleFormatter.format(scheduledPurchase)}
           </span>
         </span>
       ) : null}
@@ -1126,11 +1093,13 @@ function WebCompletedActionsDropdown({
 function OrderExpandPanel({
   row,
   onEditOrder,
+  onDuplicateOrder,
   supabase,
   onPatchOrder,
 }: {
   row: OrderWithRelations;
   onEditOrder: () => void;
+  onDuplicateOrder: () => void;
   supabase: ReturnType<typeof createClient>;
   onPatchOrder: (o: OrderWithRelations) => void;
 }) {
@@ -1196,89 +1165,10 @@ function OrderExpandPanel({
         </div>
         </>
       )}
-    </div>
-  );
-}
-
-function FilterPanel({
-  search,
-  onSearch,
-  fromDate,
-  onFromDate,
-  toDate,
-  onToDate,
-  onClear,
-  onClose,
-  sectionLabel,
-}: {
-  search: string;
-  onSearch: (v: string) => void;
-  fromDate: string;
-  onFromDate: (v: string) => void;
-  toDate: string;
-  onToDate: (v: string) => void;
-  onClear: () => void;
-  onClose: () => void;
-  sectionLabel: string;
-}) {
-  const hasActiveFilters =
-    search.trim() !== "" || fromDate.trim() !== "" || toDate.trim() !== "";
-
-  return (
-    <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-3 dark:bg-slate-700/40">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="min-w-0 text-[11px] font-medium text-muted-foreground">
-          {sectionLabel} 검색 / 날짜 필터
-        </span>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={onClear}
-            disabled={!hasActiveFilters}
-            aria-label={`${sectionLabel} 필터 지우기`}
-            className={cn(
-              "inline-flex min-h-8 touch-manipulation items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors",
-              hasActiveFilters
-                ? "text-slate-700 hover:bg-slate-200 dark:text-slate-200 dark:hover:bg-slate-600"
-                : "cursor-not-allowed text-muted-foreground/50",
-            )}
-          >
-            <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
-            필터 지우기
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="필터 패널 닫기"
-            className="rounded-full p-1.5 transition-colors hover:bg-slate-200 dark:hover:bg-slate-600"
-          >
-            <X className="h-3.5 w-3.5 text-muted-foreground" />
-          </button>
-        </div>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-3">
-        <Input
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          placeholder="제목/메모 검색"
-          aria-label={`${sectionLabel} 검색`}
-          className="h-8 rounded-xl bg-white text-sm dark:bg-slate-800"
-        />
-        <Input
-          type="date"
-          value={fromDate}
-          onChange={(e) => onFromDate(e.target.value)}
-          aria-label={`${sectionLabel} 시작 날짜`}
-          className="h-8 rounded-xl bg-white text-sm dark:bg-slate-800"
-        />
-        <Input
-          type="date"
-          value={toDate}
-          onChange={(e) => onToDate(e.target.value)}
-          aria-label={`${sectionLabel} 종료 날짜`}
-          className="h-8 rounded-xl bg-white text-sm dark:bg-slate-800"
-        />
-      </div>
+      <Button type="button" variant="ghost" size="sm" className="mt-2 w-full gap-1.5" onClick={onDuplicateOrder}>
+        <Copy className="h-3.5 w-3.5" aria-hidden />
+        새 주문으로 복제
+      </Button>
     </div>
   );
 }
@@ -1290,6 +1180,7 @@ const OrderCardItem = memo(function OrderCardItem({
   isExpanded,
   onToggleExpand,
   onEditOrder,
+  onDuplicateOrder,
   onDelete,
   onSwipeLeft,
   onSwipeCancel,
@@ -1302,6 +1193,7 @@ const OrderCardItem = memo(function OrderCardItem({
   isExpanded: boolean;
   onToggleExpand: () => void;
   onEditOrder: () => void;
+  onDuplicateOrder: () => void;
   onDelete: () => void;
   onSwipeLeft: () => void;
   onSwipeCancel: () => void;
@@ -1401,7 +1293,7 @@ const OrderCardItem = memo(function OrderCardItem({
         </div>
       </div>
       {isExpanded ? (
-        <OrderExpandPanel row={row} onEditOrder={onEditOrder} supabase={supabase} onPatchOrder={onPatchOrder} />
+        <OrderExpandPanel row={row} onEditOrder={onEditOrder} onDuplicateOrder={onDuplicateOrder} supabase={supabase} onPatchOrder={onPatchOrder} />
       ) : null}
     </div>
   );
@@ -1412,8 +1304,77 @@ type SearchableOrder = {
   searchText: string;
 };
 
+type OrderStatusFilter = "all" | "pending" | "completed";
+type OrderAttentionFilter =
+  | "all"
+  | "undelivered"
+  | "scheduleToday"
+  | "overdue"
+  | "scheduleUpcoming"
+  | "missingDeposit"
+  | "missingAi"
+  | "missingTemplate";
+type OrderSort = "newest" | "oldest" | "amountDesc" | "amountAsc";
+type SavedOrderView = Database["public"]["Tables"]["saved_order_views"]["Row"];
+
+type OrderFilterSnapshot = {
+  q: string;
+  status: OrderStatusFilter;
+  attention: OrderAttentionFilter;
+  from: string;
+  to: string;
+  sort: OrderSort;
+  platform: string;
+  payment: string;
+  account: string;
+};
+
+const orderStatusFilters: OrderStatusFilter[] = ["all", "pending", "completed"];
+const orderAttentionFilters: OrderAttentionFilter[] = [
+  "all",
+  "undelivered",
+  "scheduleToday",
+  "overdue",
+  "scheduleUpcoming",
+  "missingDeposit",
+  "missingAi",
+  "missingTemplate",
+];
+const orderSorts: OrderSort[] = ["newest", "oldest", "amountDesc", "amountAsc"];
+
+function readSavedFilterSnapshot(value: Json): OrderFilterSnapshot | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const readText = (key: keyof OrderFilterSnapshot) => typeof value[key] === "string" ? value[key] : "";
+  const status = readText("status") as OrderStatusFilter;
+  const attention = readText("attention") as OrderAttentionFilter;
+  const sort = readText("sort") as OrderSort;
+  if (!orderStatusFilters.includes(status) || !orderAttentionFilters.includes(attention) || !orderSorts.includes(sort)) {
+    return null;
+  }
+  return {
+    q: readText("q"),
+    status,
+    attention,
+    from: readText("from"),
+    to: readText("to"),
+    sort,
+    platform: readText("platform"),
+    payment: readText("payment"),
+    account: readText("account"),
+  };
+}
+
 function buildOrderSearchText(order: OrderWithRelations) {
-  return `${order.title ?? ""} ${order.product_name} ${order.notes ?? ""}`.trim().toLowerCase();
+  return [
+    order.title,
+    order.product_name,
+    order.notes,
+    order.order_number,
+    order.order_status,
+    order.platforms?.name,
+    order.payment_methods?.name,
+    order.buyer_accounts?.label,
+  ].filter(Boolean).join(" ").trim().toLocaleLowerCase("ko-KR");
 }
 
 function prepareSearchableOrders(orders: OrderWithRelations[]) {
@@ -1422,18 +1383,46 @@ function prepareSearchableOrders(orders: OrderWithRelations[]) {
 
 function filterSearchableOrders(
   sourceOrders: SearchableOrder[],
-  search: string,
-  fromDate: string,
-  toDate: string,
+  filters: OrderFilterSnapshot,
 ) {
-  const query = search.trim().toLowerCase();
-  return sourceOrders
+  const query = filters.q.trim().toLocaleLowerCase("ko-KR");
+  const now = Date.now();
+  const visible = sourceOrders
     .filter(({ order, searchText }) => {
-      if (fromDate && order.purchase_date < fromDate) return false;
-      if (toDate && order.purchase_date > toDate) return false;
+      if (filters.from && order.purchase_date < filters.from) return false;
+      if (filters.to && order.purchase_date > filters.to) return false;
+      if (filters.platform && order.platforms?.name !== filters.platform) return false;
+      if (filters.payment && order.payment_methods?.name !== filters.payment) return false;
+      if (filters.account && order.buyer_accounts?.label !== filters.account) return false;
+
+      if (filters.attention === "undelivered" && order.is_item_delivered) return false;
+      if (["scheduleToday", "overdue", "scheduleUpcoming"].includes(filters.attention)) {
+        if (!matchesPurchaseSchedule(
+          order.scheduled_purchase_at,
+          filters.attention as PurchaseScheduleFilter,
+          now,
+        )) return false;
+      }
+      if (
+        filters.attention === "missingDeposit"
+        && (!order.is_processed || (order.deposit_date && order.deposit_amount_krw !== null))
+      ) return false;
+      if (filters.attention === "missingAi") {
+        const hasReviewRequirement = Number(order.review_photo_count) > 0 || Number(order.review_char_count) > 0;
+        if (!hasReviewRequirement || order.ai_review?.trim()) return false;
+      }
+      if (filters.attention === "missingTemplate" && order.purchase_info_template_id) return false;
+
       return query ? searchText.includes(query) : true;
     })
     .map(({ order }) => order);
+
+  return visible.sort((a, b) => {
+    if (filters.sort === "oldest") return a.purchase_date.localeCompare(b.purchase_date) || a.created_at.localeCompare(b.created_at);
+    if (filters.sort === "amountDesc") return Number(b.purchase_price_krw) - Number(a.purchase_price_krw);
+    if (filters.sort === "amountAsc") return Number(a.purchase_price_krw) - Number(b.purchase_price_krw);
+    return b.purchase_date.localeCompare(a.purchase_date) || b.created_at.localeCompare(a.created_at);
+  });
 }
 
 function useMediaQuery(query: string) {
@@ -1552,6 +1541,7 @@ function TableLoadingRow({ colSpan }: { colSpan: number }) {
 }
 
 export function OrdersTable({
+  userId,
   pendingOrders,
   completedOrders,
   counts,
@@ -1562,6 +1552,7 @@ export function OrdersTable({
   onOrderPatched,
   onOrderDeleted,
 }: {
+  userId: string;
   pendingOrders: OrderWithRelations[];
   completedOrders: OrderWithRelations[] | null;
   counts: OrderListCounts;
@@ -1573,38 +1564,76 @@ export function OrdersTable({
   onOrderDeleted: (deleted: OrderWithRelations) => void;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const isDesktop = useMediaQuery("(min-width: 1024px)");
-  const [pendingSearch, setPendingSearch] = useState("");
-  const [pendingFromDate, setPendingFromDate] = useState("");
-  const [pendingToDate, setPendingToDate] = useState("");
-  const [completedSearch, setCompletedSearch] = useState("");
-  const [completedFromDate, setCompletedFromDate] = useState("");
-  const [completedToDate, setCompletedToDate] = useState("");
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
+  const [statusFilter, setStatusFilter] = useState<OrderStatusFilter>(() => {
+    const value = searchParams.get("status") as OrderStatusFilter;
+    return orderStatusFilters.includes(value) ? value : "all";
+  });
+  const [attentionFilter, setAttentionFilter] = useState<OrderAttentionFilter>(() => {
+    const value = searchParams.get("attention") as OrderAttentionFilter;
+    return orderAttentionFilters.includes(value) ? value : "all";
+  });
+  const [fromDate, setFromDate] = useState(() => searchParams.get("from") ?? "");
+  const [toDate, setToDate] = useState(() => searchParams.get("to") ?? "");
+  const [sort, setSort] = useState<OrderSort>(() => {
+    const value = searchParams.get("sort") as OrderSort;
+    return orderSorts.includes(value) ? value : "newest";
+  });
+  const [platformFilter, setPlatformFilter] = useState(() => searchParams.get("platform") ?? "");
+  const [paymentFilter, setPaymentFilter] = useState(() => searchParams.get("payment") ?? "");
+  const [accountFilter, setAccountFilter] = useState(() => searchParams.get("account") ?? "");
+  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const [savedViews, setSavedViews] = useState<SavedOrderView[]>([]);
+  const [density, setDensity] = useState<LedgerDensity>("compact");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [swipedRowId, setSwipedRowId] = useState<string | null>(null);
-  const [showPendingFilter, setShowPendingFilter] = useState(false);
-  const [showCompletedFilter, setShowCompletedFilter] = useState(false);
-  const [showCompletedOrders, setShowCompletedOrders] = useState(false);
+  const [showCompletedOrders, setShowCompletedOrders] = useState(
+    statusFilter === "completed" || attentionFilter === "missingDeposit",
+  );
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [pendingCompleteMenuId, setPendingCompleteMenuId] = useState<string | null>(null);
   const [completedActionsMenuId, setCompletedActionsMenuId] = useState<string | null>(null);
 
-  const deferredPendingSearch = useDeferredValue(pendingSearch);
-  const deferredCompletedSearch = useDeferredValue(completedSearch);
+  const deferredSearch = useDeferredValue(search);
   const completedList = useMemo(() => completedOrders ?? [], [completedOrders]);
+
+  const filterSnapshot = useMemo<OrderFilterSnapshot>(() => ({
+    q: deferredSearch,
+    status: statusFilter,
+    attention: attentionFilter,
+    from: fromDate,
+    to: toDate,
+    sort,
+    platform: platformFilter,
+    payment: paymentFilter,
+    account: accountFilter,
+  }), [
+    accountFilter,
+    attentionFilter,
+    deferredSearch,
+    fromDate,
+    paymentFilter,
+    platformFilter,
+    sort,
+    statusFilter,
+    toDate,
+  ]);
 
   const pendingSearchableOrders = useMemo(() => prepareSearchableOrders(pendingOrders), [pendingOrders]);
   const completedSearchableOrders = useMemo(() => prepareSearchableOrders(completedList), [completedList]);
 
   const visiblePendingOrders = useMemo(
-    () => filterSearchableOrders(pendingSearchableOrders, deferredPendingSearch, pendingFromDate, pendingToDate),
-    [deferredPendingSearch, pendingFromDate, pendingSearchableOrders, pendingToDate],
+    () => statusFilter === "completed" ? [] : filterSearchableOrders(pendingSearchableOrders, filterSnapshot),
+    [filterSnapshot, pendingSearchableOrders, statusFilter],
   );
 
   const visibleCompletedOrders = useMemo(
-    () => filterSearchableOrders(completedSearchableOrders, deferredCompletedSearch, completedFromDate, completedToDate),
-    [completedFromDate, completedSearchableOrders, completedToDate, deferredCompletedSearch],
+    () => statusFilter === "pending" ? [] : filterSearchableOrders(completedSearchableOrders, filterSnapshot),
+    [completedSearchableOrders, filterSnapshot, statusFilter],
   );
 
   const totalCount = counts.total;
@@ -1614,6 +1643,204 @@ export function OrdersTable({
     totalCount !== null && completedCount !== null && totalCount > 0
       ? Math.round((completedCount / totalCount) * 100)
       : null;
+
+  const filterOptions = useMemo(() => {
+    const allOrders = [...pendingOrders, ...completedList];
+    return {
+      platforms: [...new Set(allOrders.map((order) => order.platforms?.name).filter((name): name is string => Boolean(name)))].sort(),
+      payments: [...new Set(allOrders.map((order) => order.payment_methods?.name).filter((name): name is string => Boolean(name)))].sort(),
+      accounts: [...new Set(allOrders.map((order) => order.buyer_accounts?.label).filter((name): name is string => Boolean(name)))].sort(),
+    };
+  }, [completedList, pendingOrders]);
+
+  const currentFilterSnapshot = useMemo<OrderFilterSnapshot>(() => ({
+    q: search,
+    status: statusFilter,
+    attention: attentionFilter,
+    from: fromDate,
+    to: toDate,
+    sort,
+    platform: platformFilter,
+    payment: paymentFilter,
+    account: accountFilter,
+  }), [accountFilter, attentionFilter, fromDate, paymentFilter, platformFilter, search, sort, statusFilter, toDate]);
+
+  const applyFilterSnapshot = useCallback((next: OrderFilterSnapshot) => {
+    setSearch(next.q);
+    setStatusFilter(next.status);
+    setAttentionFilter(next.attention);
+    setFromDate(next.from);
+    setToDate(next.to);
+    setSort(next.sort);
+    setPlatformFilter(next.platform);
+    setPaymentFilter(next.payment);
+    setAccountFilter(next.account);
+  }, []);
+
+  useEffect(() => {
+    const nextStatus = searchParams.get("status") as OrderStatusFilter;
+    const nextAttention = searchParams.get("attention") as OrderAttentionFilter;
+    const nextSort = searchParams.get("sort") as OrderSort;
+    applyFilterSnapshot({
+      q: searchParams.get("q") ?? "",
+      status: orderStatusFilters.includes(nextStatus) ? nextStatus : "all",
+      attention: orderAttentionFilters.includes(nextAttention) ? nextAttention : "all",
+      from: searchParams.get("from") ?? "",
+      to: searchParams.get("to") ?? "",
+      sort: orderSorts.includes(nextSort) ? nextSort : "newest",
+      platform: searchParams.get("platform") ?? "",
+      payment: searchParams.get("payment") ?? "",
+      account: searchParams.get("account") ?? "",
+    });
+  }, [applyFilterSnapshot, searchParams]);
+
+  const clearAllFilters = useCallback(() => {
+    applyFilterSnapshot({
+      q: "",
+      status: "all",
+      attention: "all",
+      from: "",
+      to: "",
+      sort: "newest",
+      platform: "",
+      payment: "",
+      account: "",
+    });
+  }, [applyFilterSnapshot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [viewsResult, nextPreferences] = await Promise.all([
+        supabase.from("saved_order_views").select("*").eq("user_id", userId).order("created_at"),
+        getOrCreateUserPreferences(supabase, userId),
+      ]);
+      if (cancelled) return;
+      setSavedViews(viewsResult.data ?? []);
+      setDensity(nextPreferences.ledger_density === "comfortable" ? "comfortable" : "compact");
+    })().catch(() => {
+      // 원장 자체는 계속 사용할 수 있으므로 보조 설정 조회 실패는 화면을 막지 않습니다.
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, userId]);
+
+  useEffect(() => {
+    if (statusFilter !== "completed" && attentionFilter !== "missingDeposit") return;
+    setShowCompletedOrders(true);
+    void onLoadCompleted();
+  }, [attentionFilter, onLoadCompleted, statusFilter]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const nextParams = new URLSearchParams();
+      if (search.trim()) nextParams.set("q", search.trim());
+      if (statusFilter !== "all") nextParams.set("status", statusFilter);
+      if (attentionFilter !== "all") nextParams.set("attention", attentionFilter);
+      if (fromDate) nextParams.set("from", fromDate);
+      if (toDate) nextParams.set("to", toDate);
+      if (sort !== "newest") nextParams.set("sort", sort);
+      if (platformFilter) nextParams.set("platform", platformFilter);
+      if (paymentFilter) nextParams.set("payment", paymentFilter);
+      if (accountFilter) nextParams.set("account", accountFilter);
+
+      const nextQuery = nextParams.toString();
+      if (nextQuery === searchParams.toString()) return;
+      router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [
+    accountFilter,
+    attentionFilter,
+    fromDate,
+    pathname,
+    paymentFilter,
+    platformFilter,
+    router,
+    search,
+    searchParams,
+    sort,
+    statusFilter,
+    toDate,
+  ]);
+
+  const setQuickFilter = (key: "all" | "pending" | Exclude<OrderAttentionFilter, "all">) => {
+    if (key === "all") {
+      setStatusFilter("all");
+      setAttentionFilter("all");
+      return;
+    }
+    if (key === "pending") {
+      setStatusFilter("pending");
+      setAttentionFilter("all");
+      return;
+    }
+    if (key === "missingDeposit") {
+      setStatusFilter("completed");
+      setAttentionFilter("missingDeposit");
+      return;
+    }
+    setStatusFilter(
+      key === "undelivered" || key === "scheduleToday" || key === "overdue" || key === "scheduleUpcoming"
+        ? "pending"
+        : "all",
+    );
+    setAttentionFilter(key);
+  };
+
+  const activeQuickFilter = statusFilter === "pending" && attentionFilter === "all"
+    ? "pending"
+    : attentionFilter !== "all"
+      ? attentionFilter
+      : statusFilter === "all"
+        ? "all"
+        : null;
+
+  const saveCurrentView = async () => {
+    const name = window.prompt("저장할 보기 이름을 입력해 주세요.")?.trim();
+    if (!name) return;
+    const { data, error } = await supabase
+      .from("saved_order_views")
+      .upsert(
+        { user_id: userId, name, filters: currentFilterSnapshot as unknown as Json },
+        { onConflict: "user_id,name" },
+      )
+      .select("*")
+      .single();
+    if (error) {
+      window.alert(`보기를 저장하지 못했습니다: ${error.message}`);
+      return;
+    }
+    setSavedViews((current) => [...current.filter((view) => view.id !== data.id && view.name !== data.name), data]);
+  };
+
+  const applySavedView = (view: SavedOrderView) => {
+    const parsed = readSavedFilterSnapshot(view.filters);
+    if (!parsed) {
+      window.alert("저장된 필터 형식을 읽을 수 없습니다.");
+      return;
+    }
+    applyFilterSnapshot(parsed);
+  };
+
+  const deleteSavedView = async (view: SavedOrderView) => {
+    const { error } = await supabase.from("saved_order_views").delete().eq("id", view.id);
+    if (error) {
+      window.alert(`보기를 삭제하지 못했습니다: ${error.message}`);
+      return;
+    }
+    setSavedViews((current) => current.filter((item) => item.id !== view.id));
+  };
+
+  const toggleDensity = () => {
+    const next: LedgerDensity = density === "compact" ? "comfortable" : "compact";
+    setDensity(next);
+    void supabase.from("user_preferences").upsert(
+      { user_id: userId, ledger_density: next },
+      { onConflict: "user_id" },
+    );
+  };
 
   const toggleExpanded = (id: string) => {
     setPendingCompleteMenuId(null);
@@ -1656,10 +1883,7 @@ export function OrdersTable({
   const handleToggleCompletedOrders = () => {
     const next = !showCompletedOrders;
     setShowCompletedOrders(next);
-    if (!next) {
-      setShowCompletedFilter(false);
-      return;
-    }
+    if (!next) return;
     void onLoadCompleted();
   };
 
@@ -1671,7 +1895,8 @@ export function OrdersTable({
     (row: OrderWithRelations) => (expandedOrderId === row.id ? 250 : 92),
     [expandedOrderId],
   );
-  const tableRowSize = useCallback(() => 64, []);
+  // 가상 스크롤 높이도 실제 행 여백과 맞춰 긴 목록에서 스크롤 위치가 어긋나지 않게 합니다.
+  const tableRowSize = useCallback(() => density === "compact" ? 72 : 88, [density]);
 
   const pendingMobileVirtual = useVirtualRange(visiblePendingOrders, mobilePendingSize);
   const pendingTableVirtual = useVirtualRange(visiblePendingOrders, tableRowSize);
@@ -1744,8 +1969,129 @@ export function OrdersTable({
         </div>
       </div>
 
+      {/* 모든 주문 섹션이 같은 검색·기간·분류 상태를 공유하는 원장 도구 모음입니다. */}
+      <section className="sticky top-0 z-30 rounded-2xl border border-hairline bg-background/95 p-3 shadow-sm backdrop-blur-md sm:p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="제목·상품·주문번호·메모 검색"
+              aria-label="전체 주문 검색"
+              className="h-10 rounded-xl pl-9"
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:flex sm:shrink-0">
+            <Button
+              type="button"
+              variant={showAdvancedFilter ? "default" : "outline"}
+              size="sm"
+              className="h-10 gap-1.5"
+              onClick={() => setShowAdvancedFilter((current) => !current)}
+            >
+              <Filter className="h-4 w-4" aria-hidden />
+              상세
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="h-10 gap-1.5" onClick={toggleDensity}>
+              <Rows3 className="h-4 w-4" aria-hidden />
+              {density === "compact" ? "촘촘하게" : "편안하게"}
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="h-10 gap-1.5" onClick={() => void saveCurrentView()}>
+              <Save className="h-4 w-4" aria-hidden />
+              보기 저장
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
+          {([
+            ["all", "전체"],
+            ["pending", "미완료"],
+            ["undelivered", "미배송"],
+            ["scheduleToday", "오늘 구매"],
+            ["overdue", "예약 지남"],
+            ["scheduleUpcoming", "7일 내 예정"],
+            ["missingDeposit", "입금정보 누락"],
+            ["missingAi", "AI 리뷰 없음"],
+            ["missingTemplate", "템플릿 없음"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setQuickFilter(key)}
+              className={cn(
+                "h-8 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors",
+                activeQuickFilter === key
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {savedViews.length > 0 ? (
+          <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
+            <span className="shrink-0 text-[11px] font-medium text-muted-foreground">저장된 보기</span>
+            {savedViews.map((view) => (
+              <span key={view.id} className="inline-flex shrink-0 items-center rounded-full border bg-card">
+                <button type="button" className="h-7 px-2.5 text-xs font-medium" onClick={() => applySavedView(view)}>
+                  {view.name}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`${view.name} 보기 삭제`}
+                  className="mr-1 flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => void deleteSavedView(view)}
+                >
+                  <X className="h-3 w-3" aria-hidden />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        {showAdvancedFilter ? (
+          <div className="mt-3 border-t border-border/60 pt-3">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as OrderStatusFilter)} className="h-9 rounded-xl border border-input bg-background px-3 text-sm">
+                <option value="all">상태 전체</option>
+                <option value="pending">미완료</option>
+                <option value="completed">완료</option>
+              </select>
+              <select value={platformFilter} onChange={(event) => setPlatformFilter(event.target.value)} className="h-9 rounded-xl border border-input bg-background px-3 text-sm">
+                <option value="">플랫폼 전체</option>
+                {filterOptions.platforms.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value)} className="h-9 rounded-xl border border-input bg-background px-3 text-sm">
+                <option value="">결제수단 전체</option>
+                {filterOptions.payments.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <select value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)} className="h-9 rounded-xl border border-input bg-background px-3 text-sm">
+                <option value="">구매계정 전체</option>
+                {filterOptions.accounts.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <Input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} aria-label="구매일 시작" className="h-9 rounded-xl" />
+              <Input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} aria-label="구매일 종료" className="h-9 rounded-xl" />
+              <select value={sort} onChange={(event) => setSort(event.target.value as OrderSort)} className="h-9 rounded-xl border border-input bg-background px-3 text-sm">
+                <option value="newest">구매일 최신순</option>
+                <option value="oldest">구매일 오래된순</option>
+                <option value="amountDesc">구매금액 높은순</option>
+                <option value="amountAsc">구매금액 낮은순</option>
+              </select>
+              <Button type="button" variant="ghost" size="sm" className="h-9 gap-1.5" onClick={clearAllFilters}>
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                모든 필터 지우기
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </section>
+
       {/* ── 미완료 주문 섹션 ───────────────────────── */}
-      <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+      <section className={cn("flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]", density === "compact" ? "p-3" : "p-4")}>
         <div className="flex shrink-0 items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-semibold tracking-tight text-amber-700 dark:text-amber-300">
@@ -1755,40 +2101,7 @@ export function OrdersTable({
               {visiblePendingOrders.length.toLocaleString("ko-KR")}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowPendingFilter((v) => !v)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors",
-              showPendingFilter
-                ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300",
-            )}
-          >
-            <Filter className="h-3.5 w-3.5" />
-            필터
-          </button>
         </div>
-
-        {showPendingFilter && (
-          <div className="mt-3 shrink-0">
-            <FilterPanel
-              search={pendingSearch}
-              onSearch={setPendingSearch}
-              fromDate={pendingFromDate}
-              onFromDate={setPendingFromDate}
-              toDate={pendingToDate}
-              onToDate={setPendingToDate}
-              onClear={() => {
-                setPendingSearch("");
-                setPendingFromDate("");
-                setPendingToDate("");
-              }}
-              onClose={() => setShowPendingFilter(false)}
-              sectionLabel="미완료"
-            />
-          </div>
-        )}
 
         {isDesktop ? (
           <div className="mt-4 overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700">
@@ -1842,7 +2155,7 @@ export function OrdersTable({
                         }
                       }}
                     >
-                      <TableCell className="relative max-w-[14rem] px-3 py-3 pr-12">
+                      <TableCell className={cn("relative max-w-[14rem] px-3 pr-20", density === "compact" ? "py-2" : "py-4")}>
                         <div>
                           {row.title?.trim() ? (
                             <p className="text-muted-foreground line-clamp-1 text-xs">{row.title}</p>
@@ -1852,6 +2165,18 @@ export function OrdersTable({
                             {row.notes?.trim() || "메모 없음"}
                           </p>
                         </div>
+                        <button
+                          type="button"
+                          aria-label="주문 복제"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            router.push(`/orders/new?copy=${encodeURIComponent(row.id)}`);
+                          }}
+                          className="absolute right-11 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl border bg-background text-muted-foreground opacity-0 transition hover:text-primary group-hover:opacity-100 focus:opacity-100"
+                        >
+                          <Copy className="h-3.5 w-3.5" aria-hidden />
+                        </button>
                         <button
                           type="button"
                           aria-label="주문 삭제"
@@ -1925,6 +2250,7 @@ export function OrdersTable({
                     isExpanded={expandedOrderId === row.id}
                     onToggleExpand={() => toggleExpanded(row.id)}
                     onEditOrder={() => goToOrderDetail(row.id)}
+                    onDuplicateOrder={() => router.push(`/orders/new?copy=${encodeURIComponent(row.id)}`)}
                     onDelete={() => void handleDelete(row)}
                     onSwipeLeft={() => setSwipedRowId(row.id)}
                     onSwipeCancel={() => setSwipedRowId(null)}
@@ -1940,7 +2266,7 @@ export function OrdersTable({
       </section>
 
       {/* ── 완료 주문 섹션 ─────────────────────────── */}
-      <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+      <section className={cn("flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]", density === "compact" ? "p-3" : "p-4")}>
         <div className="flex shrink-0 items-center justify-between gap-3">
           <button
             type="button"
@@ -1961,41 +2287,7 @@ export function OrdersTable({
                 : displayCount(completedCount)}
             </span>
           </button>
-          <button
-            type="button"
-            onClick={() => setShowCompletedFilter((v) => !v)}
-            disabled={!showCompletedOrders}
-            className={cn(
-              "flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors",
-              showCompletedFilter
-                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:text-slate-300",
-            )}
-          >
-            <Filter className="h-3.5 w-3.5" />
-            필터
-          </button>
         </div>
-
-        {showCompletedOrders && showCompletedFilter && (
-          <div className="mt-3 shrink-0">
-            <FilterPanel
-              search={completedSearch}
-              onSearch={setCompletedSearch}
-              fromDate={completedFromDate}
-              onFromDate={setCompletedFromDate}
-              toDate={completedToDate}
-              onToDate={setCompletedToDate}
-              onClear={() => {
-                setCompletedSearch("");
-                setCompletedFromDate("");
-                setCompletedToDate("");
-              }}
-              onClose={() => setShowCompletedFilter(false)}
-              sectionLabel="완료"
-            />
-          </div>
-        )}
 
         {showCompletedOrders ? (
           isDesktop ? (
@@ -2051,7 +2343,7 @@ export function OrdersTable({
                         }
                       }}
                     >
-                      <TableCell className="relative max-w-[14rem] px-3 py-3 pr-12">
+                      <TableCell className={cn("relative max-w-[14rem] px-3 pr-20", density === "compact" ? "py-2" : "py-4")}>
                         <div>
                           {row.title?.trim() ? (
                             <p className="text-muted-foreground line-clamp-1 text-xs">{row.title}</p>
@@ -2061,6 +2353,18 @@ export function OrdersTable({
                             {row.notes?.trim() || "메모 없음"}
                           </p>
                         </div>
+                        <button
+                          type="button"
+                          aria-label="주문 복제"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            router.push(`/orders/new?copy=${encodeURIComponent(row.id)}`);
+                          }}
+                          className="absolute right-11 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl border bg-background text-muted-foreground opacity-0 transition hover:text-primary group-hover:opacity-100 focus:opacity-100"
+                        >
+                          <Copy className="h-3.5 w-3.5" aria-hidden />
+                        </button>
                         <button
                           type="button"
                           aria-label="주문 삭제"
@@ -2141,6 +2445,7 @@ export function OrdersTable({
                       isExpanded={expandedOrderId === row.id}
                       onToggleExpand={() => toggleExpanded(row.id)}
                       onEditOrder={() => goToOrderDetail(row.id)}
+                      onDuplicateOrder={() => router.push(`/orders/new?copy=${encodeURIComponent(row.id)}`)}
                       onDelete={() => void handleDelete(row)}
                       onSwipeLeft={() => setSwipedRowId(row.id)}
                       onSwipeCancel={() => setSwipedRowId(null)}

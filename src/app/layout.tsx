@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { BottomMenu } from "@/components/navigation/bottom-menu";
 import { DesktopSidebar } from "@/components/navigation/desktop-sidebar";
+import { GlobalCommandPalette } from "@/components/navigation/global-command-palette";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -29,6 +30,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <Suspense fallback={null}>
           <DesktopSidebar />
+          <GlobalCommandPalette />
         </Suspense>
         <div className="flex min-h-full flex-1 flex-col pb-16 lg:pl-60 lg:pb-0">{children}</div>
         <BottomMenu />

@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 
-import type { OrderWithRelations } from "@/components/orders/orders-table";
+import type { OrderWithRelations } from "@/types/orders";
 
 function toNum(v: string | number | null | undefined): number {
   if (v === null || v === undefined) return 0;
@@ -13,7 +13,7 @@ function emptyIfZero(v: string | number | null | undefined): number | string {
   return n === 0 ? "" : n;
 }
 
-export function exportDashboardExcel(orders: OrderWithRelations[], userEmail: string) {
+export function exportDashboardExcel(orders: OrderWithRelations[], userEmail: string, scopeLabel = "전체 기간") {
   const wb = XLSX.utils.book_new();
   const now = new Date();
   const nowStr = now.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
@@ -27,6 +27,7 @@ export function exportDashboardExcel(orders: OrderWithRelations[], userEmail: st
   d.push(["리뷰 매니저 대시보드"]);
   d.push([`내보내기 일시: ${nowStr}`]);
   d.push([`계정: ${userEmail}`]);
+  d.push([`내보내기 범위: ${scopeLabel}`]);
   d.push([]);
 
   // KPI
@@ -37,7 +38,7 @@ export function exportDashboardExcel(orders: OrderWithRelations[], userEmail: st
     .reduce((s, o) => s + toNum(o.purchase_price_krw), 0);
   const pendingCount = orders.filter((o) => !o.is_processed).length;
 
-  d.push(["■ 현황 요약 (전체 기간)"]);
+  d.push([`■ 현황 요약 (${scopeLabel})`]);
   d.push(["항목", "값"]);
   d.push(["누적 구매금액 (원)", totalPurchaseAmount]);
   d.push(["누적 입금금액 (원)", totalDepositAmount]);
@@ -198,7 +199,8 @@ export function exportDashboardExcel(orders: OrderWithRelations[], userEmail: st
     { wch: 20 }, // 수정일시
     { wch: 38 }, // 주문ID
   ];
-  XLSX.utils.book_append_sheet(wb, ws2, "구매장부 전체");
+  XLSX.utils.book_append_sheet(wb, ws2, "구매장부");
 
-  XLSX.writeFile(wb, `리뷰매니저_${dateStr}.xlsx`);
+  const safeScope = scopeLabel.replace(/[^0-9A-Za-z가-힣._-]+/g, "_").slice(0, 30);
+  XLSX.writeFile(wb, `리뷰매니저_${safeScope}_${dateStr}.xlsx`);
 }

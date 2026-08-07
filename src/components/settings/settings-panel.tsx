@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HexColorInput, HexColorPicker } from "react-colorful";
-import { ArrowLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronRight, Copy, Plus, Star, Trash2 } from "lucide-react";
 
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
 import { normalizeHexColor } from "@/lib/color";
 import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import { createClient } from "@/lib/supabase/client";
+import type { OrderSaveAction, UserPreferences } from "@/lib/user-preferences";
 import { cn } from "@/lib/utils";
 import type { BuyerAccount, PaymentMethod, Platform } from "@/lib/master-data";
 import type { Database } from "@/types/database";
@@ -20,6 +21,7 @@ export type SettingsPanelView =
   | "home"
   | "account"
   | "nickname"
+  | "defaults"
   | "purchase-templates"
   | "ai"
   | "platforms"
@@ -31,6 +33,7 @@ type ItemWithMeta<T> = T & { isSystem: boolean; isHidden: boolean };
 const DEFAULT_PLATFORM_COLOR = "#64748b";
 const DEFAULT_PAYMENT_METHOD_COLOR = "#7c3aed";
 const DEFAULT_BUYER_ACCOUNT_COLOR = "#64748b";
+const templateUpdatedFormatter = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" });
 const COLOR_PRESETS = [
   "#f97316",
   "#16a34a",
@@ -43,9 +46,23 @@ const COLOR_PRESETS = [
   "#64748b",
 ] as const;
 
+/** 민감한 원문 대신 채워진 항목 수만 목록에 보여줍니다. */
+function countFilledTemplateFields(template: PurchaseTemplateRow) {
+  return [
+    template.buyer_name,
+    template.recipient_name,
+    template.login_id,
+    template.phone,
+    template.address,
+    template.bank_account_number,
+    template.account_holder,
+  ].filter((value) => value?.trim()).length;
+}
+
 const VIEW_TITLES: Record<Exclude<SettingsPanelView, "home">, string> = {
   account: "계정",
   nickname: "닉네임 변경",
+  defaults: "주문 기본값",
   "purchase-templates": "구매 정보 템플릿",
   ai: "AI 설정 관리",
   platforms: "결제 플랫폼 관리",
@@ -396,6 +413,8 @@ export function SettingsPanel({
   initialBuyerAccounts,
   hiddenSettings,
   initialPurchaseTemplates,
+  templateUsageCounts,
+  initialPreferences,
   initialAiReviewProfile,
 }: {
   userId: string;
@@ -407,6 +426,8 @@ export function SettingsPanel({
   initialBuyerAccounts: BuyerAccount[];
   hiddenSettings: UserItemSetting[];
   initialPurchaseTemplates: PurchaseTemplateRow[];
+  templateUsageCounts: Record<string, number>;
+  initialPreferences: UserPreferences;
   initialAiReviewProfile: Database["public"]["Tables"]["user_ai_review_profiles"]["Row"] | null;
 }) {
   const router = useRouter();
@@ -422,7 +443,9 @@ export function SettingsPanel({
   const [platforms, setPlatforms] = useState<Platform[]>(initialPlatforms);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(initialPaymentMethods);
   const [buyerAccounts, setBuyerAccounts] = useState<BuyerAccount[]>(initialBuyerAccounts);
-  const [purchaseTemplates] = useState<PurchaseTemplateRow[]>(initialPurchaseTemplates);
+  const [purchaseTemplates, setPurchaseTemplates] = useState<PurchaseTemplateRow[]>(initialPurchaseTemplates);
+  const [preferences, setPreferences] = useState(initialPreferences);
+  const [usageCounts, setUsageCounts] = useState(templateUsageCounts);
   const [hidden, setHidden] = useState<UserItemSetting[]>(hiddenSettings);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [savingColorId, setSavingColorId] = useState<string | null>(null);
@@ -738,6 +761,86 @@ export function SettingsPanel({
     }
   };
 
+  const updatePreferences = async (
+    patch: Database["public"]["Tables"]["user_preferences"]["Update"],
+    successMessageText?: string,
+  ) => {
+    setErrorMessage("");
+    const { error } = await supabase.from("user_preferences").upsert(
+      { user_id: userId, ...patch },
+      { onConflict: "user_id" },
+    );
+    if (error) {
+      setErrorMessage(error.message);
+      return false;
+    }
+    setPreferences((current) => ({ ...current, ...patch }));
+    if (successMessageText) {
+      setSuccessMessage(successMessageText);
+      window.setTimeout(() => setSuccessMessage(""), 3500);
+    }
+    return true;
+  };
+
+  const clonePurchaseTemplate = async (template: PurchaseTemplateRow) => {
+    setErrorMessage("");
+    const { data, error } = await supabase
+      .from("purchase_info_templates")
+      .insert({
+        user_id: userId,
+        title: `${template.title} 복사본`,
+        buyer_name: template.buyer_name,
+        recipient_name: template.recipient_name,
+        login_id: template.login_id,
+        phone: template.phone,
+        address: template.address,
+        bank_account_number: template.bank_account_number,
+        account_holder: template.account_holder,
+      })
+      .select("*")
+      .single();
+    if (error) {
+      setErrorMessage(error.message);
+      return;
+    }
+    setPurchaseTemplates((current) => [data, ...current]);
+    setUsageCounts((current) => ({ ...current, [data.id]: 0 }));
+    setSuccessMessage("템플릿 복사본을 만들었습니다.");
+    window.setTimeout(() => setSuccessMessage(""), 3500);
+  };
+
+  const setDefaultPurchaseTemplate = async (templateId: string | null) => {
+    await updatePreferences(
+      { default_purchase_info_template_id: templateId },
+      templateId ? "기본 구매 정보 템플릿을 변경했습니다." : "기본 템플릿 지정을 해제했습니다.",
+    );
+  };
+
+  const deletePurchaseTemplate = async (template: PurchaseTemplateRow) => {
+    const count = usageCounts[template.id] ?? 0;
+    const confirmed = window.confirm(
+      count > 0
+        ? `"${template.title}" 템플릿은 주문 ${count}건에서 사용 중입니다. 삭제하면 주문과의 템플릿 연결이 해제됩니다. 삭제할까요?`
+        : `"${template.title}" 템플릿을 삭제할까요?`,
+    );
+    if (!confirmed) return;
+
+    const { error } = await supabase.from("purchase_info_templates").delete().eq("id", template.id);
+    if (error) {
+      setErrorMessage(error.message);
+      return;
+    }
+    setPurchaseTemplates((current) => current.filter((item) => item.id !== template.id));
+    setUsageCounts((current) => {
+      const next = { ...current };
+      delete next[template.id];
+      return next;
+    });
+    if (preferences.default_purchase_info_template_id === template.id) {
+      setPreferences((current) => ({ ...current, default_purchase_info_template_id: null }));
+    }
+  };
+
   const subHeader =
     view !== "home" ? (
       <div className="mb-4 flex items-center gap-2">
@@ -826,6 +929,79 @@ export function SettingsPanel({
     );
   }
 
+  if (view === "defaults") {
+    return (
+      <div className="flex flex-col gap-4">
+        {subHeader}
+        {alerts}
+        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5">
+          <SectionHeader
+            title="새 주문 기본값"
+            description="선택한 값은 새 주문을 열 때 먼저 적용됩니다. 지정하지 않은 항목은 마지막 저장 주문의 값을 사용합니다."
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="grid gap-1.5 text-sm">
+              <span className="font-medium">결제 플랫폼</span>
+              <select value={preferences.default_platform_id ?? ""} onChange={(event) => void updatePreferences({ default_platform_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
+                <option value="">최근 사용값</option>
+                {platforms.filter((item) => !isHidden(item.id, "platform")).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm">
+              <span className="font-medium">결제 수단</span>
+              <select value={preferences.default_payment_method_id ?? ""} onChange={(event) => void updatePreferences({ default_payment_method_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
+                <option value="">최근 사용값</option>
+                {paymentMethods.filter((item) => !isHidden(item.id, "payment_method")).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm">
+              <span className="font-medium">구매 계정</span>
+              <select value={preferences.default_buyer_account_id ?? ""} onChange={(event) => void updatePreferences({ default_buyer_account_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
+                <option value="">최근 사용값</option>
+                {buyerAccounts.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm">
+              <span className="font-medium">구매 정보 템플릿</span>
+              <select value={preferences.default_purchase_info_template_id ?? ""} onChange={(event) => void updatePreferences({ default_purchase_info_template_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
+                <option value="">최근 사용값</option>
+                {purchaseTemplates.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5">
+          <SectionHeader title="업무 흐름" description="저장 뒤 이동 방식과 목록 표시 밀도를 정합니다." />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="grid gap-1.5 text-sm">
+              <span className="font-medium">주문 저장 후</span>
+              <select value={preferences.order_save_action} onChange={(event) => void updatePreferences({ order_save_action: event.target.value as OrderSaveAction })} className="h-10 rounded-xl border border-input bg-background px-3">
+                <option value="ledger">구매장부로 이동</option>
+                <option value="same">같은 정보로 계속 등록</option>
+                <option value="blank">빈 입력 화면 열기</option>
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm">
+              <span className="font-medium">구매장부 밀도</span>
+              <select value={preferences.ledger_density} onChange={(event) => void updatePreferences({ ledger_density: event.target.value })} className="h-10 rounded-xl border border-input bg-background px-3">
+                <option value="compact">촘촘하게</option>
+                <option value="comfortable">편안하게</option>
+              </select>
+            </label>
+          </div>
+          <label className="mt-4 flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm">
+            <span>
+              <span className="block font-medium">자동추천 연속 처리</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">저장·삭제 후 다음 대기 추천으로 이동합니다.</span>
+            </span>
+            <input type="checkbox" checked={preferences.auto_advance_recommendations} onChange={(event) => void updatePreferences({ auto_advance_recommendations: event.target.checked })} className="h-5 w-5 accent-primary" />
+          </label>
+        </section>
+      </div>
+    );
+  }
+
   if (view === "purchase-templates") {
     return (
       <div className="flex flex-col gap-4">
@@ -851,22 +1027,35 @@ export function SettingsPanel({
               purchaseTemplates.map((t) => (
                 <div
                   key={t.id}
-                  className="flex min-h-11 items-stretch gap-1 rounded-xl border px-2 py-1.5 sm:gap-2 sm:px-3 sm:py-2"
+                  className="flex min-h-11 flex-col gap-2 rounded-xl border px-3 py-2.5 sm:flex-row sm:items-center"
                 >
                   <Link
                     href={`/settings/purchase-templates/detail?id=${encodeURIComponent(t.id)}`}
                     className="flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium transition-colors hover:bg-muted/50 active:bg-muted/70"
                   >
-                    <span className="min-w-0 flex-1 truncate">{t.title}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate">{t.title}</span>
+                        {preferences.default_purchase_info_template_id === t.id ? <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-500" aria-label="기본 템플릿" /> : null}
+                      </span>
+                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                        입력 {countFilledTemplateFields(t)}개 · 주문 {usageCounts[t.id] ?? 0}건 · {templateUpdatedFormatter.format(new Date(t.updated_at))} 수정
+                      </span>
+                    </span>
                     <ChevronRight className="text-muted-foreground h-5 w-5 shrink-0" aria-hidden />
                   </Link>
-                  <button
-                    type="button"
-                    onClick={() => void handleCopyPurchaseTemplate(t)}
-                    className="touch-manipulation shrink-0 self-center rounded-lg border border-input bg-background px-2.5 py-2 text-xs font-medium shadow-sm transition-colors hover:bg-muted/60 active:bg-muted sm:px-3 sm:text-sm"
-                  >
-                    복사하기
-                  </button>
+                  <div className="grid grid-cols-4 gap-1.5 sm:flex sm:shrink-0">
+                    <button type="button" onClick={() => void setDefaultPurchaseTemplate(preferences.default_purchase_info_template_id === t.id ? null : t.id)} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border px-2 text-xs font-medium hover:bg-muted" title="새 주문 기본 템플릿">
+                      <Star className="h-3.5 w-3.5" aria-hidden /> 기본
+                    </button>
+                    <button type="button" onClick={() => void clonePurchaseTemplate(t)} className="inline-flex min-h-9 items-center justify-center gap-1 rounded-lg border px-2 text-xs font-medium hover:bg-muted" title="템플릿 복제">
+                      <Copy className="h-3.5 w-3.5" aria-hidden /> 복제
+                    </button>
+                    <button type="button" onClick={() => void handleCopyPurchaseTemplate(t)} className="min-h-9 rounded-lg border px-2 text-xs font-medium hover:bg-muted" title="카톡 한 줄 복사">내용 복사</button>
+                    <button type="button" onClick={() => void deletePurchaseTemplate(t)} className="inline-flex min-h-9 items-center justify-center rounded-lg border border-destructive/30 px-2 text-xs font-medium text-destructive hover:bg-destructive/10" title="템플릿 삭제">
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -1089,16 +1278,17 @@ export function SettingsPanel({
         </div>
       </button>
 
-      <SettingsNavRow label="공지사항" disabled badge="준비 중" />
-
-      <SettingsNavRow label="구매 정보 템플릿" onClick={() => setView("purchase-templates")} />
-
-      <div className="flex flex-col gap-2">
-        <SettingsNavRow label="AI 설정 관리" onClick={() => setView("ai")} />
+      {/* 설정 홈은 성격이 비슷한 항목을 카드 격자로 묶어 넓은 화면의 빈 공간을 줄입니다. */}
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <SettingsNavRow label="주문 기본값" description="기본 항목·저장 후 동작" onClick={() => setView("defaults")} />
+        <SettingsNavRow label="구매 정보 템플릿" description={`${purchaseTemplates.length}개 저장됨`} onClick={() => setView("purchase-templates")} />
+        <SettingsNavRow label="AI 설정 관리" description="리뷰 생성 기본 정보" onClick={() => setView("ai")} />
         <SettingsNavRow label="결제플랫폼 관리" onClick={() => setView("platforms")} />
         <SettingsNavRow label="결제수단 관리" onClick={() => setView("payment-methods")} />
         <SettingsNavRow label="구매계정 관리" onClick={() => setView("buyer-accounts")} />
       </div>
+
+      <SettingsNavRow label="공지사항" disabled badge="준비 중" />
 
       <button
         type="button"

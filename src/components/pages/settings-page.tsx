@@ -4,7 +4,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { SettingsPanel, type SettingsPanelView } from "@/components/settings/settings-panel";
+import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { createClient } from "@/lib/supabase/client";
+import { getOrCreateUserPreferences, type UserPreferences } from "@/lib/user-preferences";
 import type { PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import type { Database } from "@/types/database";
 
@@ -17,6 +19,7 @@ export function SettingsPage() {
   const initialSettingsView: SettingsPanelView =
     requestedView === "account" ||
     requestedView === "nickname" ||
+    requestedView === "defaults" ||
     requestedView === "purchase-templates" ||
     requestedView === "ai" ||
     requestedView === "platforms" ||
@@ -32,6 +35,8 @@ export function SettingsPage() {
     buyerAccounts: { id: string; label: string; color: string }[];
     hidden: UserItemSetting[];
     purchaseTemplates: PurchaseTemplateRow[];
+    templateUsageCounts: Record<string, number>;
+    preferences: UserPreferences;
     aiReviewProfile: Database["public"]["Tables"]["user_ai_review_profiles"]["Row"] | null;
     displayName: string;
     displayEmail: string;
@@ -58,6 +63,7 @@ export function SettingsPage() {
         templatesResult,
         aiProfileResult,
         publicUserResult,
+        preferences,
       ] = await Promise.all([
         supabase
           .from("platforms")
@@ -83,7 +89,18 @@ export function SettingsPage() {
           .order("created_at", { ascending: false }),
         supabase.from("user_ai_review_profiles").select("*").eq("user_id", user.id).maybeSingle(),
         supabase.from("users").select("name, email").eq("user_id", user.id).maybeSingle(),
+        getOrCreateUserPreferences(supabase, user.id),
       ]);
+
+      const templateUsageEntries = await Promise.all(
+        (templatesResult.data ?? []).map(async (template) => {
+          const { count } = await supabase
+            .from("orders")
+            .select("id", { count: "exact", head: true })
+            .eq("purchase_info_template_id", template.id);
+          return [template.id, count ?? 0] as const;
+        }),
+      );
 
       if (cancelled) return;
       setUserId(user.id);
@@ -106,6 +123,8 @@ export function SettingsPage() {
         buyerAccounts: accountsResult.data ?? [],
         hidden: hiddenResult.data ?? [],
         purchaseTemplates: templatesResult.data ?? [],
+        templateUsageCounts: Object.fromEntries(templateUsageEntries),
+        preferences,
         aiReviewProfile: aiProfileResult.data ?? null,
         displayName,
         displayEmail,
@@ -127,7 +146,10 @@ export function SettingsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6 lg:px-8">
-      <h1 className="text-2xl font-bold tracking-tight">설정</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold tracking-tight">설정</h1>
+        <GlobalSearchTrigger />
+      </div>
 
       <SettingsPanel
         key={initialSettingsView}
@@ -140,6 +162,8 @@ export function SettingsPage() {
         initialBuyerAccounts={payload.buyerAccounts}
         hiddenSettings={payload.hidden}
         initialPurchaseTemplates={payload.purchaseTemplates}
+        templateUsageCounts={payload.templateUsageCounts}
+        initialPreferences={payload.preferences}
         initialAiReviewProfile={payload.aiReviewProfile}
       />
     </div>

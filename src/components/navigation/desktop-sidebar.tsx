@@ -8,12 +8,14 @@ import {
   ClipboardList,
   House,
   LayoutDashboard,
+  Search,
   Settings,
   Sparkles,
   SquarePlus,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { OPEN_GLOBAL_SEARCH_EVENT } from "@/components/navigation/global-command-palette";
 
 // 데스크톱에서 자주 쓰는 업무 흐름을 위에서부터 바로 이동할 수 있게 정리합니다.
 const primaryItems = [
@@ -47,6 +49,7 @@ const primaryItems = [
 const settingsItems = [
   { label: "설정 홈", href: "/settings", view: null },
   { label: "계정", href: "/settings?view=account", view: "account" },
+  { label: "주문 기본값", href: "/settings?view=defaults", view: "defaults" },
   { label: "구매 정보 템플릿", href: "/settings?view=purchase-templates", view: "purchase-templates" },
   { label: "AI 리뷰", href: "/settings?view=ai", view: "ai" },
   { label: "결제 플랫폼", href: "/settings?view=platforms", view: "platforms" },
@@ -107,6 +110,15 @@ export function DesktopSidebar() {
 
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 py-5" aria-label="주요 메뉴">
         <p className="mb-2 px-3 text-[11px] font-semibold tracking-[0.08em] text-ink-faint">WORKSPACE</p>
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event(OPEN_GLOBAL_SEARCH_EVENT))}
+          className="mb-2 flex min-h-10 items-center gap-2 rounded-xl border border-hairline bg-surface-soft px-3 text-left text-xs text-ink-muted transition-colors hover:border-primary/30 hover:text-primary"
+        >
+          <Search className="h-4 w-4" aria-hidden />
+          <span className="min-w-0 flex-1 truncate">전체 검색</span>
+          <kbd className="rounded border bg-card px-1.5 py-0.5 text-[10px]">⌘K</kbd>
+        </button>
         {primaryItems.map((item) => (
           <NavItem
             key={item.href}

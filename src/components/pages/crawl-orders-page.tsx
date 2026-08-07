@@ -11,6 +11,7 @@ import { Banknote, Building2, CheckCircle2, ChevronLeft, ChevronRight, CreditCar
 import { UserAccountMenu } from "@/components/auth/user-account-menu";
 import { ChromeExtensionInstallGuide } from "@/components/pages/chrome-extension-install-guide";
 import { OrderDetailForm } from "@/components/orders/order-detail-form";
+import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Table,
@@ -23,6 +24,7 @@ import {
 import { normalizeHexColor } from "@/lib/color";
 import { fetchMasterData, type BuyerAccount, type MasterData, type PaymentMethod, type Platform } from "@/lib/master-data";
 import { createClient } from "@/lib/supabase/client";
+import { getOrCreateUserPreferences } from "@/lib/user-preferences";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/types/database";
 
@@ -535,6 +537,7 @@ export function CrawlOrdersPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [activeAutoRecommendPage, setActiveAutoRecommendPage] = useState(0);
   const [orders, setOrders] = useState<CrawlOrderRow[]>([]);
+  const [sessionStartPendingCount, setSessionStartPendingCount] = useState<number | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<CrawlOrderRow | null>(null);
   const [master, setMaster] = useState<MasterData | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -551,6 +554,7 @@ export function CrawlOrdersPage() {
   const [hoveredDepositId, setHoveredDepositId] = useState<number | null>(null);
   const [isStartingCrawl, setIsStartingCrawl] = useState(false);
   const [crawlNotice, setCrawlNotice] = useState<string | null>(null);
+  const [autoAdvanceRecommendations, setAutoAdvanceRecommendations] = useState(true);
 
   const loadPage = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     const supabase = createClient();
@@ -567,9 +571,14 @@ export function CrawlOrdersPage() {
     setErrorMessage(null);
     setEmail(user.email ?? user.id);
     setUserId(user.id);
+    void getOrCreateUserPreferences(supabase, user.id)
+      .then((value) => setAutoAdvanceRecommendations(value.auto_advance_recommendations))
+      .catch(() => {
+        // 추천 목록 조회는 계속 진행하고 자동 이동만 기본값으로 유지합니다.
+      });
 
     if (selectedId) {
-      const [orderResult, masterData, platformAccountsResult] = await Promise.all([
+      const [orderResult, ordersResult, masterData, platformAccountsResult] = await Promise.all([
         supabase
           .from("crawl_orders")
           .select("*")
@@ -577,6 +586,12 @@ export function CrawlOrdersPage() {
           .eq("user_id", user.id)
           .eq("crawl_order_status", 0)
           .maybeSingle(),
+        supabase
+          .from("crawl_orders")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("crawl_order_status", 0)
+          .order("purchase_date", { ascending: false, nullsFirst: false }),
         fetchMasterData(supabase, user.id),
         supabase
           .from("platform_accounts")
@@ -584,8 +599,8 @@ export function CrawlOrdersPage() {
           .eq("user_id", user.id),
       ]);
 
-      if (orderResult.error || platformAccountsResult.error) {
-        setErrorMessage(orderResult.error?.message ?? platformAccountsResult.error?.message ?? "조회 오류가 발생했습니다.");
+      if (orderResult.error || ordersResult.error || platformAccountsResult.error) {
+        setErrorMessage(orderResult.error?.message ?? ordersResult.error?.message ?? platformAccountsResult.error?.message ?? "조회 오류가 발생했습니다.");
         setPhase("error");
         return;
       }
@@ -597,7 +612,9 @@ export function CrawlOrdersPage() {
 
       setSelectedOrder(orderResult.data);
       setMaster(masterData);
-      setOrders([]);
+      const nextOrders = ordersResult.data ?? [];
+      setOrders(nextOrders);
+      setSessionStartPendingCount((current) => current ?? nextOrders.length);
       setPlatformAccounts(platformAccountsResult.data ?? []);
       setPhase("ready");
       return;
@@ -627,7 +644,9 @@ export function CrawlOrdersPage() {
       return;
     }
 
-    setOrders(ordersResult.data ?? []);
+    const nextOrders = ordersResult.data ?? [];
+    setOrders(nextOrders);
+    setSessionStartPendingCount((current) => current ?? nextOrders.length);
     setSelectedOrder(null);
     setMaster(masterData);
     setPlatformAccounts(platformAccountsResult.data ?? []);
@@ -736,10 +755,63 @@ export function CrawlOrdersPage() {
     void loadDepositRecommendationData();
   }, [activeAutoRecommendPage, loadDepositRecommendationData, phase, selectedId]);
 
+  useEffect(() => {
+    if (phase !== "ready" || !selectedId) return;
+
+    // 검수 폼 입력 중에는 단축키를 막고, 바깥에서만 대기열 이동에 사용합니다.
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        router.push(crawlListHref);
+        return;
+      }
+      if (event.key.toLocaleLowerCase() !== "j" && event.key.toLocaleLowerCase() !== "k") return;
+
+      const currentIndex = orders.findIndex((order) => order.id === selectedId);
+      const direction = event.key.toLocaleLowerCase() === "j" ? 1 : -1;
+      const nextOrder = orders[currentIndex + direction];
+      if (!nextOrder) return;
+      event.preventDefault();
+      router.push(`${crawlListHref}?id=${encodeURIComponent(nextOrder.id)}`);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [orders, phase, router, selectedId]);
+
   const draftOrder = useMemo(() => {
     if (!selectedOrder || !userId || !master) return null;
     return crawlOrderToDraft(selectedOrder, userId, master);
   }, [master, selectedOrder, userId]);
+
+  const getNextRecommendationHref = useCallback(async () => {
+    if (!autoAdvanceRecommendations || !userId) return crawlListHref;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("crawl_orders")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("crawl_order_status", 0)
+      .order("purchase_date", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    return data ? `${crawlListHref}?id=${encodeURIComponent(data.id)}` : crawlListHref;
+  }, [autoAdvanceRecommendations, userId]);
+
+  const toggleAutoAdvance = () => {
+    if (!userId) return;
+    const next = !autoAdvanceRecommendations;
+    setAutoAdvanceRecommendations(next);
+    const supabase = createClient();
+    void supabase.from("user_preferences").upsert(
+      { user_id: userId, auto_advance_recommendations: next },
+      { onConflict: "user_id" },
+    );
+  };
 
   const preparedDepositRecommendationOrders = useMemo<PreparedDepositOrder[]>(
     () =>
@@ -1079,19 +1151,51 @@ export function CrawlOrdersPage() {
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold tracking-tight">자동 추천 확인</h1>
             <p className="text-muted-foreground mt-1 text-sm leading-snug break-words">
-              저장하면 장부에 주문이 추가되고 이 항목은 처리됨으로 바뀝니다.
+              저장하면 장부에 주문이 추가됩니다. 이번 흐름에서 {Math.max(0, (sessionStartPendingCount ?? orders.length) - orders.length)}건 처리 · {orders.length}건 남음
             </p>
           </div>
-          <Link href={crawlListHref} className={cn(buttonVariants({ variant: "outline", size: "default" }), "shrink-0")}>
-            목록으로
-          </Link>
+          <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
+            <GlobalSearchTrigger />
+            <label className="flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border bg-card px-3 text-xs font-medium">
+              <input type="checkbox" checked={autoAdvanceRecommendations} onChange={toggleAutoAdvance} className="h-4 w-4 accent-primary" />
+              처리 후 다음 항목
+            </label>
+            <Link href={crawlListHref} className={cn(buttonVariants({ variant: "outline", size: "default" }), "shrink-0")}>
+              목록으로
+            </Link>
+          </div>
         </div>
 
-        <OrderDetailForm
-          key={selectedOrder.id}
-          draftOrder={draftOrder}
-          crawlPaymentMethod={readText(selectedOrder, ["payment_method"])}
-          importActions={{
+        <div className="grid min-w-0 gap-5 lg:grid-cols-[20rem_minmax(0,1fr)]">
+          {/* 넓은 화면에서는 대기 목록을 유지해 저장 후 흐름과 다른 추천을 함께 확인합니다. */}
+          <aside className="hidden h-fit max-h-[calc(100vh-8rem)] overflow-y-auto rounded-xl border bg-card p-3 shadow-xs lg:sticky lg:top-5 lg:block">
+            <div className="mb-3 flex items-center justify-between gap-2 px-1">
+              <h2 className="text-sm font-semibold">추천 대기 목록</h2>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">{orders.length}</span>
+            </div>
+            <div className="grid gap-1.5">
+              {orders.map((row) => (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => router.push(`${crawlListHref}?id=${encodeURIComponent(row.id)}`)}
+                  className={cn(
+                    "rounded-xl border px-3 py-2.5 text-left transition-colors",
+                    row.id === selectedOrder.id ? "border-primary/40 bg-primary/8" : "border-transparent bg-muted/35 hover:bg-muted/70",
+                  )}
+                >
+                  <span className="block truncate text-sm font-semibold">{displayPrimary(row)}</span>
+                  <span className="mt-1 block truncate text-xs text-muted-foreground">{displaySecondary(row) || `ID ${row.id}`}</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 border-t pt-3 text-[11px] text-muted-foreground">J/K 이전·다음 · Esc 목록</p>
+          </aside>
+          <OrderDetailForm
+            key={selectedOrder.id}
+            draftOrder={draftOrder}
+            crawlPaymentMethod={readText(selectedOrder, ["payment_method"])}
+            importActions={{
             afterSaveHref: crawlListHref,
             afterDeleteHref: crawlListHref,
             deleteConfirmLabel: `"${displayPrimary(selectedOrder)}" 항목을 삭제 처리할까요?`,
@@ -1118,7 +1222,7 @@ export function CrawlOrdersPage() {
                 return { error: statusResult.error?.message ?? "이미 처리된 크롤링 주문입니다." };
               }
 
-              return {};
+              return { redirectHref: await getNextRecommendationHref() };
             },
             onDelete: async () => {
               const supabase = createClient();
@@ -1131,13 +1235,14 @@ export function CrawlOrdersPage() {
 
               if (error) return { error: error.message };
               if (count === 0) return { error: "이미 처리된 크롤링 주문입니다." };
-              return {};
+              return { redirectHref: await getNextRecommendationHref() };
             },
-          }}
-          platforms={master.platforms}
-          paymentMethods={master.paymentMethods}
-          buyerAccounts={master.buyerAccounts}
-        />
+            }}
+            platforms={master.platforms}
+            paymentMethods={master.paymentMethods}
+            buyerAccounts={master.buyerAccounts}
+          />
+        </div>
       </div>
     );
   }
@@ -1769,20 +1874,27 @@ export function CrawlOrdersPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <GlobalSearchTrigger />
           {activeAutoRecommendPage === 0 ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-10 w-10"
-              disabled={isCrawlButtonDisabled}
-              aria-label={isCrawlButtonDisabled ? "크롤링 실행중" : "크롤링 실행"}
-              title={isCrawlButtonDisabled ? "크롤링 실행중…" : "크롤링 실행"}
-              onClick={startCrawl}
-            >
-              <RefreshCw className={cn("h-4 w-4", isCrawlButtonDisabled ? "animate-spin" : null)} aria-hidden />
-              <span className="sr-only">{isCrawlButtonDisabled ? "크롤링 실행중" : "크롤링 실행"}</span>
-            </Button>
+            <>
+              <label className="hidden min-h-10 cursor-pointer items-center gap-2 rounded-xl border bg-card px-3 text-xs font-medium sm:flex">
+                <input type="checkbox" checked={autoAdvanceRecommendations} onChange={toggleAutoAdvance} className="h-4 w-4 accent-primary" />
+                연속 처리
+              </label>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-10 w-10"
+                disabled={isCrawlButtonDisabled}
+                aria-label={isCrawlButtonDisabled ? "크롤링 실행중" : "크롤링 실행"}
+                title={isCrawlButtonDisabled ? "크롤링 실행중…" : "크롤링 실행"}
+                onClick={startCrawl}
+              >
+                <RefreshCw className={cn("h-4 w-4", isCrawlButtonDisabled ? "animate-spin" : null)} aria-hidden />
+                <span className="sr-only">{isCrawlButtonDisabled ? "크롤링 실행중" : "크롤링 실행"}</span>
+              </Button>
+            </>
           ) : null}
           <UserAccountMenu email={email ?? "?"} />
         </div>

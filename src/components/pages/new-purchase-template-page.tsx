@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { PurchaseInfoTemplateForm } from "@/components/purchase-templates/purchase-info-template-form";
+import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { buttonVariants } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -49,9 +50,12 @@ export function NewPurchaseTemplatePage() {
             제목으로 구분하고, 필요한 칸만 채워 저장할 수 있습니다.
           </p>
         </div>
-        <Link href="/settings" className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit")}>
-          설정으로
-        </Link>
+        <div className="flex items-center gap-2">
+          <GlobalSearchTrigger />
+          <Link href="/settings" className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit")}>
+            설정으로
+          </Link>
+        </div>
       </div>
 
       <PurchaseInfoTemplateForm />

@@ -1,15 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { Copy } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { formatKrw } from "@/lib/dashboard-stats";
 
-import { OrderDetailForm } from "@/components/orders/order-detail-form";
+import { OrderDetailForm, type OrderFormSummary } from "@/components/orders/order-detail-form";
+import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { buttonVariants } from "@/components/ui/button";
 import { fetchMasterData } from "@/lib/master-data";
 import { createClient } from "@/lib/supabase/client";
-import type { OrderWithRelations } from "@/components/orders/orders-table";
+import type { OrderWithRelations } from "@/types/orders";
 import { cn } from "@/lib/utils";
 
 export function OrderDetailPage() {
@@ -21,6 +23,7 @@ export function OrderDetailPage() {
   const [order, setOrder] = useState<OrderWithRelations | null>(null);
   const [master, setMaster] = useState<Awaited<ReturnType<typeof fetchMasterData>> | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [formSummary, setFormSummary] = useState<OrderFormSummary | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -123,7 +126,12 @@ export function OrderDetailPage() {
 
   return (
     <div className="text-foreground mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6 lg:px-8">
-      <div className="flex items-center justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <GlobalSearchTrigger />
+        <Link href={`/orders/new?copy=${order.id}`} className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit shrink-0") }>
+          <Copy className="h-4 w-4" aria-hidden />
+          복제
+        </Link>
         <Link href="/" className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit shrink-0")}>
           목록으로
         </Link>
@@ -133,6 +141,7 @@ export function OrderDetailPage() {
         <OrderDetailForm
           key={order.id}
           order={order}
+          onSummaryChange={setFormSummary}
           platforms={master.platforms}
           paymentMethods={master.paymentMethods}
           buyerAccounts={master.buyerAccounts}
@@ -143,25 +152,28 @@ export function OrderDetailPage() {
           <div className="mt-4 grid gap-3 text-sm">
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">구매금액</span>
-              <span className="font-semibold tabular-nums">{formatKrw(Number(order.purchase_price_krw) || 0)}</span>
+              <span className="font-semibold tabular-nums">{formatKrw(formSummary?.purchasePrice ?? (Number(order.purchase_price_krw) || 0))}</span>
             </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">입금금액</span>
-              <span className="font-semibold tabular-nums">{formatKrw(Number(order.deposit_amount_krw) || 0)}</span>
+              <span className="font-semibold tabular-nums">{formatKrw(formSummary?.depositAmount ?? (Number(order.deposit_amount_krw) || 0))}</span>
             </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">주문 상태</span>
-              <span className={order.is_processed ? "font-medium text-emerald-600 dark:text-emerald-400" : "font-medium text-amber-600 dark:text-amber-400"}>
-                {order.is_processed ? "완료" : "미완료"}
+              <span className={(formSummary?.isProcessed ?? order.is_processed) ? "font-medium text-emerald-600 dark:text-emerald-400" : "font-medium text-amber-600 dark:text-amber-400"}>
+                {(formSummary?.isProcessed ?? order.is_processed) ? "완료" : "미완료"}
               </span>
             </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">배송 상태</span>
-              <span className={order.is_item_delivered ? "font-medium text-emerald-600 dark:text-emerald-400" : "font-medium text-sky-600 dark:text-sky-400"}>
-                {order.is_item_delivered ? "배송" : "미배송"}
+              <span className={(formSummary?.isItemDelivered ?? order.is_item_delivered) ? "font-medium text-emerald-600 dark:text-emerald-400" : "font-medium text-sky-600 dark:text-sky-400"}>
+                {(formSummary?.isItemDelivered ?? order.is_item_delivered) ? "배송" : "미배송"}
               </span>
             </div>
           </div>
+          {formSummary?.missingFields.length ? (
+            <p className="mt-4 border-t pt-3 text-xs leading-relaxed text-amber-700 dark:text-amber-300">확인할 필수 항목: {formSummary.missingFields.join(", ")}</p>
+          ) : null}
         </aside>
       </div>
     </div>

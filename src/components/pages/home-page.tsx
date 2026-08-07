@@ -8,23 +8,20 @@ import { LandingAuthPanel } from "@/components/auth/landing-auth-panel";
 import { LoginForm } from "@/components/auth/login-form";
 import { UserAccountMenu } from "@/components/auth/user-account-menu";
 import {
-  ORDER_LIST_SELECT,
   OrdersTable,
   type OrderListCounts,
-  type OrderWithRelations,
 } from "@/components/orders/orders-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
+import { getKoreaDateInputValue } from "@/lib/korea-date";
 import { createClient } from "@/lib/supabase/client";
+import { ORDER_LIST_SELECT, type OrderWithRelations } from "@/types/orders";
 
 const homeKrwFormatter = new Intl.NumberFormat("ko-KR", {
   style: "currency",
   currency: "KRW",
   maximumFractionDigits: 0,
 });
-
-function getKoreaToday() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
-}
 
 function HomeOperationsSummary({
   pendingOrders,
@@ -37,7 +34,7 @@ function HomeOperationsSummary({
   counts: OrderListCounts;
   isCompletedLoading: boolean;
 }) {
-  const today = getKoreaToday();
+  const today = getKoreaDateInputValue();
   const pendingPrincipal = useMemo(
     () => pendingOrders.reduce((sum, order) => sum + Number(order.purchase_price_krw || 0), 0),
     [pendingOrders],
@@ -47,11 +44,13 @@ function HomeOperationsSummary({
     () => pendingOrders.filter((order) => {
       if (!order.scheduled_purchase_at) return false;
       const date = new Date(order.scheduled_purchase_at);
-      return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) <= today;
+      return !Number.isNaN(date.getTime()) && getKoreaDateInputValue(date) === today;
     }).length,
     [pendingOrders, today],
   );
-  const missingDepositCount = completedOrders?.filter((order) => order.deposit_amount_krw === null).length ?? null;
+  const missingDepositCount = completedOrders?.filter(
+    (order) => !order.deposit_date || order.deposit_amount_krw === null,
+  ).length ?? null;
   const completionRate = counts.total && counts.total > 0 && counts.completed !== null
     ? Math.round((counts.completed / counts.total) * 100)
     : null;
@@ -70,28 +69,28 @@ function HomeOperationsSummary({
         </div>
 
         <div className="mt-4 grid gap-2">
-          <div className="flex items-center justify-between gap-3 rounded-lg bg-amber-50/80 p-3">
+          <Link href="/?status=pending" className="flex items-center justify-between gap-3 rounded-lg bg-amber-50/80 p-3 transition-colors hover:bg-amber-100/80">
             <div className="flex min-w-0 items-center gap-2">
               <WalletCards className="h-4 w-4 shrink-0 text-amber-700" aria-hidden />
               <span className="truncate text-sm text-amber-950">입금 미완료</span>
             </div>
             <span className="shrink-0 text-sm font-bold tabular-nums text-amber-950">{pendingOrders.length}건</span>
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-soft p-3">
+          </Link>
+          <Link href="/?status=pending&attention=undelivered" className="flex items-center justify-between gap-3 rounded-lg bg-surface-soft p-3 transition-colors hover:bg-accent">
             <div className="flex min-w-0 items-center gap-2">
               <PackageCheck className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
               <span className="truncate text-sm">미배송 주문</span>
             </div>
             <span className="shrink-0 text-sm font-bold tabular-nums">{undeliveredCount}건</span>
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-soft p-3">
+          </Link>
+          <Link href="/?status=pending&attention=scheduleToday" className="flex items-center justify-between gap-3 rounded-lg bg-surface-soft p-3 transition-colors hover:bg-accent">
             <div className="flex min-w-0 items-center gap-2">
               <CalendarClock className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
-              <span className="truncate text-sm">구매 일정 확인</span>
+              <span className="truncate text-sm">오늘 구매 일정</span>
             </div>
             <span className="shrink-0 text-sm font-bold tabular-nums">{scheduledCount}건</span>
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-soft p-3">
+          </Link>
+          <Link href="/?status=completed&attention=missingDeposit" className="flex items-center justify-between gap-3 rounded-lg bg-surface-soft p-3 transition-colors hover:bg-accent">
             <div className="flex min-w-0 items-center gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
               <span className="truncate text-sm">완료 정보 확인</span>
@@ -99,7 +98,7 @@ function HomeOperationsSummary({
             <span className="shrink-0 text-sm font-bold tabular-nums">
               {isCompletedLoading ? "…" : missingDepositCount === null ? "완료 목록 열기" : `${missingDepositCount}건`}
             </span>
-          </div>
+          </Link>
         </div>
 
         <div className="mt-4 border-t border-hairline pt-4">
@@ -443,6 +442,7 @@ export function HomePage() {
           <p className="text-muted-foreground mt-0.5 text-xs">{email}</p>
         </div>
         <div className="flex items-center gap-2">
+          <GlobalSearchTrigger />
           <button
             type="button"
             aria-label="주문 목록 새로고침"
@@ -462,23 +462,28 @@ export function HomePage() {
       </div>
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,24rem)]">
-        <OrdersTable
-          pendingOrders={pendingOrders}
-          completedOrders={completedOrders}
-          counts={orderCounts}
-          isCountsLoading={isCountsLoading}
-          isPendingLoading={isPendingLoading}
-          isCompletedLoading={isCompletedLoading}
-          onLoadCompleted={loadCompletedOrders}
-          onOrderPatched={handleOrderPatched}
-          onOrderDeleted={handleOrderDeleted}
-        />
-        <HomeOperationsSummary
-          pendingOrders={pendingOrders}
-          completedOrders={completedOrders}
-          counts={orderCounts}
-          isCompletedLoading={isCompletedLoading}
-        />
+        <div className="order-2 min-w-0 xl:order-1">
+          <OrdersTable
+            userId={userId!}
+            pendingOrders={pendingOrders}
+            completedOrders={completedOrders}
+            counts={orderCounts}
+            isCountsLoading={isCountsLoading}
+            isPendingLoading={isPendingLoading}
+            isCompletedLoading={isCompletedLoading}
+            onLoadCompleted={loadCompletedOrders}
+            onOrderPatched={handleOrderPatched}
+            onOrderDeleted={handleOrderDeleted}
+          />
+        </div>
+        <div className="order-1 min-w-0 xl:order-2">
+          <HomeOperationsSummary
+            pendingOrders={pendingOrders}
+            completedOrders={completedOrders}
+            counts={orderCounts}
+            isCompletedLoading={isCompletedLoading}
+          />
+        </div>
       </div>
 
       <Link
