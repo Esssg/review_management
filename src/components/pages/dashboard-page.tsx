@@ -80,7 +80,7 @@ export function DashboardPage() {
     <div className="mx-auto flex w-full min-w-0 max-w-screen-xl flex-1 flex-col gap-6 overflow-x-hidden p-4 sm:p-6">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0 flex-1 pr-1">
-          <h1 className="text-2xl font-semibold tracking-tight">대시보드</h1>
+          <h1 className="text-2xl font-bold tracking-tight">대시보드</h1>
           <p className="text-muted-foreground mt-1 text-sm break-words">
             {email} · 주문 데이터 집계
           </p>
@@ -100,7 +100,7 @@ export function DashboardPage() {
                   setExporting(false);
                 }
               }}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-input bg-background text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline bg-card text-ink-muted shadow-sm transition-colors hover:bg-accent hover:text-primary disabled:opacity-40"
             >
               <Download size={16} />
             </button>

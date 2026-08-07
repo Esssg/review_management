@@ -213,7 +213,7 @@ function FormRow({
 
 function OrderSummaryHero({ order }: { order: OrderWithRelations }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-slate-900 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-5 text-white shadow-md ring-1 ring-white/10 dark:bg-slate-950 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+    <div className="relative overflow-hidden rounded-xl bg-brand-deep bg-gradient-to-br from-brand-deep via-[#1b286f] to-brand-deep p-5 text-white shadow-md ring-1 ring-white/10">
       <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-white/5 blur-2xl" />
       <div className="pointer-events-none absolute -bottom-10 left-1/3 h-24 w-40 rounded-full bg-emerald-500/10 blur-2xl" />
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

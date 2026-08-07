@@ -87,7 +87,7 @@ export function OrderDetailPage() {
   if (!id) {
     return (
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
-        <h1 className="text-2xl font-semibold tracking-tight">주문 상세</h1>
+        <h1 className="text-2xl font-bold tracking-tight">주문 상세</h1>
         <p className="text-muted-foreground text-sm">주문을 찾을 수 없습니다.</p>
         <Link href="/" className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit")}>
           목록으로 돌아가기
@@ -107,7 +107,7 @@ export function OrderDetailPage() {
   if (phase === "error") {
     return (
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
-        <h1 className="text-2xl font-semibold tracking-tight">주문 상세</h1>
+        <h1 className="text-2xl font-bold tracking-tight">주문 상세</h1>
         <p className="text-destructive text-sm">상세 조회 오류: {errorMessage}</p>
         <Link href="/" className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit")}>
           목록으로 돌아가기

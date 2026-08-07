@@ -44,7 +44,7 @@ export function NewPurchaseTemplatePage() {
     <div className="text-foreground mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">구매 정보 템플릿 추가</h1>
+          <h1 className="text-2xl font-bold tracking-tight">구매 정보 템플릿 추가</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             제목으로 구분하고, 필요한 칸만 채워 저장할 수 있습니다.
           </p>

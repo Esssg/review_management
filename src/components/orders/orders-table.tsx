@@ -1745,7 +1745,7 @@ export function OrdersTable({
       </div>
 
       {/* ── 미완료 주문 섹션 ───────────────────────── */}
-      <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
         <div className="flex shrink-0 items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-semibold tracking-tight text-amber-700 dark:text-amber-300">
@@ -1791,14 +1791,14 @@ export function OrdersTable({
         )}
 
         {isDesktop ? (
-          <div className="mt-4 overflow-hidden rounded-xl border shadow-xs dark:border-slate-700">
+          <div className="mt-4 overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700">
             <div
               ref={pendingTableVirtual.scrollRef}
               onScroll={pendingTableVirtual.onScroll}
               className="max-h-96 overflow-y-auto overflow-x-auto lg:max-h-[560px]"
             >
               <Table className="min-w-[52rem]">
-              <TableHeader className="bg-slate-50/80 dark:bg-slate-700/40">
+              <TableHeader className="bg-surface-soft dark:bg-slate-700/40">
                 <TableRow>
                   <TableHead className="px-3">주문 정보</TableHead>
                   <TableHead className="whitespace-nowrap px-3">구매일</TableHead>
@@ -1940,7 +1940,7 @@ export function OrdersTable({
       </section>
 
       {/* ── 완료 주문 섹션 ─────────────────────────── */}
-      <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
         <div className="flex shrink-0 items-center justify-between gap-3">
           <button
             type="button"
@@ -1999,14 +1999,14 @@ export function OrdersTable({
 
         {showCompletedOrders ? (
           isDesktop ? (
-            <div className="mt-4 overflow-hidden rounded-xl border shadow-xs dark:border-slate-700">
+            <div className="mt-4 overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700">
               <div
                 ref={completedTableVirtual.scrollRef}
                 onScroll={completedTableVirtual.onScroll}
                 className="max-h-96 overflow-y-auto overflow-x-auto lg:max-h-[560px]"
               >
                 <Table className="min-w-[58rem]">
-              <TableHeader className="bg-slate-50/80 dark:bg-slate-700/40">
+              <TableHeader className="bg-surface-soft dark:bg-slate-700/40">
                 <TableRow>
                   <TableHead className="px-3">주문 정보</TableHead>
                   <TableHead className="whitespace-nowrap px-3">구매일</TableHead>

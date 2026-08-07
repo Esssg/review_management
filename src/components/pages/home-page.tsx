@@ -271,7 +271,7 @@ export function HomePage() {
   if (phase === "loading") {
     return (
       <LandingAuthPanel tagline="계정을 확인하는 중입니다.">
-        <Card className="border-0 shadow-xl ring-1 ring-black/5 dark:ring-white/10">
+        <Card className="shadow-md">
           <CardHeader className="pb-2">
             <div className="bg-muted h-5 w-32 animate-pulse rounded-md" />
             <div className="bg-muted mt-2 h-4 w-full max-w-[280px] animate-pulse rounded-md" />
@@ -289,7 +289,7 @@ export function HomePage() {
   if (phase === "guest") {
     return (
       <LandingAuthPanel tagline="로그인하면 내 주문 장부를 바로 볼 수 있어요.">
-        <Card className="border-0 shadow-xl ring-1 ring-black/5 dark:ring-white/10">
+        <Card className="shadow-md">
           <CardHeader className="border-b border-border/60 pb-4">
             <CardTitle className="text-lg sm:text-xl">로그인</CardTitle>
           </CardHeader>
@@ -324,20 +324,20 @@ export function HomePage() {
             title="목록 다시 불러오기"
             disabled={isRefreshing}
             onClick={() => void loadOrders({ manual: true })}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-sm transition-colors hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:hover:bg-slate-700"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline bg-card text-ink-muted shadow-sm transition-colors hover:bg-accent hover:text-primary disabled:opacity-50"
           >
             {isRefreshing ? (
-              <Loader2 className="h-4 w-4 animate-spin text-slate-600 dark:text-slate-300" />
+              <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <RefreshCw className="h-4 w-4 text-slate-600 dark:text-slate-300" />
+              <RefreshCw className="h-4 w-4" />
             )}
           </button>
           <button
             type="button"
             aria-label="알림"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-sm transition-colors hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline bg-card text-ink-muted shadow-sm transition-colors hover:bg-accent hover:text-primary"
           >
-            <Bell className="h-4.5 w-4.5 text-slate-600 dark:text-slate-300" />
+            <Bell className="h-4.5 w-4.5" />
           </button>
           <UserAccountMenu email={email ?? "?"} />
         </div>
@@ -359,7 +359,7 @@ export function HomePage() {
         href="/orders/new"
         aria-label="주문 추가"
         title="주문 추가"
-        className="fixed bottom-24 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-rose-600 text-white shadow-lg ring-2 ring-white/30 transition-[transform,colors] hover:bg-rose-700 active:scale-95 dark:bg-rose-500 dark:ring-slate-900/40 dark:hover:bg-rose-600"
+        className="fixed right-4 bottom-24 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/25 ring-2 ring-white/70 transition-[transform,colors] hover:bg-primary-active active:scale-95"
       >
         <Plus className="h-7 w-7" strokeWidth={2.5} aria-hidden />
       </Link>

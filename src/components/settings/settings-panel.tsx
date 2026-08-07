@@ -57,7 +57,7 @@ function SectionHeader({ title, description }: { title: string; description: str
   return (
     <div className="mb-3">
       <h2 className="text-base font-semibold">{title}</h2>
-      <p className="text-muted-foreground mt-0.5 text-xs">{description}</p>
+      <p className="text-ink-muted mt-0.5 text-sm leading-relaxed">{description}</p>
     </div>
   );
 }
@@ -270,7 +270,7 @@ function AddItemForm({
             if (e.key === "Enter") void handleAdd();
           }}
           placeholder={placeholder}
-          className="h-9 flex-1 rounded-xl border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          className="h-9 flex-1 rounded-[4px] border border-input bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         />
         <div className="relative" ref={paletteRef}>
           <button
@@ -379,7 +379,7 @@ function SettingsNavRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex min-h-12 w-full touch-manipulation items-center gap-3 rounded-2xl border bg-white px-4 py-3 text-left shadow-sm transition-colors hover:bg-muted/40 active:bg-muted/60 dark:bg-slate-800 dark:hover:bg-slate-700/80"
+      className="flex min-h-12 w-full touch-manipulation items-center gap-3 rounded-lg border border-hairline bg-card px-4 py-3 text-left shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] transition-colors hover:bg-accent/50 active:bg-accent"
     >
       {content}
     </button>
@@ -744,7 +744,7 @@ export function SettingsPanel({
         <button
           type="button"
           onClick={goBack}
-          className="inline-flex size-10 touch-manipulation items-center justify-center rounded-xl border bg-background shadow-sm transition-colors hover:bg-muted"
+          className="inline-flex size-10 touch-manipulation items-center justify-center rounded-md border border-hairline bg-card shadow-sm transition-colors hover:bg-accent hover:text-primary"
           aria-label="뒤로"
         >
           <ArrowLeft className="h-5 w-5" aria-hidden />
@@ -773,7 +773,7 @@ export function SettingsPanel({
       <div className="flex flex-col gap-4">
         {subHeader}
         {alerts}
-        <section className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
           <label className="flex flex-col gap-2 text-sm">
             <span className="font-medium">닉네임</span>
             <input
@@ -781,7 +781,7 @@ export function SettingsPanel({
               onChange={(e) => setNicknameDraft(e.target.value)}
               placeholder="표시 이름"
               autoComplete="nickname"
-              className="h-11 rounded-xl border border-input bg-transparent px-3 text-base outline-none focus:ring-2 focus:ring-ring"
+              className="h-11 rounded-[4px] border border-input bg-card px-3 text-base outline-none focus:ring-2 focus:ring-ring"
             />
           </label>
           <button
@@ -789,10 +789,10 @@ export function SettingsPanel({
             disabled={nicknameSaveDisabled}
             onClick={() => void handleSaveNickname()}
             className={cn(
-              "mt-4 inline-flex h-11 w-full touch-manipulation items-center justify-center rounded-xl px-4 text-sm font-semibold transition-colors",
+              "mt-4 inline-flex h-11 w-full touch-manipulation items-center justify-center rounded-full px-4 text-sm font-semibold transition-colors",
               nicknameSaveDisabled
                 ? "cursor-not-allowed bg-muted text-muted-foreground"
-                : "bg-orange-600 text-white hover:bg-orange-600/90 active:bg-orange-700",
+                : "bg-primary text-primary-foreground hover:bg-primary-active",
             )}
           >
             {isSavingName ? "저장 중…" : "저장"}
@@ -807,7 +807,7 @@ export function SettingsPanel({
       <div className="flex flex-col gap-4">
         {subHeader}
         {alerts}
-        <section className="flex flex-col gap-1 rounded-2xl bg-white p-2 shadow-sm dark:bg-slate-800">
+        <section className="flex flex-col gap-1 rounded-lg border border-hairline bg-card p-2 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
           <button
             type="button"
             onClick={openNicknameEdit}
@@ -831,7 +831,7 @@ export function SettingsPanel({
       <div className="flex flex-col gap-4">
         {subHeader}
         {alerts}
-        <section className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
           <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <p className="text-muted-foreground text-xs">
               카톡방에 붙여넣을 내용을 미리 저장해 둡니다. 목록에는 제목만 보이며, 복사하기는 주문번호·금액 없이 한 줄로 복사합니다.
@@ -881,7 +881,7 @@ export function SettingsPanel({
       <div className="flex flex-col gap-4">
         {subHeader}
         {alerts}
-        <section className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
           <SectionHeader
             title="AI 리뷰 기본 정보"
             description="이름·전화번호 등 민감한 개인정보는 넣지 마세요. 성별·나이대·거주 지역 정도만 저장해 리뷰 톤을 맞출 때 사용합니다."
@@ -893,7 +893,7 @@ export function SettingsPanel({
                 value={aiGender}
                 onChange={(e) => setAiGender(e.target.value)}
                 placeholder="예: 여성"
-                className="h-10 rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                className="h-10 rounded-[4px] border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
             </label>
             <label className="flex flex-col gap-1.5 text-sm">
@@ -902,7 +902,7 @@ export function SettingsPanel({
                 value={aiAgeRange}
                 onChange={(e) => setAiAgeRange(e.target.value)}
                 placeholder="예: 30대"
-                className="h-10 rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                className="h-10 rounded-[4px] border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
             </label>
             <label className="flex flex-col gap-1.5 text-sm sm:col-span-2">
@@ -911,7 +911,7 @@ export function SettingsPanel({
                 value={aiRegion}
                 onChange={(e) => setAiRegion(e.target.value)}
                 placeholder="예: 경기 성남 (구체적 주소는 비추천)"
-                className="h-10 rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                className="h-10 rounded-[4px] border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
             </label>
             <label className="flex flex-col gap-1.5 text-sm sm:col-span-2">
@@ -920,7 +920,7 @@ export function SettingsPanel({
                 value={aiOccupation}
                 onChange={(e) => setAiOccupation(e.target.value)}
                 placeholder="예: 사무직, 육아 중 등"
-                className="h-10 rounded-xl border border-input bg-transparent px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                className="h-10 rounded-[4px] border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
             </label>
             <label className="flex flex-col gap-1.5 text-sm sm:col-span-2">
@@ -930,7 +930,7 @@ export function SettingsPanel({
                 onChange={(e) => setAiExtraContext(e.target.value)}
                 rows={3}
                 placeholder="리뷰 말투·취향 등 부담 없이 적을 수 있는 범위에서만 적어 주세요."
-                className="min-h-[5rem] resize-y rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                className="min-h-[5rem] resize-y rounded-[4px] border border-input bg-card px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
             </label>
           </div>
@@ -952,7 +952,7 @@ export function SettingsPanel({
       <div className="flex flex-col gap-4">
         {subHeader}
         {alerts}
-        <section className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
           <SectionHeader
             title="결제 플랫폼"
             description="기본 항목은 숨기기/보이기 토글, 직접 추가한 항목은 삭제됩니다."
@@ -994,7 +994,7 @@ export function SettingsPanel({
       <div className="flex flex-col gap-4">
         {subHeader}
         {alerts}
-        <section className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
           <SectionHeader
             title="결제 수단"
             description="기본 항목은 숨기기/보이기 토글, 직접 추가한 항목은 삭제됩니다."
@@ -1036,7 +1036,7 @@ export function SettingsPanel({
       <div className="flex flex-col gap-4">
         {subHeader}
         {alerts}
-        <section className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
           <SectionHeader title="구매 계정" description="주문 시 선택할 구매자 계정 별칭을 관리합니다." />
           <div className="flex flex-col gap-2">
             {buyerAccounts.length === 0 ? (
@@ -1078,7 +1078,7 @@ export function SettingsPanel({
       <button
         type="button"
         onClick={() => setView("account")}
-        className="flex w-full touch-manipulation flex-col items-stretch gap-1 rounded-2xl border bg-white p-4 text-left shadow-sm transition-colors hover:bg-muted/30 active:bg-muted/50 dark:bg-slate-800 dark:hover:bg-slate-700/50"
+        className="flex w-full touch-manipulation flex-col items-stretch gap-1 rounded-lg border border-hairline bg-card p-4 text-left shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] transition-colors hover:bg-accent/50 active:bg-accent"
       >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
@@ -1103,7 +1103,7 @@ export function SettingsPanel({
       <button
         type="button"
         onClick={() => void handleLogout()}
-        className="min-h-12 w-full touch-manipulation rounded-2xl border border-red-200 bg-white py-3 text-sm font-medium text-red-600 shadow-sm transition-colors hover:bg-red-50 active:bg-red-100 dark:border-red-900/60 dark:bg-slate-800 dark:text-red-500 dark:hover:bg-red-950/40"
+        className="min-h-12 w-full touch-manipulation rounded-full border border-red-200 bg-card py-3 text-sm font-medium text-red-600 shadow-sm transition-colors hover:bg-red-50 active:bg-red-100 dark:border-red-900/60 dark:bg-slate-800 dark:text-red-500 dark:hover:bg-red-950/40"
       >
         로그아웃하기
       </button>

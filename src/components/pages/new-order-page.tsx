@@ -49,7 +49,7 @@ export function NewOrderPage() {
     <div className="text-foreground mx-auto flex w-full max-w-4xl flex-1 flex-col gap-3 px-4 pb-6 pt-5 sm:px-6">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0 flex-1 pr-1">
-          <h1 className="text-2xl font-semibold tracking-tight">주문 추가</h1>
+          <h1 className="text-2xl font-bold tracking-tight">주문 추가</h1>
           <p className="text-muted-foreground mt-1 text-sm leading-snug break-words">
             필수 항목 입력 {"->"} 저장 가능
           </p>

@@ -118,7 +118,7 @@ export function MonthlyDashboardDetailPage() {
   if (phase === "error") {
     return (
       <div className="mx-auto flex w-full min-w-0 max-w-screen-md flex-1 flex-col gap-4 overflow-x-hidden p-4 sm:p-6">
-        <h1 className="text-2xl font-semibold tracking-tight">월별 상세 통계</h1>
+        <h1 className="text-2xl font-bold tracking-tight">월별 상세 통계</h1>
         <p className="text-destructive text-sm">Supabase 조회 오류: {errorMessage}</p>
         <Button type="button" variant="outline" className="w-fit" onClick={() => router.replace("/dashboard")}>
           대시보드로
@@ -140,7 +140,7 @@ export function MonthlyDashboardDetailPage() {
         >
           <ChevronLeft />
         </Button>
-        <h1 className="min-w-0 text-center text-2xl font-semibold tracking-tight tabular-nums">{month}</h1>
+        <h1 className="min-w-0 text-center text-2xl font-bold tracking-tight tabular-nums">{month}</h1>
         <Button
           type="button"
           variant="outline"

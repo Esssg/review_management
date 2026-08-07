@@ -70,7 +70,7 @@ function LoginFormFields({ initialEmail, onSignedIn, hideHomeLink }: LoginFormFi
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="name@example.com"
-          className="h-11 rounded-xl border-border/80 bg-background/80 shadow-sm transition-shadow focus-visible:ring-primary/30"
+          className="h-11 rounded-[4px] border-input bg-card shadow-sm transition-shadow focus-visible:ring-primary/30"
         />
       </div>
       <div className="grid gap-2">
@@ -85,7 +85,7 @@ function LoginFormFields({ initialEmail, onSignedIn, hideHomeLink }: LoginFormFi
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="h-11 rounded-xl border-border/80 bg-background/80 shadow-sm transition-shadow focus-visible:ring-primary/30"
+          className="h-11 rounded-[4px] border-input bg-card shadow-sm transition-shadow focus-visible:ring-primary/30"
         />
       </div>
       <p className="text-muted-foreground rounded-lg bg-muted/40 px-3 py-2 text-xs leading-relaxed">
@@ -102,7 +102,7 @@ function LoginFormFields({ initialEmail, onSignedIn, hideHomeLink }: LoginFormFi
       <Button
         type="submit"
         disabled={pending}
-        className="h-11 w-full rounded-xl text-base font-semibold shadow-md shadow-primary/20"
+        className="h-11 w-full rounded-full text-base font-semibold shadow-md shadow-primary/20"
       >
         {pending ? "로그인 중…" : "로그인"}
       </Button>

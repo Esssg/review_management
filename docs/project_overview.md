@@ -21,6 +21,12 @@
 - 네이티브 셸: Capacitor 7, `webDir: "out"`([`capacitor.config.ts`](../capacitor.config.ts)). `patches/@capacitor+android+7.6.2.patch`로 API 35 `android.jar` 오류 시에도 **compileSdk 34** 빌드가 되도록 보완합니다(`npm install` 시 `patch-package` 적용).
 - 품질 관리: `eslint`
 
+## 디자인 시스템 적용 범위
+- 루트 [`DESIGN.md`](../DESIGN.md)의 Notion 분석을 데이터 관리 화면에 맞게 적용했습니다. 전역 캔버스는 `#f6f5f4`의 따뜻한 종이색, 패널은 흰색, 경계선은 `#e6e6e6`, 구조적 액션은 파란색(`primary: #0075de`)으로 통일합니다.
+- [`src/app/globals.css`](../src/app/globals.css)가 색상·글꼴·반경·표 가독성 토큰을 관리하며, 외부 Google Fonts를 런타임/빌드에 의존하지 않고 `Inter`와 시스템 한글 글꼴을 순서대로 사용합니다. 숫자 데이터는 `tabular-nums`를 유지합니다.
+- [`src/components/ui`](../src/components/ui)의 버튼·카드·입력·레이블·표 프리미티브가 공통 토큰을 사용합니다. 카드와 업무 패널은 얇은 경계선과 약한 그림자로 구분하고, 완료·미완료·확인 필요 같은 상태 색은 의미 전달을 위해 화면별로 유지합니다.
+- 구매 장부·대시보드·자동 추천·설정 화면은 같은 패널 크롬과 반응형 여백을 사용하며, 하단 메뉴는 Capacitor의 안전 영역을 고려합니다. 디자인 변경은 주문/입금 조회·완료처리·추천 매칭 등 데이터 동작을 변경하지 않습니다.
+
 ## 주요 디렉터리
 - `src/app`: 라우팅 및 페이지 구성(대부분 클라이언트에서 Supabase 조회)
 - `src/components/pages`: 내장형용 클라이언트 페이지(홈·로그인·대시보드·주문 상세 등)

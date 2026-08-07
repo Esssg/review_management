@@ -50,7 +50,10 @@ export function BottomMenu() {
   if (pathname.startsWith("/login")) return null;
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/95 backdrop-blur dark:border-slate-700/50 dark:bg-slate-900/95">
+    <nav
+      data-slot="bottom-nav"
+      className="fixed inset-x-0 bottom-0 z-50 border-t border-hairline/90 bg-white/95 backdrop-blur dark:border-slate-700/50 dark:bg-slate-900/95"
+    >
       <div className="mx-auto grid h-16 w-full max-w-4xl grid-cols-5">
         {menuItems.map((item) => {
           const active = item.isActive(pathname);
@@ -75,7 +78,7 @@ export function BottomMenu() {
               />
               <span
                 className={cn(
-                  "text-[10px] leading-none font-medium",
+                  "text-xs leading-none font-medium",
                   active && "font-semibold",
                 )}
               >

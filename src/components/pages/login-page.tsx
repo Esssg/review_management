@@ -50,7 +50,7 @@ export function LoginPage() {
   if (checking) {
     return (
       <LandingAuthPanel tagline="세션을 확인하는 중입니다.">
-        <Card className="border-0 shadow-xl ring-1 ring-black/5 dark:ring-white/10">
+        <Card className="shadow-md">
           <CardContent className="pt-8 pb-8">
             <p className="text-muted-foreground text-center text-sm">확인 중…</p>
           </CardContent>
@@ -61,7 +61,7 @@ export function LoginPage() {
 
   return (
     <LandingAuthPanel tagline="쿠팡 리뷰 구매 내역을 한곳에서 정리하고 관리하세요.">
-      <Card className="border-0 shadow-xl ring-1 ring-black/5 dark:ring-white/10">
+      <Card className="shadow-md">
         <CardHeader className="border-b border-border/60 pb-4">
           <CardTitle className="text-lg sm:text-xl">로그인</CardTitle>
         </CardHeader>

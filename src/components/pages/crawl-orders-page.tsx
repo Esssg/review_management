@@ -1342,7 +1342,7 @@ export function CrawlOrdersPage() {
 
       <ChromeExtensionInstallGuide />
 
-      <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
         <div className="flex shrink-0 items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-100">
@@ -1406,10 +1406,10 @@ export function CrawlOrdersPage() {
           )}
         </div>
 
-        <div className="mt-4 hidden overflow-hidden rounded-xl border shadow-xs dark:border-slate-700 lg:block">
+        <div className="mt-4 hidden overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700 lg:block">
           <div className="max-h-[560px] overflow-y-auto overflow-x-hidden">
             <Table className="w-full table-fixed" containerClassName="overflow-visible">
-              <TableHeader className="bg-slate-50/80 dark:bg-slate-700/40">
+              <TableHeader className="bg-surface-soft dark:bg-slate-700/40">
                 <TableRow>
                   <TableHead className="w-[45%] px-3">추천 정보</TableHead>
                   <TableHead className="w-[13%] whitespace-nowrap px-2">플랫폼</TableHead>
@@ -1530,7 +1530,7 @@ export function CrawlOrdersPage() {
   );
   const renderDepositAutoRecommendPage = () => (
     <div className="flex w-full shrink-0 flex-col gap-5">
-      <section className="rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+      <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-100">입금 계좌</h2>
           <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
@@ -1558,7 +1558,7 @@ export function CrawlOrdersPage() {
         </div>
       </section>
 
-      <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
         <div className="flex shrink-0 items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-100">
@@ -1632,10 +1632,10 @@ export function CrawlOrdersPage() {
           )}
         </div>
 
-        <div className="mt-4 hidden overflow-hidden rounded-xl border shadow-xs dark:border-slate-700 lg:block">
+        <div className="mt-4 hidden overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700 lg:block">
           <div className="max-h-[560px] overflow-y-auto overflow-x-hidden">
             <Table className="w-full table-fixed" containerClassName="overflow-visible">
-              <TableHeader className="bg-slate-50/80 dark:bg-slate-700/40">
+              <TableHeader className="bg-surface-soft dark:bg-slate-700/40">
                 <TableRow>
                   <TableHead className="w-[16%] px-3">입금일</TableHead>
                   <TableHead className="w-[16%] px-2">계좌</TableHead>
@@ -1757,7 +1757,7 @@ export function CrawlOrdersPage() {
     <div className="text-foreground mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 px-4 pb-24 pt-5 sm:px-6">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">{activePageTitle}</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{activePageTitle}</h1>
           <p className="text-muted-foreground mt-1 text-sm leading-snug break-words">
             {activePageDescription}
           </p>
@@ -1793,8 +1793,8 @@ export function CrawlOrdersPage() {
       ) : null}
 
       <div className="flex justify-center gap-1.5" aria-hidden>
-        <span className={cn("h-1.5 w-6 rounded-full transition-colors", activeAutoRecommendPage === 0 ? "bg-slate-900 dark:bg-slate-100" : "bg-slate-300 dark:bg-slate-700")} />
-        <span className={cn("h-1.5 w-6 rounded-full transition-colors", activeAutoRecommendPage === 1 ? "bg-slate-900 dark:bg-slate-100" : "bg-slate-300 dark:bg-slate-700")} />
+        <span className={cn("h-1.5 w-6 rounded-full transition-colors", activeAutoRecommendPage === 0 ? "bg-primary" : "bg-slate-300 dark:bg-slate-700")} />
+        <span className={cn("h-1.5 w-6 rounded-full transition-colors", activeAutoRecommendPage === 1 ? "bg-primary" : "bg-slate-300 dark:bg-slate-700")} />
       </div>
 
       <div className="relative">
@@ -1803,7 +1803,7 @@ export function CrawlOrdersPage() {
             type="button"
             aria-label="이전 자동추천 페이지"
             title="이전"
-            className="absolute left-1 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-700 shadow-md backdrop-blur transition-colors hover:bg-white sm:left-2 dark:border-slate-700 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="absolute left-1 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-hairline bg-card/95 text-ink-muted shadow-md backdrop-blur transition-colors hover:bg-accent hover:text-primary sm:left-2"
             onClick={() => showAutoRecommendPage(activeAutoRecommendPage - 1)}
           >
             <ChevronLeft className="h-5 w-5" aria-hidden />
@@ -1814,7 +1814,7 @@ export function CrawlOrdersPage() {
             type="button"
             aria-label="다음 자동추천 페이지"
             title="다음"
-            className="absolute right-1 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-700 shadow-md backdrop-blur transition-colors hover:bg-white sm:right-2 dark:border-slate-700 dark:bg-slate-800/90 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="absolute right-1 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-hairline bg-card/95 text-ink-muted shadow-md backdrop-blur transition-colors hover:bg-accent hover:text-primary sm:right-2"
             onClick={() => showAutoRecommendPage(activeAutoRecommendPage + 1)}
           >
             <ChevronRight className="h-5 w-5" aria-hidden />

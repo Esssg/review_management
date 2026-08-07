@@ -68,7 +68,7 @@ export function UserAccountMenu({
           role="menu"
           aria-orientation="vertical"
           className={cn(
-            "absolute z-[60] mt-1 min-w-[11rem] rounded-xl border border-slate-200/90 bg-white py-1 shadow-lg dark:border-slate-600 dark:bg-slate-800",
+            "absolute z-[60] mt-1 min-w-[11rem] rounded-lg border border-hairline bg-card py-1 shadow-lg",
             align === "end" ? "right-0" : "left-0",
           )}
         >

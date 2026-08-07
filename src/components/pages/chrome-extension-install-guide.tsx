@@ -62,7 +62,7 @@ export function ChromeExtensionInstallGuide() {
         <a
           href={extensionDownloadHref}
           download={`review-manager-chrome-extension-v${extensionVersion}.zip`}
-          className={cn(buttonVariants({ size: "default" }), "w-full bg-sky-600 text-white shadow-sm hover:bg-sky-700 sm:w-auto")}
+          className={cn(buttonVariants({ size: "default" }), "w-full bg-primary text-primary-foreground shadow-sm hover:bg-primary-active sm:w-auto")}
         >
           <Download className="h-4 w-4" aria-hidden />
           익스텐션 다운로드

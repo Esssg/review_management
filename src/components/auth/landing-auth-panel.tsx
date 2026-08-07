@@ -25,13 +25,13 @@ export function LandingAuthPanel({
     >
       <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         <div className="absolute -left-24 -top-24 size-[min(100vw,28rem)] rounded-full bg-primary/[0.06] blur-3xl dark:bg-primary/[0.12]" />
-        <div className="absolute -bottom-32 -right-24 size-[min(100vw,32rem)] rounded-full bg-sky-500/[0.08] blur-3xl dark:bg-sky-400/[0.1]" />
+        <div className="absolute -bottom-32 -right-24 size-[min(100vw,32rem)] rounded-full bg-primary/[0.06] blur-3xl dark:bg-primary/[0.1]" />
         <div className="absolute inset-0 bg-gradient-to-b from-background via-background to-muted/50" />
       </div>
 
       <div className="relative mx-auto w-full max-w-[420px]">
         <header className="mb-8 text-center">
-          <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25 ring-4 ring-primary/15">
+          <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/20 ring-4 ring-primary/10">
             <ClipboardList className="size-7" strokeWidth={2} />
           </div>
           <h1 className="font-heading text-balance text-2xl font-bold tracking-tight text-foreground sm:text-[1.65rem]">

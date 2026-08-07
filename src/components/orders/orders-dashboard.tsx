@@ -112,13 +112,13 @@ export function OrdersDashboard({
 
   return (
     <div className="flex max-w-full min-w-0 flex-col gap-6 overflow-x-hidden">
-      <section className="min-w-0 rounded-xl border bg-card p-4 shadow-xs">
+      <section className="min-w-0 rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
         <h2 className="text-lg font-semibold">1. 기간별 구매금액 조회</h2>
         <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
           <select
             value={preset}
             onChange={(event) => onChangePreset(event.target.value as PeriodPreset)}
-            className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+            className="h-9 rounded-[4px] border border-input bg-card px-2.5 text-sm"
           >
             <option value="thisMonth">이번 달</option>
             <option value="last3Months">최근 3개월</option>
@@ -142,7 +142,7 @@ export function OrdersDashboard({
               setToDate(event.target.value);
             }}
           />
-          <div className="min-w-0 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+          <div className="min-w-0 rounded-lg border border-hairline bg-surface-soft px-3 py-2 text-sm">
             대상 건수: <span className="font-semibold">{filteredByPeriod.length}건</span>
           </div>
         </div>
@@ -152,33 +152,33 @@ export function OrdersDashboard({
       </section>
 
       <section className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
-        <div className="min-w-0 rounded-xl border bg-card p-4 shadow-xs">
-          <p className="text-muted-foreground text-xs">누적 구매금액</p>
+        <div className="min-w-0 rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+          <p className="text-ink-muted text-sm">누적 구매금액</p>
           <p className="mt-1 text-xl font-semibold tabular-nums sm:text-2xl">
             {formatKrw(currentAssets.totalPurchaseAmount)}
           </p>
         </div>
-        <div className="min-w-0 rounded-xl border bg-card p-4 shadow-xs">
-          <p className="text-muted-foreground text-xs">누적 입금금액</p>
+        <div className="min-w-0 rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+          <p className="text-ink-muted text-sm">누적 입금금액</p>
           <p className="mt-1 text-xl font-semibold tabular-nums sm:text-2xl">
             {formatKrw(currentAssets.totalDepositAmount)}
           </p>
         </div>
-        <div className="min-w-0 rounded-xl border bg-card p-4 shadow-xs">
-          <p className="text-muted-foreground text-xs">미회수 원금</p>
+        <div className="min-w-0 rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+          <p className="text-ink-muted text-sm">미회수 원금</p>
           <p className="mt-1 text-xl font-semibold tabular-nums sm:text-2xl">
             {formatKrw(currentAssets.unrecoveredPrincipal)}
           </p>
         </div>
-        <div className="min-w-0 rounded-xl border bg-card p-4 shadow-xs">
-          <p className="text-muted-foreground text-xs">미완료 건수</p>
+        <div className="min-w-0 rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+          <p className="text-ink-muted text-sm">미완료 건수</p>
           <p className="mt-1 text-xl font-semibold tabular-nums sm:text-2xl">
             {currentAssets.pendingCount}건
           </p>
         </div>
       </section>
 
-      <section className="min-w-0 rounded-xl border bg-card p-4 shadow-xs">
+      <section className="min-w-0 rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
         <h2 className="text-lg font-semibold">3. 월별 요약 통계</h2>
         <div className="mt-3 min-w-0 max-w-full rounded-lg border">
           <Table
@@ -273,7 +273,7 @@ export function OrdersDashboard({
           { title: "결제방식별", rows: groupedStats.byMethod },
           { title: "구매계정별", rows: groupedStats.byAccount },
         ].map((group) => (
-          <div key={group.title} className="min-w-0 rounded-xl border bg-card p-4 shadow-xs">
+          <div key={group.title} className="min-w-0 rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
             <h2 className="text-lg font-semibold">{group.title} 구매/입금/수익</h2>
             <div className="mt-3 min-w-0 max-w-full rounded-lg border">
               <Table
