@@ -71,7 +71,7 @@ type DepositRecommendationSection = {
 type PagePhase = "loading" | "ready" | "error";
 
 const crawlListHref = "/menu-4";
-// 웹과 앱 모두 CORS가 허용된 같은 HTTPS 크롤링 API를 직접 호출합니다.
+// 웹에서 CORS가 허용된 HTTPS 크롤링 API를 직접 호출합니다.
 const crawlApiUrl =
   process.env.NEXT_PUBLIC_CRAWL_API_BASE_URL?.trim() ||
   "https://review-manager-api.jinitlab.com/crawl/coupang";

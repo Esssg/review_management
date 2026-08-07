@@ -15,7 +15,6 @@
 
 # next.js
 /.next/
-/out/
 
 # production
 /build
@@ -56,14 +55,3 @@ src/types/database.gen.ts
 # supabase local temp files
 supabase/.temp/
 supabase/.branches/
-
-# android build artifacts
-android/.gradle/
-android/**/build/
-android/local.properties
-*.keystore
-*.jks
-
-# android release signing (never commit real values)
-android/keystore.properties
-android/keystore/

@@ -13,7 +13,7 @@
 - `purchase_info_templates` — 카톡 등에 붙여넣을 구매 정보 템플릿 (RLS 활성화)
 - `user_ai_review_profiles` — AI 리뷰 생성용 사용자 기본 프로필(비식별 위주, RLS 활성화)
 - `user_item_settings` — 시스템 기본 항목 숨김 설정 (RLS 활성화)
-- `users` — Auth 사용자와 1:1 앱 프로필(`user_id`, 표시 `name`, RLS 활성화). `auth.users` INSERT 트리거로 행 생성
+- `users` — Auth 사용자와 1:1 사용자 프로필(`user_id`, 표시 `name`, RLS 활성화). `auth.users` INSERT 트리거로 행 생성
 - `bank_account` — 사용자별 입금 계좌 정보 (RLS 활성화)
 - `bank_account_deposit` — 입금 계좌별 입금 내역 (RLS 활성화)
 
@@ -31,7 +31,7 @@
 |---|---|---|---|
 | `id` | uuid | NO | 주문 레코드 고유 ID (PK) |
 | `user_id` | uuid | NO | 주문 소유 사용자 ID (`auth.users.id` FK) |
-| `title` | text | YES | 앱 목록에서 빠르게 식별하기 위한 짧은 제목 (카톡방 이름 등) |
+| `title` | text | YES | 목록에서 빠르게 식별하기 위한 짧은 제목 (카톡방 이름 등) |
 | `product_name` | text | NO | 상품명 |
 | `is_processed` | boolean | NO | 주문 처리 완료 여부 (입금 완료) |
 | `platform_id` | uuid | YES | 결제 플랫폼 FK → `platforms.id` |

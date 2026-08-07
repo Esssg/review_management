@@ -1,9 +1,8 @@
 "use client";
 
-import { Capacitor } from "@capacitor/core";
 import type { LucideIcon } from "lucide-react";
 import { ChevronDown } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Select } from "@base-ui/react/select";
 
 import { cn } from "@/lib/utils";
@@ -35,13 +34,6 @@ export function EntitySelect({
   className,
   emptyHint = "설정에서 먼저 추가해 주세요",
 }: EntitySelectProps) {
-  const [isNativeApp, setIsNativeApp] = useState(false);
-  useEffect(() => {
-    queueMicrotask(() => {
-      setIsNativeApp(Capacitor.isNativePlatform());
-    });
-  }, []);
-
   const selectItems = useMemo(
     () => options.map((o) => ({ value: o.id, label: o.name })),
     [options],
@@ -53,23 +45,18 @@ export function EntitySelect({
         className={cn(
           "flex w-full min-w-0 overflow-hidden rounded-xl border border-dashed border-input bg-muted/20 text-muted-foreground",
           "dark:bg-input/20",
-          isNativeApp ? "min-h-10 items-center px-3 py-2" : "h-10",
+          "h-10",
           className,
         )}
       >
-        {!isNativeApp ? (
-          <span
-            className="flex w-10 shrink-0 items-center justify-center self-stretch border-r border-border/60 bg-muted/40 dark:bg-muted/25"
-            aria-hidden
-          >
-            <Icon className="h-4 w-4 opacity-70" />
-          </span>
-        ) : null}
         <span
-          className={cn(
-            "flex min-w-0 flex-1 items-center",
-            isNativeApp ? "text-xs leading-snug" : "px-3 text-sm",
-          )}
+          className="flex w-10 shrink-0 items-center justify-center self-stretch border-r border-border/60 bg-muted/40 dark:bg-muted/25"
+          aria-hidden
+        >
+          <Icon className="h-4 w-4 opacity-70" />
+        </span>
+        <span
+          className="flex min-w-0 flex-1 items-center px-3 text-sm"
         >
           {emptyHint}
         </span>
@@ -89,38 +76,33 @@ export function EntitySelect({
           "flex w-full min-w-0 overflow-hidden rounded-xl border border-input bg-background shadow-sm transition-shadow",
           "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30",
           disabled && "pointer-events-none opacity-50",
-          isNativeApp ? "min-h-10 h-auto" : "h-10",
+          "h-10",
           className,
         )}
       >
-        {!isNativeApp ? (
-          <span
-            className="flex w-10 shrink-0 items-center justify-center self-stretch border-r border-border/60 bg-muted/40 dark:bg-muted/25"
-            aria-hidden
-          >
-            <Icon className="h-4 w-4 text-muted-foreground" />
-          </span>
-        ) : null}
+        <span
+          className="flex w-10 shrink-0 items-center justify-center self-stretch border-r border-border/60 bg-muted/40 dark:bg-muted/25"
+          aria-hidden
+        >
+          <Icon className="h-4 w-4 text-muted-foreground" />
+        </span>
         <Select.Trigger
           id={id}
           aria-label={ariaLabel}
           className={cn(
             "flex min-h-10 min-w-0 flex-1 cursor-pointer items-center justify-between gap-1.5 border-0 bg-transparent text-left outline-none",
             "text-foreground",
-            isNativeApp ? "px-2.5 py-2" : "px-3",
+            "px-3",
           )}
         >
           <Select.Value
             placeholder={placeholder}
             className={cn(
-              "min-w-0 flex-1 outline-none",
-              isNativeApp
-                ? "text-[11px] font-medium leading-snug whitespace-normal break-words [overflow-wrap:anywhere] data-placeholder:text-muted-foreground data-placeholder:font-normal"
-                : "truncate text-sm data-placeholder:text-muted-foreground data-placeholder:font-normal",
+              "min-w-0 flex-1 truncate text-sm outline-none data-placeholder:text-muted-foreground data-placeholder:font-normal",
             )}
           />
           <Select.Icon className="pointer-events-none shrink-0 text-muted-foreground">
-            <ChevronDown className={cn("opacity-80", isNativeApp ? "size-3.5" : "size-4")} aria-hidden />
+            <ChevronDown className="size-4 opacity-80" aria-hidden />
           </Select.Icon>
         </Select.Trigger>
       </div>
@@ -151,7 +133,7 @@ export function EntitySelect({
                     "text-foreground data-highlighted:bg-accent data-highlighted:text-accent-foreground",
                     "data-selected:bg-primary/18 data-selected:font-medium data-selected:text-foreground dark:data-selected:bg-primary/28",
                     "data-selected:ring-1 data-selected:ring-inset data-selected:ring-primary/25 dark:data-selected:ring-primary/35",
-                    isNativeApp ? "text-xs leading-snug" : "text-sm",
+                    "text-sm",
                   )}
                 >
                   <Select.ItemText className="block leading-snug">{opt.name}</Select.ItemText>

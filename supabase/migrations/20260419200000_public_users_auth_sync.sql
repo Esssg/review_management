@@ -1,11 +1,11 @@
--- 앱용 사용자 프로필: auth.users와 1:1. 가입 시 자동 생성 + 기존 auth 계정 백필.
+-- 사용자 프로필: auth.users와 1:1. 가입 시 자동 생성 + 기존 auth 계정 백필.
 
 create table public.users (
   user_id uuid primary key references auth.users (id) on delete cascade,
   name text not null default ''
 );
 
-comment on table public.users is 'Supabase Auth 사용자와 1:1. 표시 이름 등 앱 프로필.';
+comment on table public.users is 'Supabase Auth 사용자와 1:1. 표시 이름 등 사용자 프로필.';
 comment on column public.users.user_id is 'auth.users.id';
 comment on column public.users.name is '표시 이름(가입 시 메타데이터·이메일에서 채움, 이후 수정 가능)';
 

@@ -1,6 +1,4 @@
-import { Capacitor } from "@capacitor/core";
-
-/** execCommand 폴백: WebView·http 등에서 navigator.clipboard가 막힐 때 */
+/** execCommand 폴백: 브라우저에서 navigator.clipboard가 막힐 때 */
 function copyViaExecCommand(text: string) {
   const textarea = document.createElement("textarea");
   textarea.value = text;
@@ -31,21 +29,11 @@ function copyViaExecCommand(text: string) {
 
 /**
  * 클립보드에 텍스트 복사.
- * Capacitor 앱(WebView)에서는 @capacitor/clipboard 우선, 그다음 Clipboard API, 마지막으로 execCommand.
+ * 브라우저 Clipboard API를 우선 사용하고, 실패하면 execCommand를 사용합니다.
  */
 export async function copyTextToClipboard(text: string): Promise<void> {
   if (typeof window === "undefined") {
     throw new Error("clipboard is only available in the browser");
-  }
-
-  if (Capacitor.isNativePlatform()) {
-    try {
-      const { Clipboard } = await import("@capacitor/clipboard");
-      await Clipboard.write({ string: text });
-      return;
-    } catch {
-      // WebView 정책 등으로 실패 시 아래 폴백
-    }
   }
 
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {

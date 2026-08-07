@@ -17,14 +17,6 @@ export function DashboardPage() {
   const [orders, setOrders] = useState<OrderWithRelations[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  // 초기값 false → 웹에서 바로 보임. Capacitor 환경이면 effect 후 숨김
-  const [isNative, setIsNative] = useState(false);
-
-  useEffect(() => {
-    if ((window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) {
-      setIsNative(true);
-    }
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,29 +78,27 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2 self-start">
-          {!isNative && (
-            <button
-              type="button"
-              aria-label="엑셀로 내보내기"
-              title="엑셀로 내보내기"
-              disabled={exporting || orders.length === 0}
-              onClick={() => {
-                setExporting(true);
-                try {
-                  exportDashboardExcel(orders, email ?? "");
-                } finally {
-                  setExporting(false);
-                }
-              }}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline bg-card text-ink-muted shadow-sm transition-colors hover:bg-accent hover:text-primary disabled:opacity-40"
-            >
-              <Download size={16} />
-            </button>
-          )}
+          <button
+            type="button"
+            aria-label="엑셀로 내보내기"
+            title="엑셀로 내보내기"
+            disabled={exporting || orders.length === 0}
+            onClick={() => {
+              setExporting(true);
+              try {
+                exportDashboardExcel(orders, email ?? "");
+              } finally {
+                setExporting(false);
+              }
+            }}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline bg-card text-ink-muted shadow-sm transition-colors hover:bg-accent hover:text-primary disabled:opacity-40"
+          >
+            <Download size={16} />
+          </button>
           <UserAccountMenu email={email ?? "?"} />
         </div>
       </div>
-      <OrdersDashboard orders={orders} isNativeApp={isNative} />
+      <OrdersDashboard orders={orders} />
     </div>
   );
 }

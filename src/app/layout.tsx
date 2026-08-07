@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import { CapacitorAndroidBackHandler } from "@/components/native/capacitor-android-back-handler";
 import { BottomMenu } from "@/components/navigation/bottom-menu";
 import "./globals.css";
 
@@ -8,7 +7,7 @@ export const metadata: Metadata = {
   description: "쿠팡 리뷰 구매 장부 및 자동화",
 };
 
-/** WebView·모바일에서 layout viewport가 넓게 잡히면 `md` 이상 브레이크포인트로 빠져 카드·섹션 스크롤이 안 먹는 경우가 있음 */
+/** 모바일 브라우저에서 노치와 하단 안전 영역을 고려해 화면 너비를 사용합니다. */
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -26,7 +25,6 @@ export default function RootLayout({
       className="h-full antialiased"
     >
       <body className="min-h-full flex flex-col">
-        <CapacitorAndroidBackHandler />
         <div className="flex min-h-full flex-1 flex-col pb-16">{children}</div>
         <BottomMenu />
       </body>

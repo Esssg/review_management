@@ -734,7 +734,7 @@ export function SettingsPanel({
       setSuccessMessage("클립보드에 복사했습니다. (주문번호·금액 칸은 비워 두었습니다.)");
       window.setTimeout(() => setSuccessMessage(""), 3500);
     } catch {
-      setErrorMessage("복사에 실패했습니다. 앱을 다시 빌드(cap sync)한 뒤 다시 시도해 주세요.");
+      setErrorMessage("복사에 실패했습니다. 브라우저의 클립보드 권한을 확인한 뒤 다시 시도해 주세요.");
     }
   };
 

@@ -33,6 +33,6 @@ begin
 end;
 $$;
 
--- 이메일은 Auth 기준으로만 두고, 앱에서는 표시 이름만 수정
+-- 이메일은 Auth 기준으로만 두고, 표시 이름만 수정
 revoke update on public.users from authenticated;
 grant update (name) on public.users to authenticated;

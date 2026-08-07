@@ -410,7 +410,7 @@ function TemplateKakaoCopyChip({
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      window.alert("복사에 실패했습니다. 앱을 다시 빌드(cap sync)한 뒤 다시 시도해 주세요.");
+      window.alert("복사에 실패했습니다. 브라우저의 클립보드 권한을 확인한 뒤 다시 시도해 주세요.");
     }
   };
 
@@ -461,7 +461,7 @@ function AiReviewCopyChip({
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      window.alert("복사에 실패했습니다. 앱을 다시 빌드(cap sync)한 뒤 다시 시도해 주세요.");
+      window.alert("복사에 실패했습니다. 브라우저의 클립보드 권한을 확인한 뒤 다시 시도해 주세요.");
     }
   };
 
@@ -1680,7 +1680,7 @@ export function OrdersTable({
 
   return (
     <div className="flex min-h-0 flex-col gap-5">
-      {/* ── 통계 카드 (모바일·앱도 한 줄 3열) ───────────────── */}
+      {/* ── 통계 카드 (모바일도 한 줄 3열) ───────────────── */}
       <div className="grid min-w-0 grid-cols-3 gap-2 sm:gap-3">
         {/* 전체 주문 */}
         <div className="flex min-w-0 items-center gap-1.5 rounded-xl bg-white p-2 shadow-sm sm:gap-3 sm:rounded-2xl sm:p-4 dark:bg-slate-800">

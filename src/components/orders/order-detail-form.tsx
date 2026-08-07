@@ -32,10 +32,6 @@ import { EntitySelect } from "@/components/ui/entity-select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
-import {
-  setOrderDetailBackHandler,
-  type OrderDetailBackResult,
-} from "@/lib/order-detail-leave-guard";
 import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import { streamAiReviewFromEdge } from "@/lib/stream-ai-review";
 import { createClient } from "@/lib/supabase/client";
@@ -371,34 +367,15 @@ export function OrderDetailForm({
   const [leaveModalOpen, setLeaveModalOpen] = useState(false);
   const leaveActionRef = useRef<
     | null
-    | { kind: "back"; resolve: (r: OrderDetailBackResult) => void }
     | { kind: "link"; href: string }
   >(null);
   const leaveModalOpenRef = useRef(false);
   const isDirtyRef = useRef(false);
-  const [isNative, setIsNative] = useState(false);
-
-  useEffect(() => {
-    if ((window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) {
-      setIsNative(true);
-    }
-  }, []);
-
-  const purchaseInfoHints = useMemo(
-    () =>
-      isNative
-        ? {
-            kakaoRoom: "카톡방 이름",
-            product: "물품명 입력",
-            delivery: "실 배송 여부",
-          }
-        : {
-            kakaoRoom: "카톡방 이름을 입력해주세요",
-            product: "알아보기 쉽게 물품명을 입력해주세요",
-            delivery: "실 배송 여부를 선택해주세요",
-          },
-    [isNative],
-  );
+  const purchaseInfoHints = {
+    kakaoRoom: "카톡방 이름을 입력해주세요",
+    product: "알아보기 쉽게 물품명을 입력해주세요",
+    delivery: "실 배송 여부를 선택해주세요",
+  };
 
   useEffect(() => {
     if (!order?.id) return;
@@ -458,23 +435,6 @@ export function OrderDetailForm({
   useEffect(() => {
     leaveModalOpenRef.current = leaveModalOpen;
   }, [leaveModalOpen]);
-
-  const requestAndroidBack = useCallback((): Promise<OrderDetailBackResult> => {
-    if (!isDirtyRef.current) return Promise.resolve("proceed-with-back");
-    return new Promise((resolve) => {
-      leaveActionRef.current = { kind: "back", resolve };
-      setLeaveModalOpen(true);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!isEditMode) {
-      setOrderDetailBackHandler(null);
-      return;
-    }
-    setOrderDetailBackHandler(requestAndroidBack);
-    return () => setOrderDetailBackHandler(null);
-  }, [isEditMode, requestAndroidBack]);
 
   useEffect(() => {
     if (!isEditMode) return;
@@ -584,7 +544,7 @@ export function OrderDetailForm({
       await copyTextToClipboard(kakaoPasteLine);
       setToast({ type: "success", message: "클립보드에 복사했습니다." });
     } catch {
-      setToast({ type: "error", message: "복사에 실패했습니다. 앱을 다시 빌드(cap sync)한 뒤 다시 시도해 주세요." });
+      setToast({ type: "error", message: "복사에 실패했습니다. 브라우저의 클립보드 권한을 확인한 뒤 다시 시도해 주세요." });
     }
   };
 
@@ -800,8 +760,6 @@ export function OrderDetailForm({
   };
 
   const onLeaveStay = () => {
-    const ctx = leaveActionRef.current;
-    if (ctx?.kind === "back") ctx.resolve("cancelled");
     closeLeaveFlow();
   };
 
@@ -812,11 +770,6 @@ export function OrderDetailForm({
     if (ctx?.kind === "link") {
       router.push(ctx.href);
       router.refresh();
-      return;
-    }
-    if (ctx?.kind === "back") {
-      ctx.resolve("handled");
-      window.history.back();
     }
   };
 
@@ -824,7 +777,6 @@ export function OrderDetailForm({
     const ctx = leaveActionRef.current;
     const ok = await persistOrder(isProcessed === "true");
     if (!ok) {
-      if (ctx?.kind === "back") ctx.resolve("cancelled");
       closeLeaveFlow();
       return;
     }
@@ -834,11 +786,6 @@ export function OrderDetailForm({
     if (ctx?.kind === "link") {
       router.push(ctx.href);
       router.refresh();
-      return;
-    }
-    if (ctx?.kind === "back") {
-      ctx.resolve("handled");
-      window.history.back();
     }
   };
 
@@ -852,7 +799,7 @@ export function OrderDetailForm({
       await copyTextToClipboard(t);
       setToast({ type: "success", message: "클립보드에 복사했습니다." });
     } catch {
-      setToast({ type: "error", message: "복사에 실패했습니다. 앱을 다시 빌드(cap sync)한 뒤 다시 시도해 주세요." });
+      setToast({ type: "error", message: "복사에 실패했습니다. 브라우저의 클립보드 권한을 확인한 뒤 다시 시도해 주세요." });
     }
   };
 

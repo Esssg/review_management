@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -48,14 +47,9 @@ function getPresetRange(preset: PeriodPreset) {
   return { from: "", to: "" };
 }
 
-export function OrdersDashboard({
-  orders,
-  isNativeApp = false,
-}: {
+export function OrdersDashboard({ orders }: {
   orders: OrderWithRelations[];
-  isNativeApp?: boolean;
 }) {
-  const router = useRouter();
   const [preset, setPreset] = useState<PeriodPreset>("thisMonth");
   const defaultRange = getPresetRange("thisMonth");
   const [fromDate, setFromDate] = useState(defaultRange.from);
@@ -183,83 +177,55 @@ export function OrdersDashboard({
         <div className="mt-3 min-w-0 max-w-full rounded-lg border">
           <Table
             containerClassName="max-w-full overflow-x-auto"
-            className={`${isNativeApp ? "" : "min-w-[1040px]"} table-fixed w-full max-w-full text-xs sm:text-sm`}
+            className="min-w-[1040px] table-fixed w-full max-w-full text-xs sm:text-sm"
           >
-            {isNativeApp ? (
-              <colgroup>
-                <col className="w-[26%]" />
-                <col className="w-[37%]" />
-                <col className="w-[37%]" />
-              </colgroup>
-            ) : (
-              <colgroup>
-                <col className="w-[10%]" />
-                <col className="w-[14%]" />
-                <col className="w-[14%]" />
-                <col className="w-[13%]" />
-                <col className="w-[9%]" />
-                <col className="w-[8%]" />
-                <col className="w-[8%]" />
-                <col className="w-[8%]" />
-                <col className="w-[8%]" />
-                <col className="w-[8%]" />
-              </colgroup>
-            )}
+            <colgroup>
+              <col className="w-[10%]" />
+              <col className="w-[14%]" />
+              <col className="w-[14%]" />
+              <col className="w-[13%]" />
+              <col className="w-[9%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+            </colgroup>
             <TableHeader className="bg-muted/40">
               <TableRow>
                 <TableHead className="px-2 py-2 sm:px-3">월</TableHead>
                 <TableHead className="px-2 py-2 text-right sm:px-3">구매금액</TableHead>
                 <TableHead className="px-2 py-2 text-right sm:px-3">수익</TableHead>
-                {!isNativeApp ? (
-                  <>
-                    <TableHead className="px-2 py-2 text-right sm:px-3">입금금액</TableHead>
-                    <TableHead className="px-2 py-2 text-right sm:px-3">수익률</TableHead>
-                    <TableHead className="px-2 py-2 text-right sm:px-3">전체</TableHead>
-                    <TableHead className="px-2 py-2 text-right sm:px-3">완료</TableHead>
-                    <TableHead className="px-2 py-2 text-right sm:px-3">미완료</TableHead>
-                    <TableHead className="px-2 py-2 text-right sm:px-3">배송</TableHead>
-                    <TableHead className="px-2 py-2 text-right sm:px-3">미배송</TableHead>
-                  </>
-                ) : null}
+                <TableHead className="px-2 py-2 text-right sm:px-3">입금금액</TableHead>
+                <TableHead className="px-2 py-2 text-right sm:px-3">수익률</TableHead>
+                <TableHead className="px-2 py-2 text-right sm:px-3">전체</TableHead>
+                <TableHead className="px-2 py-2 text-right sm:px-3">완료</TableHead>
+                <TableHead className="px-2 py-2 text-right sm:px-3">미완료</TableHead>
+                <TableHead className="px-2 py-2 text-right sm:px-3">배송</TableHead>
+                <TableHead className="px-2 py-2 text-right sm:px-3">미배송</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {monthlyStats.map((stat) => (
                 <TableRow key={stat.month}>
-                  <TableCell className="px-2 py-2 sm:px-3">
-                    {isNativeApp ? (
-                      <button
-                        type="button"
-                        className="font-medium text-primary underline-offset-4 hover:underline"
-                        onClick={() => router.push(`/dashboard/monthly?month=${encodeURIComponent(stat.month)}`)}
-                      >
-                        {stat.month}
-                      </button>
-                    ) : (
-                      stat.month
-                    )}
-                  </TableCell>
+                  <TableCell className="px-2 py-2 sm:px-3">{stat.month}</TableCell>
                   <TableCell className="px-2 py-2 text-right text-xs tabular-nums sm:px-3 sm:text-sm">
                     {formatKrw(stat.purchaseAmount)}
                   </TableCell>
                   <TableCell className="px-2 py-2 text-right text-xs tabular-nums sm:px-3 sm:text-sm">
                     {formatKrw(stat.profitKrw)}
                   </TableCell>
-                  {!isNativeApp ? (
-                    <>
-                      <TableCell className="px-2 py-2 text-right text-xs tabular-nums sm:px-3 sm:text-sm">
-                        {formatKrw(stat.depositAmount)}
-                      </TableCell>
-                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">
-                        {formatPercent(stat.profitRate)}
-                      </TableCell>
-                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.totalCount}</TableCell>
-                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.completedCount}</TableCell>
-                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.pendingCount}</TableCell>
-                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.deliveredCount}</TableCell>
-                      <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.undeliveredCount}</TableCell>
-                    </>
-                  ) : null}
+                  <TableCell className="px-2 py-2 text-right text-xs tabular-nums sm:px-3 sm:text-sm">
+                    {formatKrw(stat.depositAmount)}
+                  </TableCell>
+                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">
+                    {formatPercent(stat.profitRate)}
+                  </TableCell>
+                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.totalCount}</TableCell>
+                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.completedCount}</TableCell>
+                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.pendingCount}</TableCell>
+                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.deliveredCount}</TableCell>
+                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.undeliveredCount}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

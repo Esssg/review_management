@@ -18,7 +18,7 @@ function memoryStorage() {
 let browserSingleton: ReturnType<typeof createSupabaseClient<Database>> | null = null;
 
 /**
- * 브라우저·Capacitor WebView: localStorage 세션(내장형 정적 export용).
+ * 브라우저에서는 localStorage에 세션을 저장합니다.
  * 빌드 시 프리렌더에서는 메모리 스토리지로만 동작합니다.
  */
 export function createClient() {

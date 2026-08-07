@@ -5,8 +5,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 FROM base AS deps
 COPY package.json package-lock.json ./
-# npm 설치 후 적용되는 Capacitor 패치가 있으므로 의존성 설치 전에 함께 복사합니다.
-COPY patches ./patches
 RUN npm ci
 
 FROM base AS builder
