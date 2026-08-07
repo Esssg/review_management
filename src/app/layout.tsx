@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { BottomMenu } from "@/components/navigation/bottom-menu";
+import { DesktopSidebar } from "@/components/navigation/desktop-sidebar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -25,7 +27,10 @@ export default function RootLayout({
       className="h-full antialiased"
     >
       <body className="min-h-full flex flex-col">
-        <div className="flex min-h-full flex-1 flex-col pb-16">{children}</div>
+        <Suspense fallback={null}>
+          <DesktopSidebar />
+        </Suspense>
+        <div className="flex min-h-full flex-1 flex-col pb-16 lg:pl-60 lg:pb-0">{children}</div>
         <BottomMenu />
       </body>
     </html>

@@ -1054,7 +1054,7 @@ export function CrawlOrdersPage() {
 
   if (phase === "loading") {
     return (
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
         <p className="text-muted-foreground text-sm">불러오는 중…</p>
       </div>
     );
@@ -1062,7 +1062,7 @@ export function CrawlOrdersPage() {
 
   if (phase === "error") {
     return (
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
         <h1 className="text-2xl font-semibold tracking-tight">크롤링 주문</h1>
         <p className="text-destructive text-sm">조회 오류: {errorMessage}</p>
         <Link href={crawlListHref} className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit")}>
@@ -1074,7 +1074,7 @@ export function CrawlOrdersPage() {
 
   if (selectedId && selectedOrder && draftOrder && master && userId) {
     return (
-      <div className="text-foreground mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6">
+      <div className="text-foreground mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold tracking-tight">자동 추천 확인</h1>
@@ -1340,9 +1340,10 @@ export function CrawlOrdersPage() {
         </div>
       </div>
 
-      <ChromeExtensionInstallGuide />
-
-      <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+      {/* 익스텐션 안내는 모바일에서는 목록 위 전체 폭, 데스크톱에서는 오른쪽 보조 패널로 배치합니다. */}
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
+        <div className="order-2 min-w-0 lg:order-1">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
         <div className="flex shrink-0 items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <h2 className="text-base font-semibold tracking-tight text-slate-800 dark:text-slate-100">
@@ -1518,14 +1519,19 @@ export function CrawlOrdersPage() {
             </Table>
           </div>
         </div>
-      </section>
+        </section>
 
-      {orders.length > 0 ? (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Trash2 className="h-3.5 w-3.5" aria-hidden />
-          삭제하면 해당 추천 주문은 목록에서 숨겨집니다.
-        </p>
-      ) : null}
+        {orders.length > 0 ? (
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Trash2 className="h-3.5 w-3.5" aria-hidden />
+            삭제하면 해당 추천 주문은 목록에서 숨겨집니다.
+          </p>
+        ) : null}
+        </div>
+        <aside className="order-1 min-w-0 h-fit lg:order-2 lg:sticky lg:top-5">
+          <ChromeExtensionInstallGuide />
+        </aside>
+      </div>
     </div>
   );
   const renderDepositAutoRecommendPage = () => (
@@ -1754,7 +1760,7 @@ export function CrawlOrdersPage() {
   );
 
   return (
-    <div className="text-foreground mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 px-4 pb-24 pt-5 sm:px-6">
+    <div className="text-foreground mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-24 pt-5 sm:px-6 lg:px-8">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight">{activePageTitle}</h1>
@@ -1792,7 +1798,33 @@ export function CrawlOrdersPage() {
         </div>
       ) : null}
 
-      <div className="flex justify-center gap-1.5" aria-hidden>
+      {/* 데스크톱에서는 두 추천 업무를 탭으로 바로 전환하고, 모바일에서는 기존 스와이프 흐름을 유지합니다. */}
+      <div className="hidden grid-cols-2 gap-1 rounded-xl bg-muted p-1 lg:grid">
+        <button
+          type="button"
+          aria-pressed={activeAutoRecommendPage === 0}
+          className={cn(
+            "min-h-10 rounded-lg px-4 text-sm font-medium transition-colors",
+            activeAutoRecommendPage === 0 ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => showAutoRecommendPage(0)}
+        >
+          주문 내역 자동 추천 <span className="ml-1 text-xs tabular-nums">{orders.length}</span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={activeAutoRecommendPage === 1}
+          className={cn(
+            "min-h-10 rounded-lg px-4 text-sm font-medium transition-colors",
+            activeAutoRecommendPage === 1 ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => showAutoRecommendPage(1)}
+        >
+          입금 내역 자동 추천 <span className="ml-1 text-xs tabular-nums">{deposits.length}</span>
+        </button>
+      </div>
+
+      <div className="flex justify-center gap-1.5 lg:hidden" aria-hidden>
         <span className={cn("h-1.5 w-6 rounded-full transition-colors", activeAutoRecommendPage === 0 ? "bg-primary" : "bg-slate-300 dark:bg-slate-700")} />
         <span className={cn("h-1.5 w-6 rounded-full transition-colors", activeAutoRecommendPage === 1 ? "bg-primary" : "bg-slate-300 dark:bg-slate-700")} />
       </div>
@@ -1803,7 +1835,7 @@ export function CrawlOrdersPage() {
             type="button"
             aria-label="이전 자동추천 페이지"
             title="이전"
-            className="absolute left-1 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-hairline bg-card/95 text-ink-muted shadow-md backdrop-blur transition-colors hover:bg-accent hover:text-primary sm:left-2"
+            className="absolute left-1 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-hairline bg-card/95 text-ink-muted shadow-md backdrop-blur transition-colors hover:bg-accent hover:text-primary sm:left-2 lg:hidden"
             onClick={() => showAutoRecommendPage(activeAutoRecommendPage - 1)}
           >
             <ChevronLeft className="h-5 w-5" aria-hidden />
@@ -1814,7 +1846,7 @@ export function CrawlOrdersPage() {
             type="button"
             aria-label="다음 자동추천 페이지"
             title="다음"
-            className="absolute right-1 top-1/2 z-10 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-hairline bg-card/95 text-ink-muted shadow-md backdrop-blur transition-colors hover:bg-accent hover:text-primary sm:right-2"
+            className="absolute right-1 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-hairline bg-card/95 text-ink-muted shadow-md backdrop-blur transition-colors hover:bg-accent hover:text-primary sm:right-2 lg:hidden"
             onClick={() => showAutoRecommendPage(activeAutoRecommendPage + 1)}
           >
             <ChevronRight className="h-5 w-5" aria-hidden />

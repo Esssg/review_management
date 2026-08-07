@@ -34,14 +34,14 @@ export function NewPurchaseTemplatePage() {
 
   if (!ready) {
     return (
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
         <p className="text-muted-foreground text-sm">불러오는 중…</p>
       </div>
     );
   }
 
   return (
-    <div className="text-foreground mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6">
+    <div className="text-foreground mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6 lg:px-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">구매 정보 템플릿 추가</h1>

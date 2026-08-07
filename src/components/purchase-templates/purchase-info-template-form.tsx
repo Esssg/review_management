@@ -2,13 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ClipboardList } from "lucide-react";
+import { Check, ClipboardList, Copy } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
+import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
+import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/types/database";
@@ -63,6 +64,34 @@ export function PurchaseInfoTemplateForm({ template }: { template?: PurchaseTemp
 
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [isCopied, setIsCopied] = useState(false);
+
+  // 입력 중인 값을 그대로 가상의 템플릿으로 만들어 카카오톡 한 줄 결과를 즉시 보여줍니다.
+  const previewTemplate: PurchaseTemplateRow = {
+    id: template?.id ?? "preview",
+    user_id: template?.user_id ?? "",
+    title: title.trim() || "새 템플릿",
+    buyer_name: buyerName.trim() || null,
+    recipient_name: recipientName.trim() || null,
+    login_id: loginId.trim() || null,
+    phone: phone.trim() || null,
+    address: address.trim() || null,
+    bank_account_number: bankAccountNumber.trim() || null,
+    account_holder: accountHolder.trim() || null,
+    created_at: template?.created_at ?? "",
+    updated_at: template?.updated_at ?? "",
+  };
+  const previewLine = buildKakaoPasteLine(previewTemplate, "주문번호", "구매금액");
+
+  const handleCopyPreview = async () => {
+    try {
+      await copyTextToClipboard(previewLine);
+      setIsCopied(true);
+      window.setTimeout(() => setIsCopied(false), 1800);
+    } catch {
+      setErrorMessage("미리보기 복사에 실패했습니다. 브라우저의 클립보드 권한을 확인해 주세요.");
+    }
+  };
 
   const handleSubmit = async () => {
     const titleValue = title.trim();
@@ -115,24 +144,25 @@ export function PurchaseInfoTemplateForm({ template }: { template?: PurchaseTemp
         </p>
       ) : null}
 
-      <Card className="shadow-sm ring-border/60" size="sm">
-        <CardHeader className="border-border/60 border-b pb-4">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-400/25">
-              <ClipboardList className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-            </span>
-            <div className="min-w-0 space-y-1">
-              <CardTitle className="text-base">{isEdit ? "구매 정보 템플릿 수정" : "구매 정보 템플릿"}</CardTitle>
-              <CardDescription className="text-xs leading-relaxed">
-                {isEdit
-                  ? "값을 바꾼 뒤 저장하면 설정 목록에 반영됩니다."
-                  : "카톡에 붙여넣을 때 쓸 값을 저장해 두면 됩니다. 제목만 필수입니다."}
-              </CardDescription>
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.8fr)]">
+        <Card className="min-w-0 shadow-sm ring-border/60" size="sm">
+          <CardHeader className="border-border/60 border-b pb-4">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-400/25">
+                <ClipboardList className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+              </span>
+              <div className="min-w-0 space-y-1">
+                <CardTitle className="text-base">{isEdit ? "구매 정보 템플릿 수정" : "구매 정보 템플릿"}</CardTitle>
+                <CardDescription className="text-xs leading-relaxed">
+                  {isEdit
+                    ? "값을 바꾼 뒤 저장하면 설정 목록에 반영됩니다."
+                    : "카톡에 붙여넣을 때 쓸 값을 저장해 두면 됩니다. 제목만 필수입니다."}
+                </CardDescription>
+              </div>
             </div>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="divide-y divide-border/50">
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="divide-y divide-border/50">
             <FormRow label="제목" required hint="목록에서 이 이름으로만 보입니다">
               <Input
                 value={title}
@@ -200,9 +230,35 @@ export function PurchaseInfoTemplateForm({ template }: { template?: PurchaseTemp
                 autoComplete="off"
               />
             </FormRow>
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="h-fit min-w-0 shadow-sm ring-border/60 lg:sticky lg:top-5" size="sm">
+          <CardHeader className="border-border/60 border-b pb-4">
+            <CardTitle className="text-base">카카오톡 미리보기</CardTitle>
+            <CardDescription className="text-xs leading-relaxed">
+              입력한 값이 주문번호·금액과 함께 한 줄로 붙여넣어집니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-4">
+            <div className="rounded-xl border bg-muted/30 p-3">
+              <p className="break-all whitespace-pre-wrap text-sm leading-6">{previewLine}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleCopyPreview()}
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-muted/60"
+            >
+              {isCopied ? <Check className="h-4 w-4 text-emerald-600" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
+              {isCopied ? "복사했습니다" : "미리보기 복사"}
+            </button>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              비어 있는 값은 구분자 사이를 비워 두며, 주소 줄바꿈은 한 줄로 정리됩니다.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button

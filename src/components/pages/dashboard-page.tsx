@@ -53,7 +53,7 @@ export function DashboardPage() {
 
   if (phase === "loading") {
     return (
-      <div className="mx-auto flex w-full min-w-0 max-w-screen-xl flex-1 flex-col gap-4 overflow-x-hidden p-4 sm:p-6">
+      <div className="mx-auto flex w-full min-w-0 max-w-[1440px] flex-1 flex-col gap-4 overflow-x-hidden px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
         <p className="text-muted-foreground text-sm">불러오는 중…</p>
       </div>
     );
@@ -61,7 +61,7 @@ export function DashboardPage() {
 
   if (phase === "error") {
     return (
-      <div className="mx-auto flex w-full min-w-0 max-w-screen-xl flex-1 flex-col gap-4 overflow-x-hidden p-4 sm:p-6">
+      <div className="mx-auto flex w-full min-w-0 max-w-[1440px] flex-1 flex-col gap-4 overflow-x-hidden px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
         <h1 className="text-2xl font-semibold tracking-tight">대시보드</h1>
         <p className="text-destructive text-sm">Supabase 조회 오류: {errorMessage}</p>
       </div>
@@ -69,7 +69,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-screen-xl flex-1 flex-col gap-6 overflow-x-hidden p-4 sm:p-6">
+    <div className="mx-auto flex w-full min-w-0 max-w-[1440px] flex-1 flex-col gap-6 overflow-x-hidden px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0 flex-1 pr-1">
           <h1 className="text-2xl font-bold tracking-tight">대시보드</h1>

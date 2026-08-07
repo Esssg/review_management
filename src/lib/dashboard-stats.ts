@@ -24,6 +24,20 @@ export type GroupedDashboardStat = {
   totalCount: number;
 };
 
+export type OrderSummary = {
+  purchaseAmount: number;
+  depositAmount: number;
+  profitKrw: number;
+  totalCount: number;
+  completedCount: number;
+  pendingCount: number;
+  deliveredCount: number;
+  undeliveredCount: number;
+  unrecoveredPrincipal: number;
+  completionRate: number | null;
+  deliveryRate: number | null;
+};
+
 export function toDashboardNumber(v: string | number | null | undefined) {
   if (v === null || v === undefined) return 0;
   const n = Number(v);
@@ -43,6 +57,51 @@ export function formatPercent(value: number | null) {
   return `${new Intl.NumberFormat("ko-KR", {
     maximumFractionDigits: 1,
   }).format(value)}%`;
+}
+
+/** 현재 주문 배열에서 화면 요약에 필요한 운영 수치를 한 번만 계산합니다. */
+export function summarizeOrders(orders: OrderWithRelations[]): OrderSummary {
+  const summary = orders.reduce<OrderSummary>(
+    (prev, order) => {
+      const purchaseAmount = toDashboardNumber(order.purchase_price_krw);
+      const depositAmount = toDashboardNumber(order.deposit_amount_krw);
+
+      prev.purchaseAmount += purchaseAmount;
+      prev.depositAmount += depositAmount;
+      prev.profitKrw += toDashboardNumber(order.profit_krw);
+      prev.totalCount += 1;
+      if (order.is_processed) {
+        prev.completedCount += 1;
+      } else {
+        prev.pendingCount += 1;
+        prev.unrecoveredPrincipal += purchaseAmount;
+      }
+      if (order.is_item_delivered) {
+        prev.deliveredCount += 1;
+      } else {
+        prev.undeliveredCount += 1;
+      }
+
+      return prev;
+    },
+    {
+      purchaseAmount: 0,
+      depositAmount: 0,
+      profitKrw: 0,
+      totalCount: 0,
+      completedCount: 0,
+      pendingCount: 0,
+      deliveredCount: 0,
+      undeliveredCount: 0,
+      unrecoveredPrincipal: 0,
+      completionRate: null,
+      deliveryRate: null,
+    },
+  );
+
+  summary.completionRate = summary.totalCount > 0 ? (summary.completedCount / summary.totalCount) * 100 : null;
+  summary.deliveryRate = summary.totalCount > 0 ? (summary.deliveredCount / summary.totalCount) * 100 : null;
+  return summary;
 }
 
 export function getMonthKey(date: string) {

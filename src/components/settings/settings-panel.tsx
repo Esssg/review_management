@@ -16,7 +16,7 @@ import type { Database } from "@/types/database";
 
 type UserItemSetting = Database["public"]["Tables"]["user_item_settings"]["Row"];
 
-type SettingsPanelView =
+export type SettingsPanelView =
   | "home"
   | "account"
   | "nickname"
@@ -89,10 +89,6 @@ function ItemRow({
   const paletteRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setDraftColor(normalizedColor);
-  }, [normalizedColor, paletteOpen]);
-
-  useEffect(() => {
     if (!paletteOpen) return;
     const onPointerDown = (event: MouseEvent) => {
       if (!paletteRef.current?.contains(event.target as Node)) {
@@ -130,7 +126,11 @@ function ItemRow({
               <button
                 type="button"
                 disabled={isSavingColor}
-                onClick={() => setPaletteOpen((prev) => !prev)}
+                onClick={() => {
+                  // 색상 선택기를 열 때 저장된 색상으로 초안을 맞춰 취소 후에도 현재 값이 보이게 합니다.
+                  setDraftColor(normalizedColor);
+                  setPaletteOpen((prev) => !prev);
+                }}
                 className={cn(
                   "h-8 w-8 rounded-full border-2 border-white shadow ring-1 ring-black/12 transition-transform hover:scale-105 dark:border-slate-800 dark:ring-white/20",
                   isSavingColor && "cursor-not-allowed opacity-60",
@@ -399,7 +399,7 @@ export function SettingsPanel({
   initialAiReviewProfile,
 }: {
   userId: string;
-  initialView?: "home" | "account";
+  initialView?: SettingsPanelView;
   initialDisplayName: string;
   initialEmail: string;
   initialPlatforms: Platform[];
@@ -412,7 +412,7 @@ export function SettingsPanel({
   const router = useRouter();
   const supabase = createClient();
 
-  const [view, setView] = useState<SettingsPanelView>(initialView === "account" ? "account" : "home");
+  const [view, setView] = useState<SettingsPanelView>(initialView);
   const [displayName, setDisplayName] = useState(initialDisplayName);
   const [accountEmail] = useState(initialEmail);
 

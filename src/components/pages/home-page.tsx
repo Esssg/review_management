@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, Loader2, Plus, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, Loader2, PackageCheck, Plus, RefreshCw, WalletCards } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { LandingAuthPanel } from "@/components/auth/landing-auth-panel";
 import { LoginForm } from "@/components/auth/login-form";
@@ -15,6 +15,131 @@ import {
 } from "@/components/orders/orders-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
+
+const homeKrwFormatter = new Intl.NumberFormat("ko-KR", {
+  style: "currency",
+  currency: "KRW",
+  maximumFractionDigits: 0,
+});
+
+function getKoreaToday() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
+}
+
+function HomeOperationsSummary({
+  pendingOrders,
+  completedOrders,
+  counts,
+  isCompletedLoading,
+}: {
+  pendingOrders: OrderWithRelations[];
+  completedOrders: OrderWithRelations[] | null;
+  counts: OrderListCounts;
+  isCompletedLoading: boolean;
+}) {
+  const today = getKoreaToday();
+  const pendingPrincipal = useMemo(
+    () => pendingOrders.reduce((sum, order) => sum + Number(order.purchase_price_krw || 0), 0),
+    [pendingOrders],
+  );
+  const undeliveredCount = useMemo(() => pendingOrders.filter((order) => !order.is_item_delivered).length, [pendingOrders]);
+  const scheduledCount = useMemo(
+    () => pendingOrders.filter((order) => {
+      if (!order.scheduled_purchase_at) return false;
+      const date = new Date(order.scheduled_purchase_at);
+      return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) <= today;
+    }).length,
+    [pendingOrders, today],
+  );
+  const missingDepositCount = completedOrders?.filter((order) => order.deposit_amount_krw === null).length ?? null;
+  const completionRate = counts.total && counts.total > 0 && counts.completed !== null
+    ? Math.round((counts.completed / counts.total) * 100)
+    : null;
+
+  return (
+    <aside className="min-w-0 space-y-4 xl:sticky xl:top-5 xl:self-start">
+      <section className="rounded-xl border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold tracking-[0.08em] text-primary">TODAY&apos;S QUEUE</p>
+            <h2 className="mt-1 text-lg font-semibold">오늘 확인할 일</h2>
+          </div>
+          <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">
+            {pendingOrders.length + undeliveredCount}건
+          </span>
+        </div>
+
+        <div className="mt-4 grid gap-2">
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-amber-50/80 p-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <WalletCards className="h-4 w-4 shrink-0 text-amber-700" aria-hidden />
+              <span className="truncate text-sm text-amber-950">입금 미완료</span>
+            </div>
+            <span className="shrink-0 text-sm font-bold tabular-nums text-amber-950">{pendingOrders.length}건</span>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-soft p-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <PackageCheck className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
+              <span className="truncate text-sm">미배송 주문</span>
+            </div>
+            <span className="shrink-0 text-sm font-bold tabular-nums">{undeliveredCount}건</span>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-soft p-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <CalendarClock className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
+              <span className="truncate text-sm">구매 일정 확인</span>
+            </div>
+            <span className="shrink-0 text-sm font-bold tabular-nums">{scheduledCount}건</span>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-soft p-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
+              <span className="truncate text-sm">완료 정보 확인</span>
+            </div>
+            <span className="shrink-0 text-sm font-bold tabular-nums">
+              {isCompletedLoading ? "…" : missingDepositCount === null ? "완료 목록 열기" : `${missingDepositCount}건`}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-4 border-t border-hairline pt-4">
+          <div className="flex items-end justify-between gap-2">
+            <span className="text-xs text-ink-muted">미완료 구매원금</span>
+            <span className="text-base font-bold tabular-nums">{homeKrwFormatter.format(pendingPrincipal)}</span>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-2 text-xs text-ink-muted">
+            <span>전체 완료율</span>
+            <span className="font-semibold tabular-nums">{completionRate === null ? "-" : `${completionRate}%`}</span>
+          </div>
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-soft">
+            <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${completionRate ?? 0}%` }} />
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-primary" aria-hidden />
+          <h2 className="text-base font-semibold">빠른 작업</h2>
+        </div>
+        <div className="mt-3 grid gap-2">
+          <Link href="/orders/new" className="flex min-h-10 items-center justify-between rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary-active">
+            주문 추가
+            <ArrowUpRight className="h-4 w-4" aria-hidden />
+          </Link>
+          <Link href="/menu-4" className="flex min-h-10 items-center justify-between rounded-lg border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-surface-soft">
+            자동추천 확인
+            <ArrowUpRight className="h-4 w-4" aria-hidden />
+          </Link>
+          <Link href="/dashboard" className="flex min-h-10 items-center justify-between rounded-lg border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-surface-soft">
+            재무 흐름 보기
+            <ArrowUpRight className="h-4 w-4" aria-hidden />
+          </Link>
+        </div>
+      </section>
+    </aside>
+  );
+}
 
 const EMPTY_COUNTS: OrderListCounts = {
   total: null,
@@ -256,7 +381,7 @@ export function HomePage() {
 
   if (missingEnv) {
     return (
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
         <h1 className="text-2xl font-semibold tracking-tight">구매 장부</h1>
         <p className="text-muted-foreground text-sm">
           빌드 시 <code className="rounded bg-muted px-1 py-0.5 text-xs">NEXT_PUBLIC_SUPABASE_URL</code>,{" "}
@@ -270,7 +395,7 @@ export function HomePage() {
 
   if (phase === "loading") {
     return (
-      <LandingAuthPanel tagline="계정을 확인하는 중입니다.">
+      <LandingAuthPanel tagline="계정을 확인하는 중입니다." wide>
         <Card className="shadow-md">
           <CardHeader className="pb-2">
             <div className="bg-muted h-5 w-32 animate-pulse rounded-md" />
@@ -288,7 +413,7 @@ export function HomePage() {
 
   if (phase === "guest") {
     return (
-      <LandingAuthPanel tagline="로그인하면 내 주문 장부를 바로 볼 수 있어요.">
+      <LandingAuthPanel tagline="로그인하면 내 주문 장부를 바로 볼 수 있어요." wide>
         <Card className="shadow-md">
           <CardHeader className="border-b border-border/60 pb-4">
             <CardTitle className="text-lg sm:text-xl">로그인</CardTitle>
@@ -303,7 +428,7 @@ export function HomePage() {
 
   if (phase === "error") {
     return (
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-4 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
         <h1 className="text-2xl font-semibold tracking-tight">구매 장부</h1>
         <p className="text-destructive text-sm">Supabase 조회 오류: {errorMessage}</p>
       </div>
@@ -311,7 +436,7 @@ export function HomePage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 px-4 pb-6 pt-5">
+    <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">구매 장부</h1>
@@ -332,28 +457,29 @@ export function HomePage() {
               <RefreshCw className="h-4 w-4" />
             )}
           </button>
-          <button
-            type="button"
-            aria-label="알림"
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline bg-card text-ink-muted shadow-sm transition-colors hover:bg-accent hover:text-primary"
-          >
-            <Bell className="h-4.5 w-4.5" />
-          </button>
           <UserAccountMenu email={email ?? "?"} />
         </div>
       </div>
 
-      <OrdersTable
-        pendingOrders={pendingOrders}
-        completedOrders={completedOrders}
-        counts={orderCounts}
-        isCountsLoading={isCountsLoading}
-        isPendingLoading={isPendingLoading}
-        isCompletedLoading={isCompletedLoading}
-        onLoadCompleted={loadCompletedOrders}
-        onOrderPatched={handleOrderPatched}
-        onOrderDeleted={handleOrderDeleted}
-      />
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,24rem)]">
+        <OrdersTable
+          pendingOrders={pendingOrders}
+          completedOrders={completedOrders}
+          counts={orderCounts}
+          isCountsLoading={isCountsLoading}
+          isPendingLoading={isPendingLoading}
+          isCompletedLoading={isCompletedLoading}
+          onLoadCompleted={loadCompletedOrders}
+          onOrderPatched={handleOrderPatched}
+          onOrderDeleted={handleOrderDeleted}
+        />
+        <HomeOperationsSummary
+          pendingOrders={pendingOrders}
+          completedOrders={completedOrders}
+          counts={orderCounts}
+          isCompletedLoading={isCompletedLoading}
+        />
+      </div>
 
       <Link
         href="/orders/new"

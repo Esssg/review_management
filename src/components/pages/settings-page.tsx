@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { SettingsPanel } from "@/components/settings/settings-panel";
+import { SettingsPanel, type SettingsPanelView } from "@/components/settings/settings-panel";
 import { createClient } from "@/lib/supabase/client";
 import type { PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import type { Database } from "@/types/database";
@@ -13,7 +13,17 @@ type UserItemSetting = Database["public"]["Tables"]["user_item_settings"]["Row"]
 export function SettingsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialSettingsView = searchParams.get("view") === "account" ? "account" : "home";
+  const requestedView = searchParams.get("view");
+  const initialSettingsView: SettingsPanelView =
+    requestedView === "account" ||
+    requestedView === "nickname" ||
+    requestedView === "purchase-templates" ||
+    requestedView === "ai" ||
+    requestedView === "platforms" ||
+    requestedView === "payment-methods" ||
+    requestedView === "buyer-accounts"
+      ? requestedView
+      : "home";
   const [phase, setPhase] = useState<"loading" | "guest" | "ready">("loading");
   const [userId, setUserId] = useState<string | null>(null);
   const [payload, setPayload] = useState<{
@@ -109,17 +119,18 @@ export function SettingsPage() {
 
   if (phase === "loading" || !userId || !payload) {
     return (
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
         <p className="text-muted-foreground text-sm">불러오는 중…</p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-5 px-4 pb-6 pt-5">
+    <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6 lg:px-8">
       <h1 className="text-2xl font-bold tracking-tight">설정</h1>
 
       <SettingsPanel
+        key={initialSettingsView}
         userId={userId}
         initialView={initialSettingsView}
         initialDisplayName={payload.displayName}
