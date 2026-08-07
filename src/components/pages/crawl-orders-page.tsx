@@ -9,6 +9,7 @@ import type { LucideIcon } from "lucide-react";
 import { Banknote, Building2, CheckCircle2, ChevronLeft, ChevronRight, CreditCard, RefreshCw, ShoppingBag, Trash2, UserCircle, Wallet } from "lucide-react";
 
 import { UserAccountMenu } from "@/components/auth/user-account-menu";
+import { ChromeExtensionInstallGuide } from "@/components/pages/chrome-extension-install-guide";
 import { OrderDetailForm } from "@/components/orders/order-detail-form";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -1338,6 +1339,8 @@ export function CrawlOrdersPage() {
           </div>
         </div>
       </div>
+
+      <ChromeExtensionInstallGuide />
 
       <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white p-4 shadow-sm dark:bg-slate-800">
         <div className="flex shrink-0 items-center justify-between gap-3">
