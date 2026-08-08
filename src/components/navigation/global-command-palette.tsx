@@ -91,10 +91,10 @@ export function GlobalCommandPalette() {
         if (!authData.user) return [];
         const pattern = `%${requestedQuery}%`;
         const [titleOrders, productOrders, numberOrders, noteOrders, templates] = await Promise.all([
-          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").ilike("title", pattern).limit(6),
-          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").ilike("product_name", pattern).limit(6),
-          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").ilike("order_number", pattern).limit(4),
-          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").ilike("notes", pattern).limit(4),
+          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").is("deleted_at", null).ilike("title", pattern).limit(6),
+          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").is("deleted_at", null).ilike("product_name", pattern).limit(6),
+          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").is("deleted_at", null).ilike("order_number", pattern).limit(4),
+          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").is("deleted_at", null).ilike("notes", pattern).limit(4),
           supabase.from("purchase_info_templates").select("id, title").ilike("title", pattern).limit(4),
         ]);
 

@@ -24,7 +24,8 @@ export function SettingsPage() {
     requestedView === "ai" ||
     requestedView === "platforms" ||
     requestedView === "payment-methods" ||
-    requestedView === "buyer-accounts"
+    requestedView === "buyer-accounts" ||
+    requestedView === "trash"
       ? requestedView
       : "home";
   const [phase, setPhase] = useState<"loading" | "guest" | "ready">("loading");
@@ -36,6 +37,7 @@ export function SettingsPage() {
     hidden: UserItemSetting[];
     purchaseTemplates: PurchaseTemplateRow[];
     templateUsageCounts: Record<string, number>;
+    trashCount: number;
     preferences: UserPreferences;
     aiReviewProfile: Database["public"]["Tables"]["user_ai_review_profiles"]["Row"] | null;
     displayName: string;
@@ -64,6 +66,7 @@ export function SettingsPage() {
         aiProfileResult,
         publicUserResult,
         preferences,
+        trashCountResult,
       ] = await Promise.all([
         supabase
           .from("platforms")
@@ -90,6 +93,11 @@ export function SettingsPage() {
         supabase.from("user_ai_review_profiles").select("*").eq("user_id", user.id).maybeSingle(),
         supabase.from("users").select("name, email").eq("user_id", user.id).maybeSingle(),
         getOrCreateUserPreferences(supabase, user.id),
+        supabase
+          .from("orders")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .not("deleted_at", "is", null),
       ]);
 
       const templateUsageEntries = await Promise.all(
@@ -97,6 +105,7 @@ export function SettingsPage() {
           const { count } = await supabase
             .from("orders")
             .select("id", { count: "exact", head: true })
+            .is("deleted_at", null)
             .eq("purchase_info_template_id", template.id);
           return [template.id, count ?? 0] as const;
         }),
@@ -124,6 +133,7 @@ export function SettingsPage() {
         hidden: hiddenResult.data ?? [],
         purchaseTemplates: templatesResult.data ?? [],
         templateUsageCounts: Object.fromEntries(templateUsageEntries),
+        trashCount: trashCountResult.count ?? 0,
         preferences,
         aiReviewProfile: aiProfileResult.data ?? null,
         displayName,
@@ -163,6 +173,7 @@ export function SettingsPage() {
         hiddenSettings={payload.hidden}
         initialPurchaseTemplates={payload.purchaseTemplates}
         templateUsageCounts={payload.templateUsageCounts}
+        initialTrashCount={payload.trashCount}
         initialPreferences={payload.preferences}
         initialAiReviewProfile={payload.aiReviewProfile}
       />

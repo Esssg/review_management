@@ -40,6 +40,7 @@ export const ORDER_LIST_SELECT = `
   purchase_info_template_id,
   ai_review,
   ai_review_user_prompt,
+  deleted_at,
   platforms(id, name, color),
   payment_methods(id, name, color),
   buyer_accounts(id, label, color),

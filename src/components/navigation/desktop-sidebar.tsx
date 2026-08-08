@@ -55,6 +55,7 @@ const settingsItems = [
   { label: "결제 플랫폼", href: "/settings?view=platforms", view: "platforms" },
   { label: "결제 수단", href: "/settings?view=payment-methods", view: "payment-methods" },
   { label: "구매 계정", href: "/settings?view=buyer-accounts", view: "buyer-accounts" },
+  { label: "주문 휴지통", href: "/settings?view=trash", view: "trash" },
 ] as const;
 
 function NavItem({

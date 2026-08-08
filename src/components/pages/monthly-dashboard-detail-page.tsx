@@ -132,12 +132,14 @@ export function MonthlyDashboardDetailPage() {
         supabase
           .from("orders")
           .select(selectColumns)
+          .is("deleted_at", null)
           .gte("purchase_date", from)
           .lt("purchase_date", to)
           .order("purchase_date", { ascending: false }),
         supabase
           .from("orders")
           .select(selectColumns)
+          .is("deleted_at", null)
           .gte("purchase_date", previousRange.from)
           .lt("purchase_date", previousRange.to)
           .order("purchase_date", { ascending: false }),

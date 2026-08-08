@@ -37,6 +37,7 @@ export function DashboardPage() {
         .select(
           "*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)",
         )
+        .is("deleted_at", null)
         .order("purchase_date", { ascending: false });
       if (cancelled) return;
       if (error) {

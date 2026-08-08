@@ -189,16 +189,18 @@ export function HomePage() {
     try {
       const supabase = createClient();
       const [totalResult, pendingResult, completedResult] = await Promise.all([
-        supabase.from("orders").select("id", { count: "exact", head: true }).eq("user_id", targetUserId),
+        supabase.from("orders").select("id", { count: "exact", head: true }).eq("user_id", targetUserId).is("deleted_at", null),
         supabase
           .from("orders")
           .select("id", { count: "exact", head: true })
           .eq("user_id", targetUserId)
+          .is("deleted_at", null)
           .eq("is_processed", false),
         supabase
           .from("orders")
           .select("id", { count: "exact", head: true })
           .eq("user_id", targetUserId)
+          .is("deleted_at", null)
           .eq("is_processed", true),
       ]);
 
@@ -229,6 +231,7 @@ export function HomePage() {
         .from("orders")
         .select(ORDER_LIST_SELECT)
         .eq("user_id", targetUserId)
+        .is("deleted_at", null)
         .eq("is_processed", false)
         .order("purchase_date", { ascending: false })
         .order("created_at", { ascending: false });
@@ -292,6 +295,7 @@ export function HomePage() {
         .from("orders")
         .select(ORDER_LIST_SELECT)
         .eq("user_id", userId)
+        .is("deleted_at", null)
         .eq("is_processed", true)
         .order("purchase_date", { ascending: false })
         .order("created_at", { ascending: false });
@@ -345,6 +349,20 @@ export function HomePage() {
       total: adjustNullableCount(current.total, -1),
       pending: adjustNullableCount(current.pending, deleted.is_processed ? 0 : -1),
       completed: adjustNullableCount(current.completed, deleted.is_processed ? -1 : 0),
+    }));
+  }, []);
+
+  const handleOrderRestored = useCallback((restored: OrderWithRelations) => {
+    if (restored.is_processed) {
+      setCompletedOrders((current) => current === null ? current : upsertOrder(current, restored));
+    } else {
+      setPendingOrders((current) => upsertOrder(current, restored));
+    }
+
+    setOrderCounts((current) => ({
+      total: adjustNullableCount(current.total, 1),
+      pending: adjustNullableCount(current.pending, restored.is_processed ? 0 : 1),
+      completed: adjustNullableCount(current.completed, restored.is_processed ? 1 : 0),
     }));
   }, []);
 
@@ -465,6 +483,7 @@ export function HomePage() {
         <div className="order-2 min-w-0 xl:order-1">
           <OrdersTable
             userId={userId!}
+            userEmail={email ?? ""}
             pendingOrders={pendingOrders}
             completedOrders={completedOrders}
             counts={orderCounts}
@@ -474,6 +493,7 @@ export function HomePage() {
             onLoadCompleted={loadCompletedOrders}
             onOrderPatched={handleOrderPatched}
             onOrderDeleted={handleOrderDeleted}
+            onOrderRestored={handleOrderRestored}
           />
         </div>
         <div className="order-1 min-w-0 xl:order-2">

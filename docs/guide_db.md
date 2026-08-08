@@ -58,6 +58,7 @@
 | `review_char_count` | integer | YES | 리뷰 본문 글자 수(선택) |
 | `ai_review` | text | YES | Gemini 등으로 생성·저장한 AI 리뷰 초안 본문 |
 | `ai_review_user_prompt` | text | YES | AI 리뷰 생성 시 모델에 함께 넘기는 추가 안내 문구(주문별) |
+| `deleted_at` | timestamptz | YES | 삭제한 시각. NULL이면 활성 주문이며 값이 있으면 휴지통에 보관된 주문 |
 | `created_at` | timestamptz | NO | 생성 시각 |
 | `updated_at` | timestamptz | NO | 수정 시각 |
 
@@ -67,6 +68,10 @@
 - `orders.payment_method_id` → `public.payment_methods.id`
 - `orders.buyer_account_id` → `public.buyer_accounts.id`
 - `orders.purchase_info_template_id` → `public.purchase_info_templates.id`
+
+#### 휴지통 조회 인덱스
+- `orders_user_active_processed_purchase_date_idx`: 사용자별 활성 주문(`deleted_at IS NULL`)을 처리 상태와 구매일 순으로 조회합니다.
+- `orders_user_deleted_at_idx`: 사용자별 휴지통 주문(`deleted_at IS NOT NULL`)을 최근 삭제 순으로 조회합니다.
 
 ---
 

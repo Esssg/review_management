@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { HexColorInput, HexColorPicker } from "react-colorful";
 import { ArrowLeft, ChevronRight, Copy, Plus, Star, Trash2 } from "lucide-react";
 
+import { OrderTrashPanel } from "@/components/settings/order-trash-panel";
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
 import { normalizeHexColor } from "@/lib/color";
 import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
@@ -26,7 +27,8 @@ export type SettingsPanelView =
   | "ai"
   | "platforms"
   | "payment-methods"
-  | "buyer-accounts";
+  | "buyer-accounts"
+  | "trash";
 
 type ItemWithMeta<T> = T & { isSystem: boolean; isHidden: boolean };
 
@@ -68,6 +70,7 @@ const VIEW_TITLES: Record<Exclude<SettingsPanelView, "home">, string> = {
   platforms: "결제 플랫폼 관리",
   "payment-methods": "결제 수단 관리",
   "buyer-accounts": "구매 계정 관리",
+  trash: "주문 휴지통",
 };
 
 function SectionHeader({ title, description }: { title: string; description: string }) {
@@ -414,6 +417,7 @@ export function SettingsPanel({
   hiddenSettings,
   initialPurchaseTemplates,
   templateUsageCounts,
+  initialTrashCount,
   initialPreferences,
   initialAiReviewProfile,
 }: {
@@ -427,6 +431,7 @@ export function SettingsPanel({
   hiddenSettings: UserItemSetting[];
   initialPurchaseTemplates: PurchaseTemplateRow[];
   templateUsageCounts: Record<string, number>;
+  initialTrashCount: number;
   initialPreferences: UserPreferences;
   initialAiReviewProfile: Database["public"]["Tables"]["user_ai_review_profiles"]["Row"] | null;
 }) {
@@ -446,6 +451,7 @@ export function SettingsPanel({
   const [purchaseTemplates, setPurchaseTemplates] = useState<PurchaseTemplateRow[]>(initialPurchaseTemplates);
   const [preferences, setPreferences] = useState(initialPreferences);
   const [usageCounts, setUsageCounts] = useState(templateUsageCounts);
+  const [trashCount, setTrashCount] = useState(initialTrashCount);
   const [hidden, setHidden] = useState<UserItemSetting[]>(hiddenSettings);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [savingColorId, setSavingColorId] = useState<string | null>(null);
@@ -1259,6 +1265,16 @@ export function SettingsPanel({
     );
   }
 
+  if (view === "trash") {
+    return (
+      <div className="flex flex-col gap-4">
+        {subHeader}
+        {alerts}
+        <OrderTrashPanel userId={userId} onCountChange={setTrashCount} />
+      </div>
+    );
+  }
+
   /* home */
   return (
     <div className="flex flex-col gap-5">
@@ -1286,6 +1302,7 @@ export function SettingsPanel({
         <SettingsNavRow label="결제플랫폼 관리" onClick={() => setView("platforms")} />
         <SettingsNavRow label="결제수단 관리" onClick={() => setView("payment-methods")} />
         <SettingsNavRow label="구매계정 관리" onClick={() => setView("buyer-accounts")} />
+        <SettingsNavRow label="주문 휴지통" description="삭제 주문 복원·영구 삭제" badge={`${trashCount}건`} onClick={() => setView("trash")} />
       </div>
 
       <SettingsNavRow label="공지사항" disabled badge="준비 중" />

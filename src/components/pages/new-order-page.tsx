@@ -45,6 +45,7 @@ export function NewOrderPage() {
               .from("orders")
               .select("*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)")
               .eq("id", copyId)
+              .is("deleted_at", null)
               .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
       ]);

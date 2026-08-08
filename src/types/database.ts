@@ -157,6 +157,7 @@ export type Database = {
           review_char_count: number | null;
           ai_review: string | null;
           ai_review_user_prompt: string | null;
+          deleted_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -187,6 +188,7 @@ export type Database = {
           review_char_count?: number | null;
           ai_review?: string | null;
           ai_review_user_prompt?: string | null;
+          deleted_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -217,6 +219,7 @@ export type Database = {
           review_char_count?: number | null;
           ai_review?: string | null;
           ai_review_user_prompt?: string | null;
+          deleted_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };

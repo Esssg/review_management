@@ -47,6 +47,7 @@ export function OrderDetailPage() {
             "*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)",
           )
           .eq("id", id)
+          .is("deleted_at", null)
           .maybeSingle(),
         fetchMasterData(supabase, user.id),
       ]);
@@ -79,7 +80,7 @@ export function OrderDetailPage() {
       if (document.visibilityState !== "visible") return;
       void (async () => {
         const supabase = createClient();
-        const { data } = await supabase.from("orders").select("ai_review").eq("id", id).maybeSingle();
+        const { data } = await supabase.from("orders").select("ai_review").eq("id", id).is("deleted_at", null).maybeSingle();
         if (!data) return;
         setOrder((prev) => (prev && prev.id === id ? { ...prev, ai_review: data.ai_review } : prev));
       })();

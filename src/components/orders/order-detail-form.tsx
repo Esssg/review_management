@@ -847,6 +847,7 @@ export function OrderDetailForm({
           const { data } = await supabase
             .from("orders")
             .select(fields)
+            .is("deleted_at", null)
             .eq("order_number", normalizedOrderNumber)
             .limit(5);
           for (const row of data ?? []) matches.set(row.id, row);
@@ -856,6 +857,7 @@ export function OrderDetailForm({
           const { data } = await supabase
             .from("orders")
             .select(fields)
+            .is("deleted_at", null)
             .eq("purchase_date", purchaseDate)
             .limit(100);
           for (const row of data ?? []) {
@@ -1114,7 +1116,7 @@ export function OrderDetailForm({
       }
 
       const query = isEditMode
-        ? supabase.from("orders").update(payloads[0]).eq("id", order!.id)
+        ? supabase.from("orders").update(payloads[0]).eq("id", order!.id).is("deleted_at", null)
         : supabase.from("orders").insert(payloads);
       const { error: saveError } = await query;
 
@@ -1344,7 +1346,7 @@ export function OrderDetailForm({
       return;
     }
 
-    const { error: preSaveError } = await supabase.from("orders").update(payloads[0]).eq("id", order.id);
+    const { error: preSaveError } = await supabase.from("orders").update(payloads[0]).eq("id", order.id).is("deleted_at", null);
     if (preSaveError) {
       setAiGenerating(false);
       setToast({ type: "error", message: preSaveError.message });
@@ -1383,14 +1385,19 @@ export function OrderDetailForm({
   const deleteOrder = async () => {
     if (!isEditMode) return;
 
-    const confirmed = window.confirm(`"${order!.product_name}" 주문을 삭제할까요?`);
+    const confirmed = window.confirm(`"${order!.product_name}" 주문을 휴지통으로 이동할까요?`);
     if (!confirmed) return;
 
     setToast(null);
     setIsSaving(true);
 
     try {
-      const { error } = await supabase.from("orders").delete().eq("id", order!.id);
+      const { error } = await supabase
+        .from("orders")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", order!.id)
+        .eq("user_id", order!.user_id)
+        .is("deleted_at", null);
       if (error) {
         setToast({ type: "error", message: error.message });
         return;

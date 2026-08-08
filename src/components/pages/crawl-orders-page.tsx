@@ -6,7 +6,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import type { TouchEvent } from "react";
 import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Banknote, Building2, CheckCircle2, ChevronLeft, ChevronRight, CreditCard, RefreshCw, ShoppingBag, Trash2, UserCircle, Wallet } from "lucide-react";
+import { Banknote, Building2, CheckCircle2, ChevronLeft, ChevronRight, CreditCard, History, Loader2, RefreshCw, RotateCcw, ShoppingBag, Trash2, UserCircle, Wallet } from "lucide-react";
 
 import { UserAccountMenu } from "@/components/auth/user-account-menu";
 import { ChromeExtensionInstallGuide } from "@/components/pages/chrome-extension-install-guide";
@@ -87,6 +87,11 @@ const COMPLETED_DEPOSIT_RECOMMENDATION_LIMIT = 2;
 const DEPOSIT_RECOMMENDATION_PAGE_SIZE = 1000;
 
 const krwFormatter = new Intl.NumberFormat("ko-KR");
+const recoveryDateTimeFormatter = new Intl.DateTimeFormat("ko-KR", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Seoul",
+});
 
 type RecommendationPageResult<T> = {
   data: T[];
@@ -286,6 +291,12 @@ function formatDepositDate(date: string) {
 function formatDepositTime(time: string | null) {
   if (!time) return "-";
   return time.slice(0, 5);
+}
+
+function formatRecoveryTimestamp(value: string | null | undefined) {
+  if (!value) return "시각 없음";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : recoveryDateTimeFormatter.format(date);
 }
 
 function displayPendingOrderTitle(order: PendingDepositOrder) {
@@ -555,6 +566,12 @@ export function CrawlOrdersPage() {
   const [isStartingCrawl, setIsStartingCrawl] = useState(false);
   const [crawlNotice, setCrawlNotice] = useState<string | null>(null);
   const [autoAdvanceRecommendations, setAutoAdvanceRecommendations] = useState(true);
+  const [recoveryCrawlOrders, setRecoveryCrawlOrders] = useState<CrawlOrderRow[]>([]);
+  const [recoveryDeposits, setRecoveryDeposits] = useState<DepositWithAccount[]>([]);
+  const [hasLoadedRecoveryData, setHasLoadedRecoveryData] = useState(false);
+  const [isRecoveryDataLoading, setIsRecoveryDataLoading] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
+  const [restoringRecoveryKey, setRestoringRecoveryKey] = useState<string | null>(null);
 
   const loadPage = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     const supabase = createClient();
@@ -656,6 +673,7 @@ export function CrawlOrdersPage() {
       setDepositRecommendationOrders([]);
       setExpandedDepositId(null);
       setHasLoadedDepositData(false);
+      setHasLoadedRecoveryData(false);
     }
     setPhase("ready");
   }, [router, selectedId]);
@@ -711,6 +729,7 @@ export function CrawlOrdersPage() {
               "id, title, product_name, purchase_date, purchase_price_krw, deposit_date, deposit_amount_krw, is_processed, is_item_delivered, platform_id, buyer_account_id",
             )
             .eq("user_id", userId)
+            .is("deleted_at", null)
             .order("purchase_date", { ascending: true })
             .order("id", { ascending: true })
             .range(from, to);
@@ -745,6 +764,62 @@ export function CrawlOrdersPage() {
     }
   }, [hasLoadedDepositData, isDepositDataLoading, userId]);
 
+  const loadRecoveryData = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
+    if (!userId || isRecoveryDataLoading) return;
+    if (!force && hasLoadedRecoveryData) return;
+
+    setIsRecoveryDataLoading(true);
+    setRecoveryError("");
+    try {
+      const supabase = createClient();
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const cutoffDate = cutoff.toISOString().slice(0, 10);
+      const [crawlResult, depositResult] = await Promise.all([
+        supabase
+          .from("crawl_orders")
+          .select("*")
+          .eq("user_id", userId)
+          .in("crawl_order_status", [1, 99])
+          .gte("updated_at", cutoff.toISOString())
+          .order("updated_at", { ascending: false, nullsFirst: false })
+          .limit(100),
+        supabase
+          .from("bank_account_deposit")
+          .select(`
+            id,
+            bank_account_id,
+            date,
+            time,
+            counterparty,
+            amount,
+            bank_account_deposit_status,
+            bank_account:bank_account_id (
+              bank_account_name,
+              bank,
+              bank_account_number
+            )
+          `)
+          .in("bank_account_deposit_status", [1, 99])
+          .gte("date", cutoffDate)
+          .order("date", { ascending: false })
+          .order("time", { ascending: false })
+          .limit(100),
+      ]);
+
+      if (crawlResult.error || depositResult.error) {
+        setRecoveryError(crawlResult.error?.message ?? depositResult.error?.message ?? "복구 내역을 불러오지 못했습니다.");
+        return;
+      }
+      setRecoveryCrawlOrders(crawlResult.data ?? []);
+      setRecoveryDeposits((depositResult.data ?? []) as DepositWithAccount[]);
+      setHasLoadedRecoveryData(true);
+    } catch (error) {
+      setRecoveryError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRecoveryDataLoading(false);
+    }
+  }, [hasLoadedRecoveryData, isRecoveryDataLoading, userId]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => void loadPage(), 0);
     return () => window.clearTimeout(timer);
@@ -754,6 +829,11 @@ export function CrawlOrdersPage() {
     if (phase !== "ready" || selectedId || activeAutoRecommendPage !== 1) return;
     void loadDepositRecommendationData();
   }, [activeAutoRecommendPage, loadDepositRecommendationData, phase, selectedId]);
+
+  useEffect(() => {
+    if (phase !== "ready" || selectedId || activeAutoRecommendPage !== 2) return;
+    void loadRecoveryData();
+  }, [activeAutoRecommendPage, loadRecoveryData, phase, selectedId]);
 
   useEffect(() => {
     if (phase !== "ready" || !selectedId) return;
@@ -981,7 +1061,7 @@ export function CrawlOrdersPage() {
   };
 
   const showAutoRecommendPage = (page: number) => {
-    setActiveAutoRecommendPage(Math.min(1, Math.max(0, page)));
+    setActiveAutoRecommendPage(Math.min(2, Math.max(0, page)));
   };
 
   const handleSliderTouchStart = (event: TouchEvent<HTMLDivElement>) => {
@@ -1032,6 +1112,54 @@ export function CrawlOrdersPage() {
     }
   };
 
+  const restoreCrawlOrder = async (row: CrawlOrderRow) => {
+    if (!userId || row.crawl_order_status !== 99) return;
+    const key = `crawl:${row.id}`;
+    setRestoringRecoveryKey(key);
+    try {
+      const supabase = createClient();
+      const { error, count } = await supabase
+        .from("crawl_orders")
+        .update({ crawl_order_status: 0 }, { count: "exact" })
+        .eq("id", row.id)
+        .eq("user_id", userId)
+        .eq("crawl_order_status", 99);
+      if (error || count === 0) {
+        window.alert(error?.message ?? "이미 상태가 변경된 추천 주문입니다.");
+        await loadRecoveryData({ force: true });
+        return;
+      }
+      setRecoveryCrawlOrders((current) => current.filter((item) => item.id !== row.id));
+      await loadPage({ silent: true });
+    } finally {
+      setRestoringRecoveryKey(null);
+    }
+  };
+
+  const restoreDeposit = async (deposit: DepositWithAccount) => {
+    if (deposit.bank_account_deposit_status !== 99) return;
+    const key = `deposit:${deposit.id}`;
+    setRestoringRecoveryKey(key);
+    try {
+      const supabase = createClient();
+      const { error, count } = await supabase
+        .from("bank_account_deposit")
+        .update({ bank_account_deposit_status: 0 }, { count: "exact" })
+        .eq("id", deposit.id)
+        .eq("bank_account_deposit_status", 99);
+      if (error || count === 0) {
+        window.alert(error?.message ?? "이미 상태가 변경된 입금 내역입니다.");
+        await loadRecoveryData({ force: true });
+        return;
+      }
+      setRecoveryDeposits((current) => current.filter((item) => item.id !== deposit.id));
+      // 입금 추천 탭으로 돌아갈 때 복원된 대기 내역을 다시 조회합니다.
+      setHasLoadedDepositData(false);
+    } finally {
+      setRestoringRecoveryKey(null);
+    }
+  };
+
   const completeDepositRecommendation = async (deposit: DepositWithAccount, order: PendingDepositOrder) => {
     if (!userId) return;
 
@@ -1057,6 +1185,7 @@ export function CrawlOrdersPage() {
         })
         .eq("id", order.id)
         .eq("user_id", userId)
+        .is("deleted_at", null)
         .eq("is_processed", false)
         .select("id")
         .single();
@@ -1256,13 +1385,19 @@ export function CrawlOrdersPage() {
     );
   }).length;
   const needsCheckCount = orders.length - matchedMetaCount;
-  const activePageTitle = activeAutoRecommendPage === 0 ? "주문 내역 자동 추천" : "입금 내역 자동 추천";
+  const activePageTitle = activeAutoRecommendPage === 0
+    ? "주문 내역 자동 추천"
+    : activeAutoRecommendPage === 1
+      ? "입금 내역 자동 추천"
+      : "최근 처리·숨김 내역";
   const activePageDescription =
     activeAutoRecommendPage === 0
       ? "구매장부에 등록되지 않은 구매 주문 건을 표시합니다"
-      : "입금 내역과 일치할 가능성이 높은 주문건을 표시합니다";
+      : activeAutoRecommendPage === 1
+        ? "입금 내역과 일치할 가능성이 높은 주문건을 표시합니다"
+        : "최근 30일의 처리 결과를 확인하고 잘못 숨긴 항목을 복원합니다";
   const canGoPrev = activeAutoRecommendPage > 0;
-  const canGoNext = activeAutoRecommendPage < 1;
+  const canGoNext = activeAutoRecommendPage < 2;
   const renderDepositRecommendationList = (deposit: DepositWithAccount) => {
     const cacheKey = `${deposit.id}:${deposit.amount}:${deposit.counterparty}:${depositRecommendationVersion}`;
     const cached = recommendationCacheRef.current.get(cacheKey);
@@ -1864,6 +1999,119 @@ export function CrawlOrdersPage() {
     </div>
   );
 
+  const renderRecoveryPage = () => {
+    const hiddenCount = recoveryCrawlOrders.filter((row) => row.crawl_order_status === 99).length
+      + recoveryDeposits.filter((deposit) => deposit.bank_account_deposit_status === 99).length;
+    const processedCount = recoveryCrawlOrders.filter((row) => row.crawl_order_status === 1).length
+      + recoveryDeposits.filter((deposit) => deposit.bank_account_deposit_status === 1).length;
+
+    return (
+      <div className="flex w-full shrink-0 flex-col gap-5">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3">
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 sm:p-4">
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" aria-hidden />
+            <div><p className="text-xs text-emerald-800">처리·매핑 완료</p><p className="text-xl font-bold tabular-nums text-emerald-950">{processedCount}</p></div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 sm:p-4">
+            <History className="h-5 w-5 shrink-0 text-amber-700" aria-hidden />
+            <div><p className="text-xs text-amber-800">복원 가능</p><p className="text-xl font-bold tabular-nums text-amber-950">{hiddenCount}</p></div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-hairline bg-card p-3 shadow-sm">
+          <p className="text-sm text-muted-foreground">최근 30일 · 종류별 최대 100건</p>
+          <Button type="button" size="sm" variant="outline" className="gap-1.5" disabled={isRecoveryDataLoading} onClick={() => void loadRecoveryData({ force: true })}>
+            <RefreshCw className={cn("h-3.5 w-3.5", isRecoveryDataLoading && "animate-spin")} aria-hidden />
+            새로고침
+          </Button>
+        </div>
+
+        {recoveryError ? <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">{recoveryError}</p> : null}
+        {isRecoveryDataLoading && !hasLoadedRecoveryData ? (
+          <div className="flex min-h-48 items-center justify-center rounded-xl border border-hairline bg-card text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />최근 내역을 불러오는 중입니다.
+          </div>
+        ) : (
+          <div className="grid min-w-0 gap-5 xl:grid-cols-2">
+            <section className="min-w-0 rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-base font-semibold">크롤링 주문</h2>
+                <span className="rounded-full bg-surface-soft px-2.5 py-0.5 text-xs font-semibold">{recoveryCrawlOrders.length}</span>
+              </div>
+              {recoveryCrawlOrders.length === 0 ? (
+                <p className="py-10 text-center text-sm text-muted-foreground">최근 처리·숨김 주문이 없습니다.</p>
+              ) : (
+                <div className="mt-3 max-h-[34rem] space-y-2 overflow-y-auto">
+                  {recoveryCrawlOrders.map((row) => {
+                    const isHidden = row.crawl_order_status === 99;
+                    const key = `crawl:${row.id}`;
+                    return (
+                      <article key={row.id} className="rounded-xl border border-hairline p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold">{displayPrimary(row)}</p>
+                            <p className="mt-1 truncate text-xs text-muted-foreground">{displaySecondary(row) || `ID ${row.id}`}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{formatRecoveryTimestamp(row.updated_at ?? row.created_at)}</p>
+                          </div>
+                          <span className={cn("shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold", isHidden ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900")}>
+                            {isHidden ? "숨김" : "처리 완료"}
+                          </span>
+                        </div>
+                        {isHidden ? (
+                          <Button type="button" size="sm" variant="outline" className="mt-3 w-full gap-1.5" disabled={restoringRecoveryKey === key} onClick={() => void restoreCrawlOrder(row)}>
+                            {restoringRecoveryKey === key ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RotateCcw className="h-3.5 w-3.5" aria-hidden />}
+                            추천 대기열로 복원
+                          </Button>
+                        ) : <p className="mt-3 text-xs text-muted-foreground">처리 완료 내역은 확인용이며 중복 등록을 막기 위해 복원하지 않습니다.</p>}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            <section className="min-w-0 rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-base font-semibold">입금 내역</h2>
+                <span className="rounded-full bg-surface-soft px-2.5 py-0.5 text-xs font-semibold">{recoveryDeposits.length}</span>
+              </div>
+              {recoveryDeposits.length === 0 ? (
+                <p className="py-10 text-center text-sm text-muted-foreground">최근 처리·숨김 입금 내역이 없습니다.</p>
+              ) : (
+                <div className="mt-3 max-h-[34rem] space-y-2 overflow-y-auto">
+                  {recoveryDeposits.map((deposit) => {
+                    const isHidden = deposit.bank_account_deposit_status === 99;
+                    const key = `deposit:${deposit.id}`;
+                    return (
+                      <article key={deposit.id} className="rounded-xl border border-hairline p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold">{deposit.counterparty}</p>
+                            <p className="mt-1 truncate text-xs text-muted-foreground">{formatDepositDate(deposit.date)} {formatDepositTime(deposit.time)} · {deposit.bank_account?.bank_account_name ?? "계좌 미확인"}</p>
+                            <p className="mt-1 text-sm font-bold tabular-nums">{formatKrw(deposit.amount)}</p>
+                          </div>
+                          <span className={cn("shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold", isHidden ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900")}>
+                            {isHidden ? "숨김" : "매핑 완료"}
+                          </span>
+                        </div>
+                        {isHidden ? (
+                          <Button type="button" size="sm" variant="outline" className="mt-3 w-full gap-1.5" disabled={restoringRecoveryKey === key} onClick={() => void restoreDeposit(deposit)}>
+                            {restoringRecoveryKey === key ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <RotateCcw className="h-3.5 w-3.5" aria-hidden />}
+                            입금 대기열로 복원
+                          </Button>
+                        ) : <p className="mt-3 text-xs text-muted-foreground">매핑 완료 내역은 확인용이며 중복 처리를 막기 위해 복원하지 않습니다.</p>}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="text-foreground mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-24 pt-5 sm:px-6 lg:px-8">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -1910,8 +2158,8 @@ export function CrawlOrdersPage() {
         </div>
       ) : null}
 
-      {/* 데스크톱에서는 두 추천 업무를 탭으로 바로 전환하고, 모바일에서는 기존 스와이프 흐름을 유지합니다. */}
-      <div className="hidden grid-cols-2 gap-1 rounded-xl bg-muted p-1 lg:grid">
+      {/* 데스크톱은 세 업무 탭을 바로 전환하고, 모바일은 같은 순서로 스와이프합니다. */}
+      <div className="hidden grid-cols-3 gap-1 rounded-xl bg-muted p-1 lg:grid">
         <button
           type="button"
           aria-pressed={activeAutoRecommendPage === 0}
@@ -1934,11 +2182,23 @@ export function CrawlOrdersPage() {
         >
           입금 내역 자동 추천 <span className="ml-1 text-xs tabular-nums">{deposits.length}</span>
         </button>
+        <button
+          type="button"
+          aria-pressed={activeAutoRecommendPage === 2}
+          className={cn(
+            "min-h-10 rounded-lg px-4 text-sm font-medium transition-colors",
+            activeAutoRecommendPage === 2 ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => showAutoRecommendPage(2)}
+        >
+          최근 처리·숨김 <span className="ml-1 text-xs tabular-nums">{recoveryCrawlOrders.length + recoveryDeposits.length}</span>
+        </button>
       </div>
 
       <div className="flex justify-center gap-1.5 lg:hidden" aria-hidden>
         <span className={cn("h-1.5 w-6 rounded-full transition-colors", activeAutoRecommendPage === 0 ? "bg-primary" : "bg-slate-300 dark:bg-slate-700")} />
         <span className={cn("h-1.5 w-6 rounded-full transition-colors", activeAutoRecommendPage === 1 ? "bg-primary" : "bg-slate-300 dark:bg-slate-700")} />
+        <span className={cn("h-1.5 w-6 rounded-full transition-colors", activeAutoRecommendPage === 2 ? "bg-primary" : "bg-slate-300 dark:bg-slate-700")} />
       </div>
 
       <div className="relative">
@@ -1970,7 +2230,11 @@ export function CrawlOrdersPage() {
           onTouchEnd={handleSliderTouchEnd}
         >
           <div className="transition-opacity duration-150 ease-out">
-            {activeAutoRecommendPage === 0 ? renderOrderAutoRecommendPage() : renderDepositAutoRecommendPage()}
+            {activeAutoRecommendPage === 0
+              ? renderOrderAutoRecommendPage()
+              : activeAutoRecommendPage === 1
+                ? renderDepositAutoRecommendPage()
+                : renderRecoveryPage()}
           </div>
         </div>
       </div>

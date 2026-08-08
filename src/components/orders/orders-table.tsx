@@ -17,6 +17,7 @@ import {
   CreditCard,
   Filter,
   Images,
+  ListChecks,
   Loader2,
   Package,
   PackageCheck,
@@ -36,6 +37,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  OrdersBulkActions,
+  type BulkCompletionDraft,
+  type BulkOperationResult,
+  type BulkOrderPatch,
+} from "@/components/orders/orders-bulk-actions";
 import { createClient } from "@/lib/supabase/client";
 import {
   Table,
@@ -47,8 +54,17 @@ import {
 } from "@/components/ui/table";
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
 import { hexToRgba, normalizeHexColor } from "@/lib/color";
+import { exportDashboardExcel } from "@/lib/export-dashboard-excel";
 import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
+import { fetchMasterData, type MasterData } from "@/lib/master-data";
 import { getKoreaDateInputValue } from "@/lib/korea-date";
+import {
+  buildOrderCompletionValues,
+  calculateOrderProfit,
+  getDefaultOrderCompletionInput,
+  getOrderCompletionWarning,
+  parseOrderCompletionAmount,
+} from "@/lib/order-completion";
 import { matchesPurchaseSchedule, type PurchaseScheduleFilter } from "@/lib/order-workflow";
 import { getOrCreateUserPreferences, type LedgerDensity } from "@/lib/user-preferences";
 import { cn } from "@/lib/utils";
@@ -92,18 +108,6 @@ export type OrderListCounts = {
   completed: number | null;
 };
 
-function parseDepositAmountInput(raw: string): number | null {
-  const t = raw.trim().replace(/,/g, "");
-  if (!t) return null;
-  const n = Number(t);
-  if (!Number.isFinite(n)) return null;
-  return n;
-}
-
-function profitFromDepositAndPurchase(deposit: number, purchase: number): number {
-  return Math.round((deposit - purchase) * 100) / 100;
-}
-
 function addDaysToDateInput(value: string, days: number) {
   const base = value.trim() || getKoreaDateInputValue();
   const [year, month, day] = base.split("-").map(Number);
@@ -113,33 +117,8 @@ function addDaysToDateInput(value: string, days: number) {
 }
 
 function adjustDepositAmountInput(value: string, fallbackAmount: number | string, delta: number) {
-  const current = parseDepositAmountInput(value) ?? (Number(fallbackAmount) || 0);
+  const current = parseOrderCompletionAmount(value) ?? (Number(fallbackAmount) || 0);
   return String(Math.max(0, current + delta));
-}
-
-function getDefaultDepositValues(row: OrderWithRelations) {
-  return {
-    date: row.deposit_date?.trim() || getKoreaDateInputValue(),
-    amount:
-      row.deposit_amount_krw != null
-        ? String(row.deposit_amount_krw)
-        : String(row.purchase_price_krw),
-    memo: row.deposit_memo?.trim() ? row.deposit_memo : row.title?.trim() ?? "",
-  };
-}
-
-/** 배송 상태와 입금액 조합이 평소 처리 기준과 다르면 완료 전 경고한다. */
-function getDeliveryDepositWarning(row: OrderWithRelations, depositAmount: number) {
-  const purchaseAmount = Number(row.purchase_price_krw);
-  if (!Number.isFinite(purchaseAmount)) return null;
-  const isSameAmount = depositAmount === purchaseAmount;
-  if (!row.is_item_delivered && isSameAmount) {
-    return "미배송 상품인데 구매금액과 입금금액이 같습니다. 처리하시겠습니까?";
-  }
-  if (row.is_item_delivered && !isSameAmount) {
-    return "배송 상품인데 구매금액과 입금금액이 다릅니다. 처리하시겠습니까?";
-  }
-  return null;
 }
 
 /** 완료처리 전 금액과 배송 상태가 어긋나는 경우 운영자가 한 번 더 확인한다. */
@@ -566,15 +545,15 @@ function MobilePendingDepositSwipePanel({
   const panel1Ref = useRef<HTMLDivElement>(null);
   const [activePage, setActivePage] = useState(0);
   const [panelHeights, setPanelHeights] = useState({ h0: 96, h1: 280 });
-  const [depositDate, setDepositDate] = useState(() => getDefaultDepositValues(row).date);
-  const [depositAmount, setDepositAmount] = useState(() => getDefaultDepositValues(row).amount);
-  const [depositMemo, setDepositMemo] = useState(() => getDefaultDepositValues(row).memo);
+  const [depositDate, setDepositDate] = useState(() => getDefaultOrderCompletionInput(row).date);
+  const [depositAmount, setDepositAmount] = useState(() => getDefaultOrderCompletionInput(row).amount);
+  const [depositMemo, setDepositMemo] = useState(() => getDefaultOrderCompletionInput(row).memo);
   const pendingSubmitRef = useRef<{ date: string; amount: number } | null>(null);
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const defaults = getDefaultDepositValues(row);
+    const defaults = getDefaultOrderCompletionInput(row);
     setDepositDate(defaults.date);
     setDepositAmount(defaults.amount);
     setDepositMemo(defaults.memo);
@@ -624,7 +603,7 @@ function MobilePendingDepositSwipePanel({
     setBusy(true);
     try {
       const purchase = Number(row.purchase_price_krw);
-      const profit = profitFromDepositAndPurchase(amount, purchase);
+      const profit = calculateOrderProfit(amount, purchase);
       const { data, error } = await supabase
         .from("orders")
         .update({
@@ -635,6 +614,7 @@ function MobilePendingDepositSwipePanel({
           profit_krw: profit,
         })
         .eq("id", row.id)
+        .is("deleted_at", null)
         .select(ORDER_LIST_SELECT)
         .single();
       if (error) {
@@ -655,12 +635,12 @@ function MobilePendingDepositSwipePanel({
       window.alert("완료처리를 하려면 입금일자 칸을 입력해야 됩니다.");
       return;
     }
-    const dep = parseDepositAmountInput(depositAmount);
+    const dep = parseOrderCompletionAmount(depositAmount);
     if (dep === null) {
       window.alert("완료처리를 하려면 실입금금액 칸을 입력해야 됩니다.");
       return;
     }
-    const warning = skipWarning ? null : getDeliveryDepositWarning(row, dep);
+    const warning = skipWarning ? null : getOrderCompletionWarning(row, dep);
     if (warning) {
       pendingSubmitRef.current = { date: dd, amount: dep };
       setConfirmMessage(warning);
@@ -833,7 +813,7 @@ function WebPendingCompleteDropdown({
 
   useEffect(() => {
     if (!isOpen) return;
-    const defaults = getDefaultDepositValues(row);
+    const defaults = getDefaultOrderCompletionInput(row);
     setDepositDate(defaults.date);
     setDepositAmount(defaults.amount);
     setDepositMemo(defaults.memo);
@@ -855,7 +835,7 @@ function WebPendingCompleteDropdown({
     setBusy(true);
     try {
       const purchase = Number(row.purchase_price_krw);
-      const profit = profitFromDepositAndPurchase(amount, purchase);
+      const profit = calculateOrderProfit(amount, purchase);
       const { data, error } = await supabase
         .from("orders")
         .update({
@@ -866,6 +846,7 @@ function WebPendingCompleteDropdown({
           profit_krw: profit,
         })
         .eq("id", row.id)
+        .is("deleted_at", null)
         .select(ORDER_LIST_SELECT)
         .single();
       if (error) {
@@ -887,12 +868,12 @@ function WebPendingCompleteDropdown({
       window.alert("완료처리를 하려면 입금일자 칸을 입력해야 됩니다.");
       return;
     }
-    const dep = parseDepositAmountInput(depositAmount);
+    const dep = parseOrderCompletionAmount(depositAmount);
     if (dep === null) {
       window.alert("완료처리를 하려면 실입금금액 칸을 입력해야 됩니다.");
       return;
     }
-    const warning = skipWarning ? null : getDeliveryDepositWarning(row, dep);
+    const warning = skipWarning ? null : getOrderCompletionWarning(row, dep);
     if (warning) {
       pendingSubmitRef.current = { date: dd, amount: dep };
       setConfirmMessage(warning);
@@ -1035,6 +1016,7 @@ function WebCompletedActionsDropdown({
           profit_krw: null,
         })
         .eq("id", row.id)
+        .is("deleted_at", null)
         .select(ORDER_LIST_SELECT)
         .single();
       if (error) {
@@ -1122,6 +1104,7 @@ function OrderExpandPanel({
           profit_krw: null,
         })
         .eq("id", row.id)
+        .is("deleted_at", null)
         .select(ORDER_LIST_SELECT)
         .single();
       if (error) {
@@ -1178,7 +1161,10 @@ const OrderCardItem = memo(function OrderCardItem({
   isDeleting,
   isSwiped,
   isExpanded,
+  selectionMode,
+  isSelected,
   onToggleExpand,
+  onToggleSelection,
   onEditOrder,
   onDuplicateOrder,
   onDelete,
@@ -1191,7 +1177,10 @@ const OrderCardItem = memo(function OrderCardItem({
   isDeleting: boolean;
   isSwiped: boolean;
   isExpanded: boolean;
+  selectionMode: boolean;
+  isSelected: boolean;
   onToggleExpand: () => void;
+  onToggleSelection: () => void;
   onEditOrder: () => void;
   onDuplicateOrder: () => void;
   onDelete: () => void;
@@ -1206,15 +1195,18 @@ const OrderCardItem = memo(function OrderCardItem({
   const hasProfit = row.profit_krw !== null && Number(row.profit_krw) !== 0;
 
   return (
-    <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm dark:bg-slate-800">
+    <div className={cn(
+      "relative overflow-hidden rounded-2xl border bg-white shadow-sm transition-colors dark:bg-slate-800",
+      isSelected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-transparent",
+    )}>
       {/* 스와이프 삭제 영역 */}
       <div
         className={cn(
           "absolute inset-y-0 right-0 flex items-center justify-center bg-red-500 transition-all duration-200",
-          isSwiped ? "w-20" : "w-0",
+          !selectionMode && isSwiped ? "w-20" : "w-0",
         )}
       >
-        {isSwiped && (
+        {!selectionMode && isSwiped && (
           <button
             type="button"
             aria-label="삭제"
@@ -1237,24 +1229,41 @@ const OrderCardItem = memo(function OrderCardItem({
         className={cn(
           "flex items-center gap-3 p-3.5 cursor-pointer select-none transition-all duration-200",
           "active:bg-slate-50 dark:active:bg-slate-700/50",
-          isSwiped && "-translate-x-20",
+          !selectionMode && isSwiped && "-translate-x-20",
         )}
         onClick={() => {
+          if (selectionMode) { onToggleSelection(); return; }
           if (isSwiped) { onSwipeCancel(); return; }
           onToggleExpand();
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggleExpand(); }
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            if (selectionMode) onToggleSelection();
+            else onToggleExpand();
+          }
         }}
-        aria-expanded={isExpanded}
+        aria-expanded={selectionMode ? undefined : isExpanded}
+        aria-pressed={selectionMode ? isSelected : undefined}
         onTouchStart={(e) => { touchStartXRef.current = e.changedTouches[0]?.clientX ?? 0; }}
         onTouchEnd={(e) => {
+          if (selectionMode) return;
           const endX = e.changedTouches[0]?.clientX ?? 0;
           const diff = touchStartXRef.current - endX;
           if (diff > 50) { onSwipeLeft(); return; }
           if (diff < -35 && isSwiped) { onSwipeCancel(); }
         }}
       >
+        {selectionMode ? (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={onToggleSelection}
+            onClick={(event) => event.stopPropagation()}
+            className="h-5 w-5 shrink-0 accent-primary"
+            aria-label={`${row.product_name} 선택`}
+          />
+        ) : null}
         {/* 플랫폼 아이콘 */}
         <div
           className={cn(
@@ -1292,7 +1301,7 @@ const OrderCardItem = memo(function OrderCardItem({
           )}
         </div>
       </div>
-      {isExpanded ? (
+      {!selectionMode && isExpanded ? (
         <OrderExpandPanel row={row} onEditOrder={onEditOrder} onDuplicateOrder={onDuplicateOrder} supabase={supabase} onPatchOrder={onPatchOrder} />
       ) : null}
     </div>
@@ -1540,8 +1549,21 @@ function TableLoadingRow({ colSpan }: { colSpan: number }) {
   );
 }
 
+/** 많은 주문을 한꺼번에 선택해도 브라우저가 DB 요청을 과도하게 동시에 보내지 않도록 나눠 처리합니다. */
+async function runOrderMutationBatches<T, R>(
+  items: T[],
+  worker: (item: T) => Promise<R>,
+) {
+  const results: R[] = [];
+  for (let index = 0; index < items.length; index += 20) {
+    results.push(...await Promise.all(items.slice(index, index + 20).map(worker)));
+  }
+  return results;
+}
+
 export function OrdersTable({
   userId,
+  userEmail,
   pendingOrders,
   completedOrders,
   counts,
@@ -1551,8 +1573,10 @@ export function OrdersTable({
   onLoadCompleted,
   onOrderPatched,
   onOrderDeleted,
+  onOrderRestored,
 }: {
   userId: string;
+  userEmail: string;
   pendingOrders: OrderWithRelations[];
   completedOrders: OrderWithRelations[] | null;
   counts: OrderListCounts;
@@ -1562,6 +1586,7 @@ export function OrdersTable({
   onLoadCompleted: () => Promise<void>;
   onOrderPatched: (previous: OrderWithRelations, updated: OrderWithRelations) => void;
   onOrderDeleted: (deleted: OrderWithRelations) => void;
+  onOrderRestored: (restored: OrderWithRelations) => void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1597,6 +1622,14 @@ export function OrdersTable({
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [pendingCompleteMenuId, setPendingCompleteMenuId] = useState<string | null>(null);
   const [completedActionsMenuId, setCompletedActionsMenuId] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set());
+  const [bulkMasterData, setBulkMasterData] = useState<MasterData | null>(null);
+  const [bulkTemplates, setBulkTemplates] = useState<PurchaseTemplateRow[]>([]);
+  const [isLoadingBulkOptions, setIsLoadingBulkOptions] = useState(false);
+  const [undoOrder, setUndoOrder] = useState<OrderWithRelations | null>(null);
+  const [isUndoing, setIsUndoing] = useState(false);
+  const undoTimerRef = useRef<number | null>(null);
 
   const deferredSearch = useDeferredValue(search);
   const completedList = useMemo(() => completedOrders ?? [], [completedOrders]);
@@ -1635,6 +1668,18 @@ export function OrdersTable({
     () => statusFilter === "pending" ? [] : filterSearchableOrders(completedSearchableOrders, filterSnapshot),
     [completedSearchableOrders, filterSnapshot, statusFilter],
   );
+
+  const loadedOrders = useMemo(() => [...pendingOrders, ...completedList], [completedList, pendingOrders]);
+  const selectedOrders = useMemo(
+    () => loadedOrders.filter((order) => selectedOrderIds.has(order.id)),
+    [loadedOrders, selectedOrderIds],
+  );
+  const visibleSelectableOrders = useMemo(
+    () => [...visiblePendingOrders, ...(showCompletedOrders ? visibleCompletedOrders : [])],
+    [showCompletedOrders, visibleCompletedOrders, visiblePendingOrders],
+  );
+  const allVisibleSelected = visibleSelectableOrders.length > 0
+    && visibleSelectableOrders.every((order) => selectedOrderIds.has(order.id));
 
   const totalCount = counts.total;
   const pendingCount = counts.pending;
@@ -1862,23 +1907,191 @@ export function OrdersTable({
     [onOrderPatched],
   );
 
+  const closeSelectionMode = useCallback(() => {
+    setSelectionMode(false);
+    setSelectedOrderIds(new Set());
+    setSwipedRowId(null);
+    setExpandedOrderId(null);
+  }, []);
+
+  const enableSelectionMode = useCallback(() => {
+    setSelectionMode(true);
+    setSwipedRowId(null);
+    setExpandedOrderId(null);
+    if (bulkMasterData || isLoadingBulkOptions) return;
+
+    setIsLoadingBulkOptions(true);
+    void Promise.all([
+      fetchMasterData(supabase, userId),
+      supabase
+        .from("purchase_info_templates")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false }),
+    ]).then(([master, templateResult]) => {
+      setBulkMasterData(master);
+      setBulkTemplates(templateResult.data ?? []);
+    }).catch((error: unknown) => {
+      window.alert(`일괄 변경 항목을 불러오지 못했습니다: ${error instanceof Error ? error.message : String(error)}`);
+    }).finally(() => setIsLoadingBulkOptions(false));
+  }, [bulkMasterData, isLoadingBulkOptions, supabase, userId]);
+
+  const toggleOrderSelection = useCallback((id: string) => {
+    setSelectedOrderIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleAllVisibleOrders = useCallback(() => {
+    setSelectedOrderIds((current) => {
+      const next = new Set(current);
+      const shouldClear = visibleSelectableOrders.length > 0
+        && visibleSelectableOrders.every((order) => next.has(order.id));
+      for (const order of visibleSelectableOrders) {
+        if (shouldClear) next.delete(order.id);
+        else next.add(order.id);
+      }
+      return next;
+    });
+  }, [visibleSelectableOrders]);
+
+  const applyBulkResult = useCallback((result: BulkOperationResult) => {
+    setSelectedOrderIds(new Set(result.failures.map((failure) => failure.id)));
+    return result;
+  }, []);
+
+  const handleBulkPatch = useCallback(async (patch: BulkOrderPatch) => {
+    const targets = selectedOrders;
+    const results = await runOrderMutationBatches(targets, async (previous) => {
+      const update = { [patch.field]: patch.value } as Database["public"]["Tables"]["orders"]["Update"];
+      const { data, error } = await supabase
+        .from("orders")
+        .update(update)
+        .eq("id", previous.id)
+        .eq("user_id", userId)
+        .is("deleted_at", null)
+        .select(ORDER_LIST_SELECT)
+        .maybeSingle();
+      if (error || !data) {
+        return { previous, error: error?.message ?? "변경할 주문을 찾지 못했습니다." };
+      }
+      return { previous, updated: data as OrderWithRelations };
+    });
+
+    const operationResult: BulkOperationResult = { successIds: [], failures: [] };
+    for (const result of results) {
+      if ("updated" in result && result.updated) {
+        operationResult.successIds.push(result.previous.id);
+        handlePatched(result.previous, result.updated);
+      } else {
+        operationResult.failures.push({
+          id: result.previous.id,
+          label: result.previous.title?.trim() || result.previous.product_name,
+          message: result.error,
+        });
+      }
+    }
+    return applyBulkResult(operationResult);
+  }, [applyBulkResult, handlePatched, selectedOrders, supabase, userId]);
+
+  const handleBulkComplete = useCallback(async (drafts: BulkCompletionDraft[]) => {
+    const selectedById = new Map(selectedOrders.map((order) => [order.id, order]));
+    const results = await runOrderMutationBatches(drafts, async (draft) => {
+      const previous = selectedById.get(draft.orderId);
+      if (!previous) return { draft, error: "선택한 주문을 찾지 못했습니다." };
+      const outcome = buildOrderCompletionValues(previous, draft);
+      if ("error" in outcome) return { draft, previous, error: outcome.error };
+
+      const { data, error } = await supabase
+        .from("orders")
+        .update(outcome.values)
+        .eq("id", previous.id)
+        .eq("user_id", userId)
+        .is("deleted_at", null)
+        .eq("is_processed", false)
+        .select(ORDER_LIST_SELECT)
+        .maybeSingle();
+      if (error || !data) return { draft, previous, error: error?.message ?? "이미 처리되었거나 주문을 찾지 못했습니다." };
+      return { draft, previous, updated: data as OrderWithRelations };
+    });
+
+    const operationResult: BulkOperationResult = { successIds: [], failures: [] };
+    for (const result of results) {
+      if ("updated" in result && result.previous && result.updated) {
+        operationResult.successIds.push(result.previous.id);
+        handlePatched(result.previous, result.updated);
+      } else {
+        const previous = result.previous ?? selectedById.get(result.draft.orderId);
+        operationResult.failures.push({
+          id: result.draft.orderId,
+          label: previous?.title?.trim() || previous?.product_name || "주문",
+          message: result.error ?? "처리하지 못했습니다.",
+        });
+      }
+    }
+    return applyBulkResult(operationResult);
+  }, [applyBulkResult, handlePatched, selectedOrders, supabase, userId]);
+
   const handleDelete = async (row: OrderWithRelations) => {
-    const confirmed = window.confirm(`"${row.product_name}" 주문을 삭제할까요?`);
+    const confirmed = window.confirm(`"${row.product_name}" 주문을 휴지통으로 이동할까요?`);
     if (!confirmed) return;
     setDeletingId(row.id);
     try {
-      const { error } = await supabase.from("orders").delete().eq("id", row.id);
+      const { error } = await supabase
+        .from("orders")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", row.id)
+        .eq("user_id", userId)
+        .is("deleted_at", null);
       if (error) {
         window.alert(`삭제 중 오류: ${error.message}`);
         return;
       }
       onOrderDeleted(row);
+      if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+      setUndoOrder(row);
+      undoTimerRef.current = window.setTimeout(() => {
+        setUndoOrder(null);
+        undoTimerRef.current = null;
+      }, 8000);
       setSwipedRowId((prev) => (prev === row.id ? null : prev));
       setExpandedOrderId((prev) => (prev === row.id ? null : prev));
     } finally {
       setDeletingId(null);
     }
   };
+
+  const undoDelete = async () => {
+    if (!undoOrder || isUndoing) return;
+    setIsUndoing(true);
+    try {
+      const { data, error } = await supabase
+        .from("orders")
+        .update({ deleted_at: null })
+        .eq("id", undoOrder.id)
+        .eq("user_id", userId)
+        .not("deleted_at", "is", null)
+        .select(ORDER_LIST_SELECT)
+        .maybeSingle();
+      if (error || !data) {
+        window.alert(`삭제 취소 중 오류: ${error?.message ?? "휴지통에서 주문을 찾지 못했습니다."}`);
+        return;
+      }
+      onOrderRestored(data as OrderWithRelations);
+      setUndoOrder(null);
+      if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    } finally {
+      setIsUndoing(false);
+    }
+  };
+
+  useEffect(() => () => {
+    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+  }, []);
 
   const handleToggleCompletedOrders = () => {
     const next = !showCompletedOrders;
@@ -1982,7 +2195,7 @@ export function OrdersTable({
               className="h-10 rounded-xl pl-9"
             />
           </div>
-          <div className="grid grid-cols-3 gap-2 sm:flex sm:shrink-0">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
             <Button
               type="button"
               variant={showAdvancedFilter ? "default" : "outline"}
@@ -2000,6 +2213,16 @@ export function OrdersTable({
             <Button type="button" variant="outline" size="sm" className="h-10 gap-1.5" onClick={() => void saveCurrentView()}>
               <Save className="h-4 w-4" aria-hidden />
               보기 저장
+            </Button>
+            <Button
+              type="button"
+              variant={selectionMode ? "default" : "outline"}
+              size="sm"
+              className="h-10 gap-1.5"
+              onClick={selectionMode ? closeSelectionMode : enableSelectionMode}
+            >
+              <ListChecks className="h-4 w-4" aria-hidden />
+              {selectionMode ? "선택 종료" : "주문 선택"}
             </Button>
           </div>
         </div>
@@ -2090,6 +2313,22 @@ export function OrdersTable({
         ) : null}
       </section>
 
+      {selectionMode ? (
+        <OrdersBulkActions
+          orders={selectedOrders}
+          visibleCount={visibleSelectableOrders.length}
+          allVisibleSelected={allVisibleSelected}
+          masterData={bulkMasterData}
+          templates={bulkTemplates}
+          isLoadingOptions={isLoadingBulkOptions}
+          onToggleAllVisible={toggleAllVisibleOrders}
+          onPatch={handleBulkPatch}
+          onComplete={handleBulkComplete}
+          onExport={() => exportDashboardExcel(selectedOrders, userEmail, `선택 주문 ${selectedOrders.length}건`)}
+          onClose={closeSelectionMode}
+        />
+      ) : null}
+
       {/* ── 미완료 주문 섹션 ───────────────────────── */}
       <section className={cn("flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]", density === "compact" ? "p-3" : "p-4")}>
         <div className="flex shrink-0 items-center justify-between gap-3">
@@ -2145,17 +2384,32 @@ export function OrdersTable({
                         key={row.id}
                       tabIndex={0}
                       role="button"
-                      aria-label={`${row.product_name} 주문 상세`}
-                      className="group cursor-pointer border-l-2 border-l-amber-400/90 bg-amber-50/30 transition-colors hover:bg-amber-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-amber-500/50 dark:hover:bg-amber-500/10"
-                      onClick={() => goToOrderDetail(row.id)}
+                      aria-label={selectionMode ? `${row.product_name} 주문 선택` : `${row.product_name} 주문 상세`}
+                      aria-pressed={selectionMode ? selectedOrderIds.has(row.id) : undefined}
+                      className={cn(
+                        "group cursor-pointer border-l-2 border-l-amber-400/90 bg-amber-50/30 transition-colors hover:bg-amber-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-amber-500/50 dark:hover:bg-amber-500/10",
+                        selectedOrderIds.has(row.id) && "bg-primary/10 ring-1 ring-inset ring-primary/30 hover:bg-primary/10",
+                      )}
+                      onClick={() => selectionMode ? toggleOrderSelection(row.id) : goToOrderDetail(row.id)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
-                          goToOrderDetail(row.id);
+                          if (selectionMode) toggleOrderSelection(row.id);
+                          else goToOrderDetail(row.id);
                         }
                       }}
                     >
-                      <TableCell className={cn("relative max-w-[14rem] px-3 pr-20", density === "compact" ? "py-2" : "py-4")}>
+                      <TableCell className={cn("relative max-w-[14rem] px-3", selectionMode ? "pl-10 pr-3" : "pr-20", density === "compact" ? "py-2" : "py-4")}>
+                        {selectionMode ? (
+                          <input
+                            type="checkbox"
+                            checked={selectedOrderIds.has(row.id)}
+                            onChange={() => toggleOrderSelection(row.id)}
+                            onClick={(event) => event.stopPropagation()}
+                            className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 accent-primary"
+                            aria-label={`${row.product_name} 선택`}
+                          />
+                        ) : null}
                         <div>
                           {row.title?.trim() ? (
                             <p className="text-muted-foreground line-clamp-1 text-xs">{row.title}</p>
@@ -2165,7 +2419,7 @@ export function OrdersTable({
                             {row.notes?.trim() || "메모 없음"}
                           </p>
                         </div>
-                        <button
+                        {!selectionMode ? <><button
                           type="button"
                           aria-label="주문 복제"
                           onClick={(event) => {
@@ -2191,7 +2445,7 @@ export function OrdersTable({
                           )}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        </button></> : null}
                       </TableCell>
                       <TableCell className="whitespace-nowrap px-3">{formatDate(row.purchase_date)}</TableCell>
                       <TableCell className="whitespace-nowrap text-right font-medium">
@@ -2204,7 +2458,9 @@ export function OrdersTable({
                         <OrderDetailChips row={row} density="table" />
                       </TableCell>
                       <TableCell className="relative whitespace-nowrap px-3 py-2 align-top">
-                          <WebPendingCompleteDropdown
+                        {selectionMode ? (
+                          <span className="text-xs font-medium text-primary">{selectedOrderIds.has(row.id) ? "선택됨" : "선택"}</span>
+                        ) : <WebPendingCompleteDropdown
                             row={row}
                             isOpen={pendingCompleteMenuId === row.id}
                             onClose={() => setPendingCompleteMenuId(null)}
@@ -2213,7 +2469,7 @@ export function OrdersTable({
                           }
                           supabase={supabase}
                           onPatched={(updated) => handlePatched(row, updated)}
-                        />
+                        />}
                       </TableCell>
                     </TableRow>
                     ))}
@@ -2246,9 +2502,12 @@ export function OrdersTable({
                     key={row.id}
                     row={row}
                     isDeleting={deletingId === row.id}
-                    isSwiped={swipedRowId === row.id}
+                    isSwiped={!selectionMode && swipedRowId === row.id}
                     isExpanded={expandedOrderId === row.id}
+                    selectionMode={selectionMode}
+                    isSelected={selectedOrderIds.has(row.id)}
                     onToggleExpand={() => toggleExpanded(row.id)}
+                    onToggleSelection={() => toggleOrderSelection(row.id)}
                     onEditOrder={() => goToOrderDetail(row.id)}
                     onDuplicateOrder={() => router.push(`/orders/new?copy=${encodeURIComponent(row.id)}`)}
                     onDelete={() => void handleDelete(row)}
@@ -2333,17 +2592,32 @@ export function OrdersTable({
                         key={row.id}
                       tabIndex={0}
                       role="button"
-                      aria-label={`${row.product_name} 주문 상세`}
-                      className="group cursor-pointer border-l-2 border-l-emerald-400/70 bg-emerald-50/20 transition-colors hover:bg-emerald-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-emerald-500/50 dark:hover:bg-emerald-500/10"
-                      onClick={() => goToOrderDetail(row.id)}
+                      aria-label={selectionMode ? `${row.product_name} 주문 선택` : `${row.product_name} 주문 상세`}
+                      aria-pressed={selectionMode ? selectedOrderIds.has(row.id) : undefined}
+                      className={cn(
+                        "group cursor-pointer border-l-2 border-l-emerald-400/70 bg-emerald-50/20 transition-colors hover:bg-emerald-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-emerald-500/50 dark:hover:bg-emerald-500/10",
+                        selectedOrderIds.has(row.id) && "bg-primary/10 ring-1 ring-inset ring-primary/30 hover:bg-primary/10",
+                      )}
+                      onClick={() => selectionMode ? toggleOrderSelection(row.id) : goToOrderDetail(row.id)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
-                          goToOrderDetail(row.id);
+                          if (selectionMode) toggleOrderSelection(row.id);
+                          else goToOrderDetail(row.id);
                         }
                       }}
                     >
-                      <TableCell className={cn("relative max-w-[14rem] px-3 pr-20", density === "compact" ? "py-2" : "py-4")}>
+                      <TableCell className={cn("relative max-w-[14rem] px-3", selectionMode ? "pl-10 pr-3" : "pr-20", density === "compact" ? "py-2" : "py-4")}>
+                        {selectionMode ? (
+                          <input
+                            type="checkbox"
+                            checked={selectedOrderIds.has(row.id)}
+                            onChange={() => toggleOrderSelection(row.id)}
+                            onClick={(event) => event.stopPropagation()}
+                            className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 accent-primary"
+                            aria-label={`${row.product_name} 선택`}
+                          />
+                        ) : null}
                         <div>
                           {row.title?.trim() ? (
                             <p className="text-muted-foreground line-clamp-1 text-xs">{row.title}</p>
@@ -2353,7 +2627,7 @@ export function OrdersTable({
                             {row.notes?.trim() || "메모 없음"}
                           </p>
                         </div>
-                        <button
+                        {!selectionMode ? <><button
                           type="button"
                           aria-label="주문 복제"
                           onClick={(event) => {
@@ -2379,7 +2653,7 @@ export function OrdersTable({
                           )}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        </button></> : null}
                       </TableCell>
                       <TableCell className="whitespace-nowrap px-3">{formatDate(row.purchase_date)}</TableCell>
                       <TableCell className="whitespace-nowrap text-right font-medium">
@@ -2395,7 +2669,9 @@ export function OrdersTable({
                         <OrderDetailChips row={row} density="table" />
                       </TableCell>
                       <TableCell className="relative whitespace-nowrap px-3 py-2 align-top">
-                        <WebCompletedActionsDropdown
+                        {selectionMode ? (
+                          <span className="text-xs font-medium text-primary">{selectedOrderIds.has(row.id) ? "선택됨" : "선택"}</span>
+                        ) : <WebCompletedActionsDropdown
                           row={row}
                           isOpen={completedActionsMenuId === row.id}
                           onClose={() => setCompletedActionsMenuId(null)}
@@ -2408,7 +2684,7 @@ export function OrdersTable({
                           }}
                           supabase={supabase}
                           onPatched={(updated) => handlePatched(row, updated)}
-                        />
+                        />}
                       </TableCell>
                     </TableRow>
                     ))}
@@ -2441,9 +2717,12 @@ export function OrdersTable({
                       key={row.id}
                       row={row}
                       isDeleting={deletingId === row.id}
-                      isSwiped={swipedRowId === row.id}
+                      isSwiped={!selectionMode && swipedRowId === row.id}
                       isExpanded={expandedOrderId === row.id}
+                      selectionMode={selectionMode}
+                      isSelected={selectedOrderIds.has(row.id)}
                       onToggleExpand={() => toggleExpanded(row.id)}
+                      onToggleSelection={() => toggleOrderSelection(row.id)}
                       onEditOrder={() => goToOrderDetail(row.id)}
                       onDuplicateOrder={() => router.push(`/orders/new?copy=${encodeURIComponent(row.id)}`)}
                       onDelete={() => void handleDelete(row)}
@@ -2460,6 +2739,15 @@ export function OrdersTable({
           )
         ) : null}
       </section>
+      {undoOrder ? (
+        <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-3 right-3 z-[75] mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-white shadow-2xl lg:bottom-5 lg:left-[calc(15rem+1rem)]">
+          <p className="min-w-0 flex-1 truncate text-sm">{undoOrder.title?.trim() || undoOrder.product_name} 주문을 휴지통으로 옮겼습니다.</p>
+          <Button type="button" size="sm" variant="secondary" disabled={isUndoing} onClick={() => void undoDelete()}>
+            {isUndoing ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+            실행 취소
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
