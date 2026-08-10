@@ -522,6 +522,42 @@ function BuyerAccountSettingsView({
   );
 }
 
+function AccountSettingsView({
+  header,
+  alerts,
+  displayName,
+  accountEmail,
+  onOpenNicknameEdit,
+}: {
+  header: ReactNode;
+  alerts: ReactNode;
+  displayName: string;
+  accountEmail: string;
+  onOpenNicknameEdit: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      {header}
+      {alerts}
+      <section className="flex flex-col gap-1 rounded-lg border border-hairline bg-card p-2 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+        <button
+          type="button"
+          onClick={onOpenNicknameEdit}
+          className="flex min-h-12 w-full touch-manipulation items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-muted/60 active:bg-muted/80"
+        >
+          <span className="text-muted-foreground shrink-0 text-sm">닉네임</span>
+          <span className="min-w-0 flex-1 truncate text-right text-sm font-medium">{displayName || "—"}</span>
+          <ChevronRight className="text-muted-foreground h-5 w-5 shrink-0" aria-hidden />
+        </button>
+        <div className="flex min-h-12 items-center justify-between gap-3 rounded-xl px-3 py-2.5">
+          <span className="text-muted-foreground shrink-0 text-sm">계정</span>
+          <span className="min-w-0 flex-1 truncate text-right text-sm">{accountEmail || "—"}</span>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function SettingsNavRow({
   label,
   description,
@@ -1114,25 +1150,13 @@ export function SettingsPanel({
 
   if (view === "account") {
     return (
-      <div className="flex flex-col gap-4">
-        {subHeader}
-        {alerts}
-        <section className="flex flex-col gap-1 rounded-lg border border-hairline bg-card p-2 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
-          <button
-            type="button"
-            onClick={openNicknameEdit}
-            className="flex min-h-12 w-full touch-manipulation items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-muted/60 active:bg-muted/80"
-          >
-            <span className="text-muted-foreground shrink-0 text-sm">닉네임</span>
-            <span className="min-w-0 flex-1 truncate text-right text-sm font-medium">{displayName || "—"}</span>
-            <ChevronRight className="text-muted-foreground h-5 w-5 shrink-0" aria-hidden />
-          </button>
-          <div className="flex min-h-12 items-center justify-between gap-3 rounded-xl px-3 py-2.5">
-            <span className="text-muted-foreground shrink-0 text-sm">계정</span>
-            <span className="min-w-0 flex-1 truncate text-right text-sm">{accountEmail || "—"}</span>
-          </div>
-        </section>
-      </div>
+      <AccountSettingsView
+        header={subHeader}
+        alerts={alerts}
+        displayName={displayName}
+        accountEmail={accountEmail}
+        onOpenNicknameEdit={openNicknameEdit}
+      />
     );
   }
 
