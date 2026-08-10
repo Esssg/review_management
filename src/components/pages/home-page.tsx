@@ -17,6 +17,7 @@ import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigg
 import { getKoreaDateInputValue } from "@/lib/korea-date";
 import { createClient } from "@/lib/supabase/client";
 import { ORDER_LIST_SELECT, type OrderWithRelations } from "@/types/orders";
+import type { HomeInitialData } from "@/types/home";
 
 const homeKrwFormatter = new Intl.NumberFormat("ko-KR", {
   style: "currency",
@@ -229,10 +230,11 @@ function adjustNullableCount(value: number | null, delta: number) {
   return value === null ? null : Math.max(0, value + delta);
 }
 
-export function HomePage() {
-  const [phase, setPhase] = useState<"loading" | "guest" | "ready" | "error">("loading");
-  const [email, setEmail] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+export function HomePage({ initialData = null }: { initialData?: HomeInitialData | null }) {
+  const [phase, setPhase] = useState<"loading" | "guest" | "ready" | "error">(initialData ? "ready" : "loading");
+  const [email, setEmail] = useState<string | null>(initialData?.user.email ?? null);
+  const [userId, setUserId] = useState<string | null>(initialData?.user.id ?? null);
+  const [isInitialDataActive, setIsInitialDataActive] = useState(Boolean(initialData));
   const [isCompletedRequested, setIsCompletedRequested] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -247,6 +249,8 @@ export function HomePage() {
     isLoading: isCountsLoading,
     mutate: mutateOrderCounts,
   } = useSWR<OrderListCounts>(userId ? homeCountsKey(userId) : null, fetchHomeOrderCounts, {
+    fallbackData: isInitialDataActive ? initialData?.orderCounts : undefined,
+    revalidateOnMount: !isInitialDataActive,
     revalidateOnFocus: false,
   });
   const {
@@ -255,6 +259,8 @@ export function HomePage() {
     isLoading: isPendingLoading,
     mutate: mutatePendingOrders,
   } = useSWR<OrderWithRelations[]>(userId ? homePendingKey(userId) : null, fetchHomePendingOrders, {
+    fallbackData: isInitialDataActive ? initialData?.pendingOrders : undefined,
+    revalidateOnMount: !isInitialDataActive,
     revalidateOnFocus: false,
   });
   const {
@@ -281,6 +287,7 @@ export function HomePage() {
       } = await supabase.auth.getUser();
       if (isCancelled?.()) return;
       if (!user) {
+        setIsInitialDataActive(false);
         setPhase("guest");
         return;
       }
@@ -399,6 +406,7 @@ export function HomePage() {
             mutateSWR(homeCompletedKey(userId), undefined, { revalidate: false }),
           ]);
         }
+        setIsInitialDataActive(false);
         setIsCompletedRequested(false);
         setEmail(null);
         setUserId(null);
