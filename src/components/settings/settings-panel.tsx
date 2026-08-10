@@ -6,6 +6,7 @@ import { HexColorInput, HexColorPicker } from "react-colorful";
 import { ArrowLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 
 import { OrderTrashPanel } from "@/components/settings/order-trash-panel";
+import { AiReviewSettingsView } from "@/components/settings/ai-review-settings-view";
 import { PurchaseTemplatesSettingsView } from "@/components/settings/purchase-templates-settings-view";
 import { PwaInstallCard } from "@/components/pwa/pwa-install-card";
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
@@ -1051,72 +1052,22 @@ export function SettingsPanel({
 
   if (view === "ai") {
     return (
-      <div className="flex flex-col gap-4">
-        {subHeader}
-        {alerts}
-        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
-          <SectionHeader
-            title="AI 리뷰 기본 정보"
-            description="이름·전화번호 등 민감한 개인정보는 넣지 마세요. 성별·나이대·거주 지역 정도만 저장해 리뷰 톤을 맞출 때 사용합니다."
-          />
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium">성별</span>
-              <input
-                value={aiGender}
-                onChange={(e) => setAiGender(e.target.value)}
-                placeholder="예: 여성"
-                className="h-10 rounded-[4px] border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
-            </label>
-            <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium">나이대</span>
-              <input
-                value={aiAgeRange}
-                onChange={(e) => setAiAgeRange(e.target.value)}
-                placeholder="예: 30대"
-                className="h-10 rounded-[4px] border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
-            </label>
-            <label className="flex flex-col gap-1.5 text-sm sm:col-span-2">
-              <span className="font-medium">거주 지역</span>
-              <input
-                value={aiRegion}
-                onChange={(e) => setAiRegion(e.target.value)}
-                placeholder="예: 경기 성남 (구체적 주소는 비추천)"
-                className="h-10 rounded-[4px] border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
-            </label>
-            <label className="flex flex-col gap-1.5 text-sm sm:col-span-2">
-              <span className="font-medium">직업·생활 맥락</span>
-              <input
-                value={aiOccupation}
-                onChange={(e) => setAiOccupation(e.target.value)}
-                placeholder="예: 사무직, 육아 중 등"
-                className="h-10 rounded-[4px] border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
-            </label>
-            <label className="flex flex-col gap-1.5 text-sm sm:col-span-2">
-              <span className="font-medium">추가 설명</span>
-              <textarea
-                value={aiExtraContext}
-                onChange={(e) => setAiExtraContext(e.target.value)}
-                rows={3}
-                placeholder="리뷰 말투·취향 등 부담 없이 적을 수 있는 범위에서만 적어 주세요."
-                className="min-h-[5rem] resize-y rounded-[4px] border border-input bg-card px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
-            </label>
-          </div>
-          <button
-            type="button"
-            disabled={isSavingAiProfile}
-            onClick={() => void handleSaveAiReviewProfile()}
-            className="mt-4 inline-flex h-10 w-full touch-manipulation items-center justify-center rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50 sm:w-auto"
-          >
-            {isSavingAiProfile ? "저장 중…" : "AI 리뷰 기본 정보 저장"}
-          </button>
-        </section>
-      </div>
+      <AiReviewSettingsView
+        header={subHeader}
+        alerts={alerts}
+        gender={aiGender}
+        ageRange={aiAgeRange}
+        region={aiRegion}
+        occupation={aiOccupation}
+        extraContext={aiExtraContext}
+        isSaving={isSavingAiProfile}
+        onGenderChange={setAiGender}
+        onAgeRangeChange={setAiAgeRange}
+        onRegionChange={setAiRegion}
+        onOccupationChange={setAiOccupation}
+        onExtraContextChange={setAiExtraContext}
+        onSave={handleSaveAiReviewProfile}
+      />
     );
   }
 

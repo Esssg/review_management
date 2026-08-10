@@ -28,6 +28,7 @@
 - 확인 결과: Next 16.2.3 문서상 `lucide-react`와 `recharts`는 이미 `optimizePackageImports` 기본 최적화 대상이므로 별도 `next.config.ts` 변경은 하지 않음
 - 완료: 대시보드와 월별 상세는 실제 사용 필드만 명시적으로 조회하고, 1,000건 단위 페이지네이션으로 전체 주문을 누락 없이 읽음
 - 완료: 설정 패널의 `purchase-templates` view 렌더링과 템플릿 목록 표시 책임을 `PurchaseTemplatesSettingsView` top-level 컴포넌트로 분리함
+- 완료: 설정 패널의 `ai` view 입력 렌더링 책임을 `AiReviewSettingsView` top-level 컴포넌트로 분리하고, 부모의 상태·Supabase 저장 책임은 유지함
 - 보류: 나머지 대형 화면 컴포넌트 분리와 SWR/server fetch 전환은 동작·인증·데이터 freshness 영향이 커 별도 측정 후 진행
 
 ## 기준 검증 결과
@@ -133,6 +134,7 @@
 - `npm run lint`: 통과
 - Playwright: `/dashboard`, `/dashboard/monthly?month=2026-08` 렌더링 및 Supabase 주문 요청 확인. 명시적 select, `offset=0&limit=1000`, `purchase_date.desc,id.desc`, 월별 날짜 범위가 반영되었고 브라우저 오류 0건
 - Playwright: `/settings`와 `/settings?view=purchase-templates`를 데스크톱·모바일에서 확인. 템플릿 목록·추가·상세 링크·기본/복제/복사/삭제 버튼이 표시되고 브라우저 오류 0건
+- Playwright: `/settings?view=ai`를 데스크톱·모바일에서 확인. AI 입력 필드·저장 버튼이 표시되고 브라우저 오류 0건
 
 ## 명시적 제외
 
