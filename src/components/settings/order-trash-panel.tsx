@@ -50,14 +50,18 @@ export function OrderTrashPanel({
     }
     const next = (data ?? []) as OrderWithRelations[];
     setOrders(next);
-    onCountChange(next.length);
     setPhase("ready");
-  }, [onCountChange, userId]);
+  }, [userId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadTrash(), 0);
     return () => window.clearTimeout(timer);
   }, [loadTrash]);
+
+  useEffect(() => {
+    // 휴지통 목록 렌더가 끝난 뒤 설정 메뉴의 개수 배지를 맞춰 React 상태 충돌을 피합니다.
+    if (phase === "ready") onCountChange(orders.length);
+  }, [onCountChange, orders.length, phase]);
 
   const restoreOrder = async (order: OrderWithRelations) => {
     setWorkingId(order.id);
@@ -74,11 +78,7 @@ export function OrderTrashPanel({
       setErrorMessage(error.message);
       return;
     }
-    setOrders((current) => {
-      const next = current.filter((item) => item.id !== order.id);
-      onCountChange(next.length);
-      return next;
-    });
+    setOrders((current) => current.filter((item) => item.id !== order.id));
     setSuccessMessage("주문을 구매장부로 복원했습니다.");
     window.setTimeout(() => setSuccessMessage(""), 3500);
   };
@@ -102,11 +102,7 @@ export function OrderTrashPanel({
       setErrorMessage(error.message);
       return;
     }
-    setOrders((current) => {
-      const next = current.filter((item) => item.id !== order.id);
-      onCountChange(next.length);
-      return next;
-    });
+    setOrders((current) => current.filter((item) => item.id !== order.id));
   };
 
   return (
