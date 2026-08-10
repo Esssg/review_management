@@ -10,7 +10,7 @@
 
 - 기능 동작과 화면 구조·스타일을 유지한다.
 - API contract, Supabase public 스키마, RLS, 데이터 의미를 변경하지 않는다.
-- 현재 브라우저 Supabase 인증·조회 구조를 전제로 하며, 서버 컴포넌트/RPC/SWR 전환은 1차 범위에서 제외한다.
+- 현재 브라우저 Supabase 인증·조회 구조를 전제로 하며, SWR은 localStorage 세션을 유지하는 브라우저 캐시 범위에서 적용한다. 서버 컴포넌트/Route Handler fetch는 쿠키 인증 전환이 필요하므로 별도 범위로 둔다.
 - 기존의 병렬 조회, 지연 조회, 가상 스크롤, 추천 캐시처럼 의도적으로 적용된 최적화는 유지한다.
 - 새 추상화는 반복 책임이나 렌더 경계를 실제로 줄이는 경우에만 도입한다.
 - 각 단계마다 관련 테스트와 린트·빌드를 실행하고, UI 변경 가능성이 있는 단계는 모바일·데스크톱을 모두 확인한다.
@@ -44,7 +44,8 @@
 - 완료: `order-detail-form.tsx`의 추가 정보·완료정보 입력 UI를 top-level memoized 섹션으로 분리하고, 부모의 draft·dirty guard·저장 책임과 기존 입력 동작은 유지함
 - 완료: `crawl-orders-page.tsx`의 선택 주문 검수 레이아웃을 top-level memoized 컴포넌트로 분리하고, 저장·숨김 mutation callback을 안정화해 polling·부모 상태 변경이 검수 폼 전체를 다시 렌더링하지 않도록 함
 - 부분 완료: `settings-panel.tsx`의 주요 설정 view JSX는 이미 top-level 컴포넌트로 분리되어 있음. 부모의 view 라우팅·상태·Supabase mutation 오케스트레이션은 유지했으며, 추가 래퍼는 prop churn 대비 효과가 없어 만들지 않음
-- 보류: 브라우저 Supabase 조회를 SWR/server fetch로 전환하거나 설정 부모 오케스트레이션을 더 분리하는 작업은 인증·데이터 freshness·동작 영향 측정 후 별도 진행
+- 부분 완료·보류: 브라우저 Supabase 조회는 localStorage 인증을 유지한 SWR 범위까지 적용함. 쿠키 인증이 필요한 server fetch와 설정 부모 오케스트레이션의 추가 분리는 별도 측정·승인 후 진행
+- 완료: 구매장부·설정·자동추천의 사용자별 브라우저 조회를 SWR key/fetcher로 캐시하고, 자동추천의 입금·복구 조회는 현재 탭 진입 시에만 실행하도록 전환함. 기존 1,000건 페이지네이션과 mutation 후 화면 갱신 동작은 유지함
 
 ## 기준 검증 결과
 
@@ -80,7 +81,7 @@
 | 완료 | 구매장부의 완료 주문 헤더·표·카드 JSX가 `OrdersTable`의 데이터·mutation 책임과 한 render 범위에 집중됨 | `rerender-memo`, `rerender-no-inline-components` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx) | 중간 |
 | 완료 | 설정 초기 조회의 템플릿별 주문 사용량 count N+1을 제거하고 필요한 view에서만 조회함 | `async-defer-await`, `async-parallel` | [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx) | 중간 |
 | 확인 완료(코드 변경 없음) | Next 16.2.3 문서와 빌드 결과에서 `lucide-react`·`recharts`가 기본 package import 최적화 대상임을 확인함 | `bundle-barrel-imports` | `next.config.ts`, `src/components/**/*.tsx`, `src/components/pages/**/*.tsx` | 낮음 |
-| 부분 완료·보류 | 주문 폼·크롤링·장부·설정의 실제 렌더 경계를 안전 범위에서 분리함. 설정 부모 오케스트레이션과 SWR/server fetch 전환은 별도 측정 없이는 진행하지 않음 | `rerender-memo`, `rerender-split-combined-hooks`, `rerender-no-inline-components` | [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx), [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx), [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx) | 중간~높음 |
+| 부분 완료·보류 | 주문 폼·크롤링·장부·설정의 실제 렌더 경계를 안전 범위에서 분리하고 브라우저 인증 기반 SWR 조회 캐시를 적용함. 쿠키 인증이 필요한 server fetch와 설정 부모 오케스트레이션 추가 분리는 보류함 | `rerender-memo`, `rerender-split-combined-hooks`, `rerender-no-inline-components`, `async-defer-await` | [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx), [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx), [`src/components/pages/home-page.tsx`](src/components/pages/home-page.tsx), [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx) | 중간~높음 |
 | 완료 | 모바일/데스크톱 완료처리와 완료 취소 UI에 유사한 상태·mutation 로직이 반복됨 | 저장소 재사용 원칙, `rerender-memo` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/lib/order-completion.ts`](src/lib/order-completion.ts) | 중간~높음 |
 | 완료 | 크롤링 페이지의 입금 추천 로컬 render helper를 `DepositRecommendationList` top-level 컴포넌트로 분리함 | `rerender-no-inline-components`, `rerender-memo`, `js-combine-iterations` | [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx) | 중간 |
 | 완료 | 전역 layout의 온보딩을 별도 dynamic chunk로 지연 로드하고, 기존 컴포넌트의 인증 확인·표시 동작은 유지함 | `bundle-dynamic-imports` | [`src/app/layout.tsx`](src/app/layout.tsx), [`src/components/onboarding/onboarding-tour-loader.tsx`](src/components/onboarding/onboarding-tour-loader.tsx) | 중간 |
@@ -136,7 +137,14 @@
 1. 완료: 단순한 `useMemo`와 모듈 수준에서 안전하게 고정할 수 있는 정적 객체를 정리했다.
 2. 완료: 주문 폼 dirty snapshot과 URL 필터 동기화는 state의 의미를 바꾸지 않는 범위에서 비교 비용과 불필요한 setter 호출을 줄였다.
 3. 완료: master data의 숨김 ID membership에 `Set`을 적용했다. 반복 lookup이 실제 데이터 크기에서 의미가 있는 경우에만 자료구조를 바꾼다.
-4. 완료: 대시보드·월별 상세가 사용하는 주문 필드와 관계 필드만 조회하도록 전용 select를 만들고, `purchase_date`·`id` 안정 정렬과 1,000건 단위 range 반복 조회를 적용했다. 서버 집계·RPC·SWR로 확장하지 않았다.
+4. 완료: 대시보드·월별 상세가 사용하는 주문 필드와 관계 필드만 조회하도록 전용 select를 만들고, `purchase_date`·`id` 안정 정렬과 1,000건 단위 range 반복 조회를 적용했다. 서버 집계·RPC로 확장하지 않았다.
+
+### 6단계: 브라우저 조회 SWR 캐시 전환 — 완료(서버 인증 변경 없음)
+
+1. 완료: `swr` 의존성을 추가하고 사용자 ID를 포함한 key/fetcher로 구매장부의 count·미완료·완료 지연 조회를 분리했다.
+2. 완료: 설정 초기 조회와 주문 휴지통 조회를 view·사용자별 SWR key로 캐시하고, 기존 mutation 뒤의 화면 갱신을 캐시 갱신으로 연결했다.
+3. 완료: 자동추천의 기본 주문·마스터·플랫폼 계정 조회와 입금·복구 탭 조회를 SWR로 전환했다. 입금·주문 후보의 1,000건 단위 전체 페이지 조회는 유지했다.
+4. 완료: server fetch는 적용하지 않았다. 현재 브라우저 localStorage 세션을 쿠키 세션으로 바꾸는 인증 변경이 필요하므로 별도 승인·검증 범위로 남겼다.
 
 ## 단계별 검증
 
@@ -185,11 +193,16 @@
 - 이번 묶음 Playwright: `/orders/new`의 추가 정보 펼침·완료정보 입력 영역을 1440px·390px에서 확인하고 가로 overflow와 브라우저 error 0건을 확인함
 - 이번 묶음 Playwright: `/recommendations`의 주문·입금·최근 처리/숨김 탭 전환을 1440px·390px에서 확인하고 가로 overflow와 브라우저 error 0건을 확인함. 현재 `crawl_orders` 대기 건수가 0건이라 선택 주문 검수 저장 흐름은 진입 데이터가 없어 실행하지 못함
 - 이번 묶음 Playwright: `/settings` 홈을 1440px·390px에서 확인하고 설정 메뉴·PWA 카드·계정 요약, 가로 overflow와 브라우저 error 0건을 확인함
+- SWR 묶음 `npm run lint`: 통과
+- SWR 묶음 `npx tsc --noEmit`: 통과
+- SWR 묶음 `npm test`: 2개 파일, 9개 테스트 통과
+- SWR 묶음 `npm run build`: Next.js 16.2.3 빌드 통과
+- SWR 묶음 Playwright: `/recommendations`를 1440px·390px에서 확인하고 주문 탭의 기본 조회, 입금·복구 탭 진입 시 조건부 조회, 모바일 가로 overflow와 브라우저 error 0건을 확인함
 
 ## 명시적 제외
 
 - API endpoint, request/response contract, Supabase 테이블·컬럼·인덱스·RLS 변경
-- 브라우저 Supabase 인증을 서버 세션/서버 컴포넌트로 전환
-- 주문·입금 데이터를 오프라인 캐시하거나 freshness 의미를 바꾸는 SWR 전환
+- 브라우저 Supabase 인증을 쿠키 기반 서버 세션/서버 컴포넌트로 전환
+- 주문·입금 데이터를 오프라인에 영속화하거나 freshness 의미를 바꾸는 SWR 전환
 - 디자인 토큰, 화면 정보 구조, 반응형 breakpoint의 재설계
 - 실제 프로파일링으로 유의미한 비용이 확인되지 않은 저수준 알고리즘·전역 추상화 변경
