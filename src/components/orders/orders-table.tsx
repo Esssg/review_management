@@ -1126,7 +1126,7 @@ function WebCompletedActionsDropdown({
   );
 }
 
-function OrderExpandPanel({
+const OrderExpandPanel = memo(function OrderExpandPanel({
   row,
   onEditOrder,
   onDuplicateOrder,
@@ -1139,10 +1139,14 @@ function OrderExpandPanel({
   supabase: ReturnType<typeof createClient>;
   onPatchOrder: (previous: OrderWithRelations, updated: OrderWithRelations) => void;
 }) {
+  const handlePatchOrder = useCallback((updated: OrderWithRelations) => {
+    onPatchOrder(row, updated);
+  }, [onPatchOrder, row]);
+
   const { busy: uncompleteBusy, handleUncomplete } = useUncompleteOrder({
     row,
     supabase,
-    onPatched: (updated) => onPatchOrder(row, updated),
+    onPatched: handlePatchOrder,
   });
 
   return (
@@ -1152,7 +1156,7 @@ function OrderExpandPanel({
           row={row}
           onEditOrder={onEditOrder}
           supabase={supabase}
-          onPatched={(updated) => onPatchOrder(row, updated)}
+          onPatched={handlePatchOrder}
         />
       ) : (
         <>
@@ -1182,7 +1186,7 @@ function OrderExpandPanel({
       </Button>
     </div>
   );
-}
+});
 
 const OrderCardItem = memo(function OrderCardItem({
   row,
@@ -1221,6 +1225,8 @@ const OrderCardItem = memo(function OrderCardItem({
   const platformName = row.platforms?.name ?? "";
   const platformTone = getChipTone(row.platforms?.color ?? DEFAULT_PLATFORM_COLOR);
   const hasProfit = row.profit_krw !== null && Number(row.profit_krw) !== 0;
+  const handleEditOrder = useCallback(() => onEditOrder(row.id), [onEditOrder, row.id]);
+  const handleDuplicateOrder = useCallback(() => onDuplicateOrder(row.id), [onDuplicateOrder, row.id]);
 
   return (
     <div className={cn(
@@ -1332,8 +1338,8 @@ const OrderCardItem = memo(function OrderCardItem({
       {!selectionMode && isExpanded ? (
         <OrderExpandPanel
           row={row}
-          onEditOrder={() => onEditOrder(row.id)}
-          onDuplicateOrder={() => onDuplicateOrder(row.id)}
+          onEditOrder={handleEditOrder}
+          onDuplicateOrder={handleDuplicateOrder}
           supabase={supabase}
           onPatchOrder={onPatchOrder}
         />

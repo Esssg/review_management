@@ -36,6 +36,7 @@
 - 완료: 설정 패널의 `nickname` view 입력·저장 UI를 `NicknameSettingsView` top-level 컴포넌트로 분리하고, 부모의 상태·Supabase mutation 책임은 유지함
 - 완료: 설정 패널의 `defaults` view 주문 기본값·업무 흐름 UI를 `OrderDefaultsSettingsView` top-level 컴포넌트로 분리하고, 부모의 preferences 상태·숨김 필터·Supabase mutation 책임은 유지함
 - 완료: 설정 패널의 홈 요약·메뉴·PWA·로그아웃 UI를 `SettingsHomeView` top-level 컴포넌트로 분리하고, 부모의 상태·navigation/logout callback 책임은 유지함
+- 완료: `OrderCardItem` 확장 패널을 memoized 경계로 유지하고 row별 수정·복제·patch callback을 안정화함. 부모의 기존 stable callback과 주문 동작은 유지함
 - 보류: 나머지 대형 화면 컴포넌트 분리와 SWR/server fetch 전환은 동작·인증·데이터 freshness 영향이 커 별도 측정 후 진행
 
 ## 기준 검증 결과
@@ -65,7 +66,7 @@
 | P1 | 크롤링 추천 화면의 모바일 목록과 데스크톱 표를 동시에 렌더링함 | `rendering-content-visibility`, `rerender-memo` | [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx) | 중간~높음 |
 | P1 | 주문번호 중복 조회와 날짜·상품 중복 조회가 서로 독립적인데 순차 실행됨 | `async-parallel` | [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx) | 중간 |
 | P1 | 크롤링 상태 polling 때마다 주문·master data·계정 상태를 모두 다시 조회함 | `async-defer-await`, `rerender-split-combined-hooks` | [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx) | 중간~높음 |
-| P1 | `OrderCardItem`이 memoized 되어도 부모의 인라인 콜백 때문에 대부분 다시 렌더링됨 | `rerender-memo`, `rerender-functional-setstate` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx) | 중간 |
+| 완료 | `OrderCardItem` 확장 패널의 row 바인딩 callback과 memo 경계를 정리함. 부모의 기존 stable callback은 유지함 | `rerender-memo`, `rerender-functional-setstate` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx) | 중간 |
 | P1 | AI streaming delta마다 2천 줄이 넘는 주문 폼 전체가 다시 렌더링됨 | `rerender-memo`, `rerender-use-ref-transient-values` | [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx) | 중간 |
 | P1 | 설정 초기 조회에서 템플릿마다 주문 사용량 count 쿼리를 하나씩 실행함 | `async-defer-await`, `async-parallel` | [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx) | 중간 |
 | P2 | 여러 파일에서 `lucide-react` named import를 사용하지만 Next 16 기본 최적화 대상인지 확인이 필요했음 | `bundle-barrel-imports` | `src/components/**/*.tsx`, `src/components/pages/**/*.tsx` | 낮음 |
@@ -149,6 +150,7 @@
 - Playwright: `/settings?view=nickname`을 데스크톱·모바일에서 확인. 닉네임 입력·저장 버튼과 입력에 따른 저장 버튼 활성화 및 브라우저 오류 0건을 확인함
 - Playwright: `/settings?view=defaults`를 데스크톱·모바일에서 확인. 주문 기본값 선택지·업무 흐름 선택지·자동추천 연속 처리 체크박스와 브라우저 오류 0건을 확인함
 - Playwright: `/settings`를 데스크톱·모바일에서 확인. PWA 카드·계정 요약·설정 메뉴·휴지통 배지·로그아웃 버튼과 계정 요약 이동 및 브라우저 오류 0건을 확인함
+- Playwright: `/`를 데스크톱·모바일에서 확인. 구매장부 테이블·필터·완료 주문 섹션과 모바일 주문 펼침/입금 입력 패널 및 브라우저 오류 0건을 확인함
 
 ## 명시적 제외
 
