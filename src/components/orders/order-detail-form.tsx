@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -250,6 +250,11 @@ const controlTextareaClass = cn(
 
 type ToastState = { type: "error" | "success"; message: string };
 
+type OrderPayloadBuildResult = {
+  payloads?: Database["public"]["Tables"]["orders"]["Insert"][];
+  error?: string;
+};
+
 const PURCHASE_INFO_HINTS = {
   kakaoRoom: "카톡방 이름을 입력해주세요",
   product: "알아보기 쉽게 물품명을 입력해주세요",
@@ -257,6 +262,32 @@ const PURCHASE_INFO_HINTS = {
 } as const;
 
 const TOAST_MS = 3000;
+
+function normalizeNumber(value: unknown, fieldLabel: string) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) {
+    return { error: `${fieldLabel}을(를) 입력해 주세요.` as const };
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { error: `${fieldLabel}은(는) 0 이상의 숫자만 입력할 수 있습니다.` as const };
+  }
+
+  return { value: parsed };
+}
+
+function normalizeOptionalNumber(value: unknown, fieldLabel: string) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return { value: null };
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { error: `${fieldLabel}은(는) 0 이상의 숫자만 입력할 수 있습니다.` as const };
+  }
+
+  return { value: parsed };
+}
 
 function OrderFormToast({ toast }: { toast: ToastState }) {
   const isError = toast.type === "error";
@@ -395,6 +426,229 @@ function OrderSummaryHero({ order }: { order: OrderWithRelations }) {
   );
 }
 
+type AiReviewPanelProps = {
+  order: OrderWithRelations;
+  supabase: ReturnType<typeof createClient>;
+  isSaving: boolean;
+  aiExtraInput: string;
+  onAiExtraInputChange: (value: string) => void;
+  reviewCharCount: string;
+  isProcessed: boolean;
+  buildPayload: (nextIsProcessed: boolean) => OrderPayloadBuildResult;
+  onToast: (toast: ToastState | null) => void;
+};
+
+const AiReviewPanel = memo(function AiReviewPanel({
+  order,
+  supabase,
+  isSaving,
+  aiExtraInput,
+  onAiExtraInputChange,
+  reviewCharCount,
+  isProcessed,
+  buildPayload,
+  onToast,
+}: AiReviewPanelProps) {
+  const [aiReviewText, setAiReviewText] = useState(order.ai_review ?? "");
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiStreamError, setAiStreamError] = useState<string | null>(null);
+  const lastAiOrderIdRef = useRef<string | undefined>(undefined);
+  /** 부모 `order.ai_review` 중 마지막으로 반영한 값(재생성 직후 DB는 아직 옛값일 때 로컬 결과를 덮지 않기 위함) */
+  const lastSyncedServerAiReviewRef = useRef<string | undefined>(undefined);
+  const aiReviewTextRef = useRef(order.ai_review ?? "");
+  const aiReviewFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const fromDb = order.ai_review ?? "";
+    if (order.id !== lastAiOrderIdRef.current) {
+      lastAiOrderIdRef.current = order.id;
+      lastSyncedServerAiReviewRef.current = fromDb;
+      aiReviewTextRef.current = fromDb;
+      setAiReviewText(fromDb);
+      return;
+    }
+    if (aiGenerating) return;
+    if (fromDb === lastSyncedServerAiReviewRef.current) return;
+    lastSyncedServerAiReviewRef.current = fromDb;
+    aiReviewTextRef.current = fromDb;
+    setAiReviewText(fromDb);
+  }, [order.ai_review, order.id, aiGenerating]);
+
+  const appendAiReviewDelta = useCallback((chunk: string) => {
+    aiReviewTextRef.current += chunk;
+    if (aiReviewFrameRef.current !== null) return;
+
+    aiReviewFrameRef.current = window.requestAnimationFrame(() => {
+      aiReviewFrameRef.current = null;
+      setAiReviewText(aiReviewTextRef.current);
+    });
+  }, []);
+
+  const flushAiReviewText = useCallback(() => {
+    if (aiReviewFrameRef.current !== null) {
+      window.cancelAnimationFrame(aiReviewFrameRef.current);
+      aiReviewFrameRef.current = null;
+    }
+    setAiReviewText(aiReviewTextRef.current);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (aiReviewFrameRef.current !== null) {
+        window.cancelAnimationFrame(aiReviewFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  const copyAiReviewResult = async () => {
+    const t = aiReviewText.trim();
+    if (!t) {
+      onToast({ type: "error", message: "복사할 리뷰 내용이 없습니다." });
+      return;
+    }
+    try {
+      await copyTextToClipboard(t);
+      onToast({ type: "success", message: "클립보드에 복사했습니다." });
+    } catch {
+      onToast({ type: "error", message: "복사에 실패했습니다. 브라우저의 클립보드 권한을 확인한 뒤 다시 시도해 주세요." });
+    }
+  };
+
+  const runAiReviewGeneration = async () => {
+    if (!order.id) return;
+    setAiStreamError(null);
+    setAiGenerating(true);
+
+    const { payloads, error: payloadError } = buildPayload(isProcessed);
+    if (payloadError || !payloads) {
+      setAiGenerating(false);
+      onToast({ type: "error", message: payloadError ?? "입력값을 확인해 주세요." });
+      return;
+    }
+
+    const { error: preSaveError } = await supabase
+      .from("orders")
+      .update(payloads[0])
+      .eq("id", order.id)
+      .is("deleted_at", null);
+    if (preSaveError) {
+      setAiGenerating(false);
+      onToast({ type: "error", message: preSaveError.message });
+      return;
+    }
+
+    aiReviewTextRef.current = "";
+    setAiReviewText("");
+    try {
+      const rcTrim = reviewCharCount.trim().replace(/,/g, "");
+      let reviewCharCountForAi: number | null = null;
+      if (rcTrim) {
+        const n = Number(rcTrim);
+        if (Number.isFinite(n) && n > 0) reviewCharCountForAi = Math.floor(n);
+      }
+      const result = await streamAiReviewFromEdge(supabase, {
+        orderId: order.id,
+        userPrompt: aiExtraInput,
+        reviewCharCount: reviewCharCountForAi,
+        onDelta: appendAiReviewDelta,
+      });
+      if (!result.ok) {
+        setAiStreamError(result.error);
+        onToast({ type: "error", message: result.error });
+      } else {
+        onToast({ type: "success", message: "AI 리뷰가 생성되어 저장되었습니다." });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setAiStreamError(msg);
+      onToast({ type: "error", message: msg });
+    } finally {
+      flushAiReviewText();
+      setAiGenerating(false);
+    }
+  };
+
+  return (
+    <details className="group rounded-2xl border bg-card text-card-foreground shadow-sm ring-1 ring-border/60">
+      <summary className="cursor-pointer list-none border-border/60 px-4 py-4 marker:hidden group-open:border-b">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/12 text-violet-800 ring-1 ring-violet-500/20 dark:bg-violet-500/15 dark:text-violet-200 dark:ring-violet-400/25">
+            <Bot className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+          </span>
+          <div className="min-w-0 space-y-1">
+            <CardTitle className="text-base">AI 리뷰</CardTitle>
+            <CardDescription className="text-xs leading-relaxed">
+              Gemini로 초안을 만들고 이 주문에 자동 저장합니다. 생성 중에 다른 화면으로 이동해도 서버에서 끝까지 처리된 뒤 여기에 반영됩니다(다시 들어오면 최신 내용이 보입니다).
+            </CardDescription>
+          </div>
+          <span className="ml-auto shrink-0 text-xs font-medium text-muted-foreground group-open:hidden">펼치기</span>
+          <span className="ml-auto hidden shrink-0 text-xs font-medium text-muted-foreground group-open:inline">접기</span>
+        </div>
+      </summary>
+      <CardContent className="space-y-4 pt-0">
+        <div className="space-y-2 py-2">
+          <Label className="text-foreground text-sm font-medium">AI에게 전달할 추가 정보</Label>
+          <p className="text-muted-foreground text-xs">
+            상품 특징·촬영 조건·톤 등 리뷰에 반영하고 싶은 내용을 적어 주세요. 비워도 됩니다.
+          </p>
+          <textarea
+            rows={3}
+            value={aiExtraInput}
+            onChange={(e) => onAiExtraInputChange(e.target.value)}
+            disabled={aiGenerating}
+            className={controlTextareaClass}
+            placeholder="예: 배송 빨랐고 포장 꼼꼼함을 강조해 줘"
+          />
+        </div>
+        <button
+          type="button"
+          disabled={aiGenerating || isSaving}
+          onClick={() => void runAiReviewGeneration()}
+          className={cn(
+            buttonVariants({ variant: "default", size: "default" }),
+            "h-11 w-full touch-manipulation sm:w-auto",
+          )}
+        >
+          {aiGenerating ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" aria-hidden />
+              생성 중…
+            </>
+          ) : (
+            "AI리뷰 생성하기"
+          )}
+        </button>
+        {aiStreamError ? (
+          <p className="text-destructive text-sm" role="alert">
+            {aiStreamError}
+          </p>
+        ) : null}
+        <div className="space-y-2">
+          <Label className="text-foreground text-sm font-medium">결과</Label>
+          <p className="text-muted-foreground text-xs">
+            아래 영역을 누르면 표시된 리뷰 전체가 클립보드에 복사됩니다.
+          </p>
+          <textarea
+            readOnly
+            rows={10}
+            value={aiReviewText}
+            onClick={() => void copyAiReviewResult()}
+            title={aiReviewText.trim() ? "탭하면 전체가 클립보드에 복사됩니다" : undefined}
+            className={cn(
+              controlTextareaClass,
+              "min-h-[12rem] cursor-pointer touch-manipulation bg-muted/20",
+              "hover:bg-muted/40 active:bg-muted/55",
+            )}
+            placeholder={aiGenerating ? "답변을 불러오는 중…" : "생성된 리뷰가 여기에 표시됩니다."}
+            aria-live="polite"
+          />
+        </div>
+      </CardContent>
+    </details>
+  );
+});
+
 export function OrderDetailForm({
   order,
   draftOrder,
@@ -417,7 +671,7 @@ export function OrderDetailForm({
   buyerAccounts: BuyerAccount[];
 }) {
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const isEditMode = Boolean(order);
   const isImportMode = Boolean(draftOrder && importActions);
   const isNewOrderMode = !isEditMode && !isImportMode;
@@ -468,9 +722,6 @@ export function OrderDetailForm({
   const [isSaving, setIsSaving] = useState(false);
   const [purchaseTemplates, setPurchaseTemplates] = useState<PurchaseTemplateRow[]>([]);
   const [aiExtraInput, setAiExtraInput] = useState(initialOrder?.ai_review_user_prompt ?? "");
-  const [aiReviewText, setAiReviewText] = useState(initialOrder?.ai_review ?? "");
-  const [aiGenerating, setAiGenerating] = useState(false);
-  const [aiStreamError, setAiStreamError] = useState<string | null>(null);
   const [workflowUserId, setWorkflowUserId] = useState(userId ?? "");
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [orderSaveAction, setOrderSaveAction] = useState<OrderSaveAction>("ledger");
@@ -483,11 +734,6 @@ export function OrderDetailForm({
     onSuccess: () => void;
   } | null>(null);
   const importRedirectHrefRef = useRef<string | null>(null);
-  const lastAiOrderIdRef = useRef<string | undefined>(undefined);
-  /** 부모 `order.ai_review` 중 마지막으로 반영한 값(재생성 직후 DB는 아직 옛값일 때 로컬 결과를 덮지 않기 위함) */
-  const lastSyncedServerAiReviewRef = useRef<string | undefined>(undefined);
-  const aiReviewTextRef = useRef(initialOrder?.ai_review ?? "");
-  const aiReviewFrameRef = useRef<number | null>(null);
   const isCurrentlyProcessed = isProcessed === "true";
   const isMultipleBuyerAccounts = isNewOrderMode && buyerAccountIds.length > 1;
   const selectedBuyerAccountIds = useMemo(
@@ -622,47 +868,6 @@ export function OrderDetailForm({
     document.addEventListener("click", onClickCapture, true);
     return () => document.removeEventListener("click", onClickCapture, true);
   }, [isEditMode]);
-
-  useEffect(() => {
-    const oid = order?.id;
-    const fromDb = order?.ai_review ?? "";
-    if (oid !== lastAiOrderIdRef.current) {
-      lastAiOrderIdRef.current = oid;
-      lastSyncedServerAiReviewRef.current = fromDb;
-      aiReviewTextRef.current = fromDb;
-      setAiReviewText(fromDb);
-      return;
-    }
-    if (aiGenerating) return;
-    if (fromDb === lastSyncedServerAiReviewRef.current) return;
-    lastSyncedServerAiReviewRef.current = fromDb;
-    aiReviewTextRef.current = fromDb;
-    setAiReviewText(fromDb);
-  }, [order?.id, order?.ai_review, aiGenerating]);
-
-  const appendAiReviewDelta = useCallback((chunk: string) => {
-    aiReviewTextRef.current += chunk;
-    if (aiReviewFrameRef.current !== null) return;
-
-    aiReviewFrameRef.current = window.requestAnimationFrame(() => {
-      aiReviewFrameRef.current = null;
-      setAiReviewText(aiReviewTextRef.current);
-    });
-  }, []);
-
-  const flushAiReviewText = useCallback(() => {
-    if (aiReviewFrameRef.current !== null) {
-      window.cancelAnimationFrame(aiReviewFrameRef.current);
-      aiReviewFrameRef.current = null;
-    }
-    setAiReviewText(aiReviewTextRef.current);
-  }, []);
-
-  useEffect(() => () => {
-    if (aiReviewFrameRef.current !== null) {
-      window.cancelAnimationFrame(aiReviewFrameRef.current);
-    }
-  }, []);
 
   useEffect(() => {
     setAiExtraInput(order?.ai_review_user_prompt ?? "");
@@ -994,35 +1199,7 @@ export function OrderDetailForm({
     setBuyerAccountIds(nextBuyerAccountIds);
   };
 
-  const normalizeNumber = (value: unknown, fieldLabel: string) => {
-    const trimmed = String(value ?? "").trim();
-    if (!trimmed) {
-      return { error: `${fieldLabel}을(를) 입력해 주세요.` as const };
-    }
-
-    const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      return { error: `${fieldLabel}은(는) 0 이상의 숫자만 입력할 수 있습니다.` as const };
-    }
-
-    return { value: parsed };
-  };
-
-  const normalizeOptionalNumber = (value: unknown, fieldLabel: string) => {
-    const trimmed = String(value ?? "").trim();
-    if (!trimmed) return { value: null };
-
-    const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      return { error: `${fieldLabel}은(는) 0 이상의 숫자만 입력할 수 있습니다.` as const };
-    }
-
-    return { value: parsed };
-  };
-
-  const buildPayload = (
-    nextIsProcessed: boolean,
-  ): { payloads?: Database["public"]["Tables"]["orders"]["Insert"][]; error?: string } => {
+  const buildPayload = useCallback((nextIsProcessed: boolean): OrderPayloadBuildResult => {
     const kakaoRoomNameValue = kakaoRoomName.trim();
     const orderNumberValue = orderNumber.trim();
     const productNameValue = productName.trim();
@@ -1128,7 +1305,37 @@ export function OrderDetailForm({
         ai_review_user_prompt: aiExtraInput.trim() || null,
       })) satisfies Database["public"]["Tables"]["orders"]["Insert"][],
     };
-  };
+  }, [
+    aiExtraInput,
+    buyerAccounts,
+    depositAmount,
+    depositDate,
+    depositMemo,
+    draftOrder?.screenshot_storage_path,
+    isEditMode,
+    isImportMode,
+    isItemDelivered,
+    isMultipleBuyerAccounts,
+    kakaoRoomName,
+    linkedPurchaseTemplateId,
+    notes,
+    order?.is_processed,
+    orderNumber,
+    orderStatus,
+    paymentMethodId,
+    paymentMethods,
+    platformId,
+    platforms,
+    productName,
+    productUrl,
+    purchaseDate,
+    purchasePrice,
+    purchaseTemplates,
+    reviewCharCount,
+    reviewPhotoCount,
+    scheduledPurchaseAt,
+    selectedBuyerAccountIds,
+  ]);
 
   const persistOrder = async (nextIsProcessed: boolean): Promise<boolean> => {
     setToast(null);
@@ -1352,70 +1559,6 @@ export function OrderDetailForm({
     if (ctx?.kind === "link") {
       router.push(ctx.href);
       router.refresh();
-    }
-  };
-
-  const copyAiReviewResult = async () => {
-    const t = aiReviewText.trim();
-    if (!t) {
-      setToast({ type: "error", message: "복사할 리뷰 내용이 없습니다." });
-      return;
-    }
-    try {
-      await copyTextToClipboard(t);
-      setToast({ type: "success", message: "클립보드에 복사했습니다." });
-    } catch {
-      setToast({ type: "error", message: "복사에 실패했습니다. 브라우저의 클립보드 권한을 확인한 뒤 다시 시도해 주세요." });
-    }
-  };
-
-  const runAiReviewGeneration = async () => {
-    if (!isEditMode || !order?.id) return;
-    setAiStreamError(null);
-    setAiGenerating(true);
-
-    const { payloads, error: payloadError } = buildPayload(isProcessed === "true");
-    if (payloadError || !payloads) {
-      setAiGenerating(false);
-      setToast({ type: "error", message: payloadError ?? "입력값을 확인해 주세요." });
-      return;
-    }
-
-    const { error: preSaveError } = await supabase.from("orders").update(payloads[0]).eq("id", order.id).is("deleted_at", null);
-    if (preSaveError) {
-      setAiGenerating(false);
-      setToast({ type: "error", message: preSaveError.message });
-      return;
-    }
-
-    aiReviewTextRef.current = "";
-    setAiReviewText("");
-    try {
-      const rcTrim = reviewCharCount.trim().replace(/,/g, "");
-      let reviewCharCountForAi: number | null = null;
-      if (rcTrim) {
-        const n = Number(rcTrim);
-        if (Number.isFinite(n) && n > 0) reviewCharCountForAi = Math.floor(n);
-      }
-      const result = await streamAiReviewFromEdge(supabase, {
-        orderId: order.id,
-        userPrompt: aiExtraInput,
-        reviewCharCount: reviewCharCountForAi,
-        onDelta: appendAiReviewDelta,
-      });
-      if (!result.ok) {
-        setAiStreamError(result.error);
-        setToast({ type: "error", message: result.error });
-      } else {
-        setToast({ type: "success", message: "AI 리뷰가 생성되어 저장되었습니다." });
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setAiStreamError(msg);
-      setToast({ type: "error", message: msg });
-    } finally {
-      flushAiReviewText();
-      setAiGenerating(false);
     }
   };
 
@@ -1923,82 +2066,17 @@ export function OrderDetailForm({
       </details>
 
       {isEditMode && order ? (
-        <details className="group rounded-2xl border bg-card text-card-foreground shadow-sm ring-1 ring-border/60">
-          <summary className="cursor-pointer list-none border-border/60 px-4 py-4 marker:hidden group-open:border-b">
-            <div className="flex items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/12 text-violet-800 ring-1 ring-violet-500/20 dark:bg-violet-500/15 dark:text-violet-200 dark:ring-violet-400/25">
-                <Bot className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-              </span>
-              <div className="min-w-0 space-y-1">
-                <CardTitle className="text-base">AI 리뷰</CardTitle>
-                <CardDescription className="text-xs leading-relaxed">
-                  Gemini로 초안을 만들고 이 주문에 자동 저장합니다. 생성 중에 다른 화면으로 이동해도 서버에서 끝까지 처리된 뒤 여기에 반영됩니다(다시 들어오면 최신 내용이 보입니다).
-                </CardDescription>
-              </div>
-              <span className="ml-auto shrink-0 text-xs font-medium text-muted-foreground group-open:hidden">펼치기</span>
-              <span className="ml-auto hidden shrink-0 text-xs font-medium text-muted-foreground group-open:inline">접기</span>
-            </div>
-          </summary>
-          <CardContent className="space-y-4 pt-0">
-            <div className="space-y-2 py-2">
-              <Label className="text-foreground text-sm font-medium">AI에게 전달할 추가 정보</Label>
-              <p className="text-muted-foreground text-xs">
-                상품 특징·촬영 조건·톤 등 리뷰에 반영하고 싶은 내용을 적어 주세요. 비워도 됩니다.
-              </p>
-              <textarea
-                rows={3}
-                value={aiExtraInput}
-                onChange={(e) => setAiExtraInput(e.target.value)}
-                disabled={aiGenerating}
-                className={controlTextareaClass}
-                placeholder="예: 배송 빨랐고 포장 꼼꼼함을 강조해 줘"
-              />
-            </div>
-            <button
-              type="button"
-              disabled={aiGenerating || isSaving}
-              onClick={() => void runAiReviewGeneration()}
-              className={cn(
-                buttonVariants({ variant: "default", size: "default" }),
-                "h-11 w-full touch-manipulation sm:w-auto",
-              )}
-            >
-              {aiGenerating ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                  생성 중…
-                </>
-              ) : (
-                "AI리뷰 생성하기"
-              )}
-            </button>
-            {aiStreamError ? (
-              <p className="text-destructive text-sm" role="alert">
-                {aiStreamError}
-              </p>
-            ) : null}
-            <div className="space-y-2">
-              <Label className="text-foreground text-sm font-medium">결과</Label>
-              <p className="text-muted-foreground text-xs">
-                아래 영역을 누르면 표시된 리뷰 전체가 클립보드에 복사됩니다.
-              </p>
-              <textarea
-                readOnly
-                rows={10}
-                value={aiReviewText}
-                onClick={() => void copyAiReviewResult()}
-                title={aiReviewText.trim() ? "탭하면 전체가 클립보드에 복사됩니다" : undefined}
-                className={cn(
-                  controlTextareaClass,
-                  "min-h-[12rem] cursor-pointer touch-manipulation bg-muted/20",
-                  "hover:bg-muted/40 active:bg-muted/55",
-                )}
-                placeholder={aiGenerating ? "답변을 불러오는 중…" : "생성된 리뷰가 여기에 표시됩니다."}
-                aria-live="polite"
-              />
-            </div>
-          </CardContent>
-        </details>
+        <AiReviewPanel
+          order={order}
+          supabase={supabase}
+          isSaving={isSaving}
+          aiExtraInput={aiExtraInput}
+          onAiExtraInputChange={setAiExtraInput}
+          reviewCharCount={reviewCharCount}
+          isProcessed={isProcessed === "true"}
+          buildPayload={buildPayload}
+          onToast={setToast}
+        />
       ) : null}
 
       <Card className="bg-muted/20 shadow-sm ring-border/50 dark:bg-muted/10" size="sm">
