@@ -3,7 +3,19 @@
 기준 프로젝트: `xhjjoxzwpgqlodflaiix`  
 최종 업데이트: 2026-08-10
 
-## 1) 현재 DB에 있는 테이블
+## 0) 공개 스키마 경계 (필수)
+
+이 Supabase 프로젝트의 `public` 스키마에는 Review Manager와 무관한 다른 프로젝트의 테이블도 함께 존재합니다. 이 문서는 전체 `public` 스키마 목록이 아니라 이 저장소가 사용하는 테이블만 기록합니다.
+
+- `RLS`가 활성화된 테이블은 이 프로젝트 소유로 판단합니다.
+- `RLS`가 비활성화된 테이블은 다른 프로젝트 소유로 판단합니다. 다른 프로젝트 테이블은 조회·수정·삭제·DDL·마이그레이션·시드·타입 계약 변경의 대상이 아닙니다.
+- 이 저장소가 실제로 사용하는 작업 허용 목록은 `users`, `platforms`, `payment_methods`, `buyer_accounts`, `purchase_info_templates`, `user_ai_review_profiles`, `user_item_settings`, `user_preferences`, `user_order_drafts`, `saved_order_views`, `orders`, `bank_account`, `bank_account_deposit`, `platform_accounts`, `crawl_orders`입니다.
+- `RLS`가 활성화된 `coupang_payment_method_mappings`도 현재 저장소 코드와 마이그레이션에서 사용하지 않으므로, 명시적인 사용자 요청 없이는 건드리지 않습니다.
+- 작업 전에는 `public` 테이블의 RLS 상태를 메타데이터로 읽기 전용 확인하고, 대상이 위 허용 목록에 없거나 RLS 상태가 불명확하면 작업을 중단합니다.
+
+현재 메타데이터에서 RLS가 비활성화된 것으로 확인된 `admins`, `products`, `product_steps`, `applications`, `submissions`, `evidence_photos`, `admin_menu_permissions`는 다른 프로젝트 테이블이므로 절대 다루지 않습니다. 이 목록은 참고용이며, 최종 판단은 RLS 상태와 위 허용 목록을 함께 사용합니다.
+
+## 1) 이 프로젝트에서 사용하는 테이블 (작업 허용 목록)
 
 ### `public` (애플리케이션 데이터)
 - `orders` — 주문 레코드 (RLS 활성화)
@@ -19,6 +31,8 @@
 - `users` — Auth 사용자와 1:1 사용자 프로필(`user_id`, 표시 `name`, 온보딩 완료 시각, RLS 활성화). `auth.users` INSERT 트리거로 행 생성
 - `bank_account` — 사용자별 입금 계좌 정보 (RLS 활성화)
 - `bank_account_deposit` — 입금 계좌별 입금 내역 (RLS 활성화)
+- `platform_accounts` — 사용자별 플랫폼 로그인·크롤링 계정 정보 (RLS 활성화)
+- `crawl_orders` — 크롤링으로 수집한 주문 대기·처리 내역 (RLS 활성화)
 
 ---
 

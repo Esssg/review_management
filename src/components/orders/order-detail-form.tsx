@@ -250,6 +250,12 @@ const controlTextareaClass = cn(
 
 type ToastState = { type: "error" | "success"; message: string };
 
+const PURCHASE_INFO_HINTS = {
+  kakaoRoom: "카톡방 이름을 입력해주세요",
+  product: "알아보기 쉽게 물품명을 입력해주세요",
+  delivery: "실 배송 여부를 선택해주세요",
+} as const;
+
 const TOAST_MS = 3000;
 
 function OrderFormToast({ toast }: { toast: ToastState }) {
@@ -480,6 +486,8 @@ export function OrderDetailForm({
   const lastAiOrderIdRef = useRef<string | undefined>(undefined);
   /** 부모 `order.ai_review` 중 마지막으로 반영한 값(재생성 직후 DB는 아직 옛값일 때 로컬 결과를 덮지 않기 위함) */
   const lastSyncedServerAiReviewRef = useRef<string | undefined>(undefined);
+  const aiReviewTextRef = useRef(initialOrder?.ai_review ?? "");
+  const aiReviewFrameRef = useRef<number | null>(null);
   const isCurrentlyProcessed = isProcessed === "true";
   const isMultipleBuyerAccounts = isNewOrderMode && buyerAccountIds.length > 1;
   const selectedBuyerAccountIds = useMemo(
@@ -495,12 +503,6 @@ export function OrderDetailForm({
   >(null);
   const leaveModalOpenRef = useRef(false);
   const isDirtyRef = useRef(false);
-  const purchaseInfoHints = {
-    kakaoRoom: "카톡방 이름을 입력해주세요",
-    product: "알아보기 쉽게 물품명을 입력해주세요",
-    delivery: "실 배송 여부를 선택해주세요",
-  };
-
   useEffect(() => {
     if (!order?.id) return;
     setBaseline(orderRowToSnapshot(order));
@@ -555,10 +557,12 @@ export function OrderDetailForm({
     aiExtraInput,
   ]);
 
+  const serializedFormSnapshot = useMemo(() => JSON.stringify(getFormSnapshot()), [getFormSnapshot]);
+  const serializedBaseline = useMemo(() => (baseline ? JSON.stringify(baseline) : null), [baseline]);
   const isDirty = useMemo(() => {
     if (!isEditMode || !order || !baseline) return false;
-    return JSON.stringify(getFormSnapshot()) !== JSON.stringify(baseline);
-  }, [isEditMode, order, baseline, getFormSnapshot]);
+    return serializedFormSnapshot !== serializedBaseline;
+  }, [baseline, isEditMode, order, serializedBaseline, serializedFormSnapshot]);
 
   useEffect(() => {
     isDirtyRef.current = isDirty;
@@ -625,14 +629,40 @@ export function OrderDetailForm({
     if (oid !== lastAiOrderIdRef.current) {
       lastAiOrderIdRef.current = oid;
       lastSyncedServerAiReviewRef.current = fromDb;
+      aiReviewTextRef.current = fromDb;
       setAiReviewText(fromDb);
       return;
     }
     if (aiGenerating) return;
     if (fromDb === lastSyncedServerAiReviewRef.current) return;
     lastSyncedServerAiReviewRef.current = fromDb;
+    aiReviewTextRef.current = fromDb;
     setAiReviewText(fromDb);
   }, [order?.id, order?.ai_review, aiGenerating]);
+
+  const appendAiReviewDelta = useCallback((chunk: string) => {
+    aiReviewTextRef.current += chunk;
+    if (aiReviewFrameRef.current !== null) return;
+
+    aiReviewFrameRef.current = window.requestAnimationFrame(() => {
+      aiReviewFrameRef.current = null;
+      setAiReviewText(aiReviewTextRef.current);
+    });
+  }, []);
+
+  const flushAiReviewText = useCallback(() => {
+    if (aiReviewFrameRef.current !== null) {
+      window.cancelAnimationFrame(aiReviewFrameRef.current);
+      aiReviewFrameRef.current = null;
+    }
+    setAiReviewText(aiReviewTextRef.current);
+  }, []);
+
+  useEffect(() => () => {
+    if (aiReviewFrameRef.current !== null) {
+      window.cancelAnimationFrame(aiReviewFrameRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     setAiExtraInput(order?.ai_review_user_prompt ?? "");
@@ -843,28 +873,33 @@ export function OrderDetailForm({
         const fields = "id, title, product_name, purchase_date, order_number, buyer_account_id, purchase_price_krw";
         const matches = new Map<string, DuplicateCandidate>();
 
-        if (normalizedOrderNumber) {
-          const { data } = await supabase
+        const orderNumberQuery = normalizedOrderNumber
+          ? supabase
             .from("orders")
             .select(fields)
             .is("deleted_at", null)
             .eq("order_number", normalizedOrderNumber)
-            .limit(5);
-          for (const row of data ?? []) matches.set(row.id, row);
-        }
-
-        if (normalizedProduct && purchaseDate) {
-          const { data } = await supabase
+            .limit(5)
+          : Promise.resolve({ data: null });
+        const productDateQuery = normalizedProduct && purchaseDate
+          ? supabase
             .from("orders")
             .select(fields)
             .is("deleted_at", null)
             .eq("purchase_date", purchaseDate)
-            .limit(100);
-          for (const row of data ?? []) {
+            .limit(100)
+          : Promise.resolve({ data: null });
+
+        const [{ data: orderNumberMatches }, { data: productDateMatches }] = await Promise.all([
+          orderNumberQuery,
+          productDateQuery,
+        ]);
+
+        for (const row of orderNumberMatches ?? []) matches.set(row.id, row);
+        for (const row of productDateMatches ?? []) {
             const sameProduct = normalizeOrderMatchText(row.product_name) === normalizedProduct;
             const sameAccount = buyerAccountIds.length === 0 || buyerAccountIds.includes(row.buyer_account_id ?? "");
             if (sameProduct && sameAccount) matches.set(row.id, row);
-          }
         }
 
         if (!cancelled) setDuplicateCandidates([...matches.values()].slice(0, 5));
@@ -1353,6 +1388,7 @@ export function OrderDetailForm({
       return;
     }
 
+    aiReviewTextRef.current = "";
     setAiReviewText("");
     try {
       const rcTrim = reviewCharCount.trim().replace(/,/g, "");
@@ -1365,7 +1401,7 @@ export function OrderDetailForm({
         orderId: order.id,
         userPrompt: aiExtraInput,
         reviewCharCount: reviewCharCountForAi,
-        onDelta: (d) => setAiReviewText((t) => t + d),
+        onDelta: appendAiReviewDelta,
       });
       if (!result.ok) {
         setAiStreamError(result.error);
@@ -1378,6 +1414,7 @@ export function OrderDetailForm({
       setAiStreamError(msg);
       setToast({ type: "error", message: msg });
     } finally {
+      flushAiReviewText();
       setAiGenerating(false);
     }
   };
@@ -1635,7 +1672,7 @@ export function OrderDetailForm({
                     onChange={(event) => setKakaoRoomName(event.target.value)}
                     className="h-10 rounded-xl md:text-sm"
                     autoComplete="off"
-                    placeholder={purchaseInfoHints.kakaoRoom}
+                    placeholder={PURCHASE_INFO_HINTS.kakaoRoom}
                   />
                 </FormRow>
               </div>
@@ -1646,7 +1683,7 @@ export function OrderDetailForm({
                     onChange={(event) => setProductName(event.target.value)}
                     className="h-10 rounded-xl md:text-sm"
                     autoComplete="off"
-                    placeholder={purchaseInfoHints.product}
+                    placeholder={PURCHASE_INFO_HINTS.product}
                   />
                 </FormRow>
               </div>
@@ -1676,7 +1713,7 @@ export function OrderDetailForm({
                   >
                     {!isEditMode ? (
                       <option value="" disabled>
-                        {purchaseInfoHints.delivery}
+                        {PURCHASE_INFO_HINTS.delivery}
                       </option>
                     ) : null}
                     <option value="false">아니오</option>

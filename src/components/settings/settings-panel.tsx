@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HexColorInput, HexColorPicker } from "react-colorful";
 import { ArrowLeft, ChevronRight, Copy, Plus, Star, Trash2 } from "lucide-react";
 
@@ -437,7 +437,7 @@ export function SettingsPanel({
   initialAiReviewProfile: Database["public"]["Tables"]["user_ai_review_profiles"]["Row"] | null;
 }) {
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [view, setView] = useState<SettingsPanelView>(initialView);
   const [displayName, setDisplayName] = useState(initialDisplayName);
@@ -509,8 +509,14 @@ export function SettingsPanel({
     router.refresh();
   };
 
-  const isHidden = (targetId: string, itemType: string) =>
-    hidden.some((s) => s.target_id === targetId && s.item_type === itemType && s.is_hidden);
+  const hiddenItemKeys = useMemo(
+    () => new Set(hidden.filter((item) => item.is_hidden).map((item) => `${item.item_type}:${item.target_id}`)),
+    [hidden],
+  );
+  const isHidden = useCallback(
+    (targetId: string, itemType: string) => hiddenItemKeys.has(`${itemType}:${targetId}`),
+    [hiddenItemKeys],
+  );
 
   const handleDeletePlatform = async (platform: Platform) => {
     setDeletingId(platform.id);
@@ -657,23 +663,23 @@ export function SettingsPanel({
     setBuyerAccounts((prev) => [...prev, data]);
   };
 
-  const platformsWithMeta: ItemWithMeta<Platform>[] = platforms.map((p) => ({
+  const platformsWithMeta = useMemo<ItemWithMeta<Platform>[]>(() => platforms.map((p) => ({
     ...p,
     isSystem: p.user_id === null,
     isHidden: isHidden(p.id, "platform"),
   })).sort((a, b) => {
     if (a.isSystem !== b.isSystem) return a.isSystem ? 1 : -1;
     return a.name.localeCompare(b.name, "ko");
-  });
+  }), [isHidden, platforms]);
 
-  const methodsWithMeta: ItemWithMeta<PaymentMethod>[] = paymentMethods.map((m) => ({
+  const methodsWithMeta = useMemo<ItemWithMeta<PaymentMethod>[]>(() => paymentMethods.map((m) => ({
     ...m,
     isSystem: m.user_id === null,
     isHidden: isHidden(m.id, "payment_method"),
   })).sort((a, b) => {
     if (a.isSystem !== b.isSystem) return a.isSystem ? 1 : -1;
     return a.name.localeCompare(b.name, "ko");
-  });
+  }), [isHidden, paymentMethods]);
 
   const handlePlatformColorChange = async (platform: Platform, nextColor: string) => {
     if (platform.user_id === null) return;

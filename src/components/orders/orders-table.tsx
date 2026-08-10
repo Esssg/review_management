@@ -67,6 +67,7 @@ import {
 } from "@/lib/order-completion";
 import { matchesPurchaseSchedule, type PurchaseScheduleFilter } from "@/lib/order-workflow";
 import { getOrCreateUserPreferences, type LedgerDensity } from "@/lib/user-preferences";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
 import type { Database, Json } from "@/types/database";
 import { ORDER_LIST_SELECT, type OrderWithRelations } from "@/types/orders";
@@ -89,12 +90,52 @@ const koreaScheduleFormatter = new Intl.DateTimeFormat("ko-KR", {
   minute: "2-digit",
   timeZone: "Asia/Seoul",
 });
+const EMPTY_ORDER_ROWS: OrderWithRelations[] = [];
 
 function formatKrw(amount: number | string | null) {
   if (amount === null || amount === undefined) return "—";
   const n = Number(amount);
   if (Number.isNaN(n)) return amount;
   return krwCurrencyFormatter.format(n);
+}
+
+function completeLedgerOrder(
+  supabase: ReturnType<typeof createClient>,
+  row: OrderWithRelations,
+  date: string,
+  amount: number,
+  memo: string,
+) {
+  const profit = calculateOrderProfit(amount, Number(row.purchase_price_krw));
+  return supabase
+    .from("orders")
+    .update({
+      is_processed: true,
+      deposit_date: date,
+      deposit_amount_krw: amount,
+      deposit_memo: memo.trim() || null,
+      profit_krw: profit,
+    })
+    .eq("id", row.id)
+    .is("deleted_at", null)
+    .select(ORDER_LIST_SELECT)
+    .single();
+}
+
+function uncompleteLedgerOrder(supabase: ReturnType<typeof createClient>, row: OrderWithRelations) {
+  return supabase
+    .from("orders")
+    .update({
+      is_processed: false,
+      deposit_date: null,
+      deposit_amount_krw: null,
+      deposit_memo: null,
+      profit_krw: null,
+    })
+    .eq("id", row.id)
+    .is("deleted_at", null)
+    .select(ORDER_LIST_SELECT)
+    .single();
 }
 
 function formatDate(isoDate: string | null) {
@@ -602,21 +643,7 @@ function MobilePendingDepositSwipePanel({
   const completeOrder = async (date: string, amount: number) => {
     setBusy(true);
     try {
-      const purchase = Number(row.purchase_price_krw);
-      const profit = calculateOrderProfit(amount, purchase);
-      const { data, error } = await supabase
-        .from("orders")
-        .update({
-          is_processed: true,
-          deposit_date: date,
-          deposit_amount_krw: amount,
-          deposit_memo: depositMemo.trim() || null,
-          profit_krw: profit,
-        })
-        .eq("id", row.id)
-        .is("deleted_at", null)
-        .select(ORDER_LIST_SELECT)
-        .single();
+      const { data, error } = await completeLedgerOrder(supabase, row, date, amount, depositMemo);
       if (error) {
         window.alert(error.message);
         return;
@@ -834,21 +861,7 @@ function WebPendingCompleteDropdown({
   const completeOrder = async (date: string, amount: number) => {
     setBusy(true);
     try {
-      const purchase = Number(row.purchase_price_krw);
-      const profit = calculateOrderProfit(amount, purchase);
-      const { data, error } = await supabase
-        .from("orders")
-        .update({
-          is_processed: true,
-          deposit_date: date,
-          deposit_amount_krw: amount,
-          deposit_memo: depositMemo.trim() || null,
-          profit_krw: profit,
-        })
-        .eq("id", row.id)
-        .is("deleted_at", null)
-        .select(ORDER_LIST_SELECT)
-        .single();
+      const { data, error } = await completeLedgerOrder(supabase, row, date, amount, depositMemo);
       if (error) {
         window.alert(error.message);
         return;
@@ -1006,19 +1019,7 @@ function WebCompletedActionsDropdown({
     if (!ok) return;
     setBusy(true);
     try {
-      const { data, error } = await supabase
-        .from("orders")
-        .update({
-          is_processed: false,
-          deposit_date: null,
-          deposit_amount_krw: null,
-          deposit_memo: null,
-          profit_krw: null,
-        })
-        .eq("id", row.id)
-        .is("deleted_at", null)
-        .select(ORDER_LIST_SELECT)
-        .single();
+      const { data, error } = await uncompleteLedgerOrder(supabase, row);
       if (error) {
         window.alert(error.message);
         return;
@@ -1083,7 +1084,7 @@ function OrderExpandPanel({
   onEditOrder: () => void;
   onDuplicateOrder: () => void;
   supabase: ReturnType<typeof createClient>;
-  onPatchOrder: (o: OrderWithRelations) => void;
+  onPatchOrder: (previous: OrderWithRelations, updated: OrderWithRelations) => void;
 }) {
   const [uncompleteBusy, setUncompleteBusy] = useState(false);
 
@@ -1094,24 +1095,12 @@ function OrderExpandPanel({
     if (!ok) return;
     setUncompleteBusy(true);
     try {
-      const { data, error } = await supabase
-        .from("orders")
-        .update({
-          is_processed: false,
-          deposit_date: null,
-          deposit_amount_krw: null,
-          deposit_memo: null,
-          profit_krw: null,
-        })
-        .eq("id", row.id)
-        .is("deleted_at", null)
-        .select(ORDER_LIST_SELECT)
-        .single();
+      const { data, error } = await uncompleteLedgerOrder(supabase, row);
       if (error) {
         window.alert(error.message);
         return;
       }
-      onPatchOrder(data as OrderWithRelations);
+      onPatchOrder(row, data as OrderWithRelations);
     } finally {
       setUncompleteBusy(false);
     }
@@ -1124,7 +1113,7 @@ function OrderExpandPanel({
           row={row}
           onEditOrder={onEditOrder}
           supabase={supabase}
-          onPatched={onPatchOrder}
+          onPatched={(updated) => onPatchOrder(row, updated)}
         />
       ) : (
         <>
@@ -1179,15 +1168,15 @@ const OrderCardItem = memo(function OrderCardItem({
   isExpanded: boolean;
   selectionMode: boolean;
   isSelected: boolean;
-  onToggleExpand: () => void;
-  onToggleSelection: () => void;
-  onEditOrder: () => void;
-  onDuplicateOrder: () => void;
-  onDelete: () => void;
-  onSwipeLeft: () => void;
+  onToggleExpand: (id: string) => void;
+  onToggleSelection: (id: string) => void;
+  onEditOrder: (id: string) => void;
+  onDuplicateOrder: (id: string) => void;
+  onDelete: (row: OrderWithRelations) => void;
+  onSwipeLeft: (id: string) => void;
   onSwipeCancel: () => void;
   supabase: ReturnType<typeof createClient>;
-  onPatchOrder: (o: OrderWithRelations) => void;
+  onPatchOrder: (previous: OrderWithRelations, updated: OrderWithRelations) => void;
 }) {
   const touchStartXRef = useRef(0);
   const platformName = row.platforms?.name ?? "";
@@ -1213,7 +1202,7 @@ const OrderCardItem = memo(function OrderCardItem({
             disabled={isDeleting}
             onClick={(e) => {
               e.stopPropagation();
-              onDelete();
+              onDelete(row);
             }}
             className="flex flex-col items-center gap-0.5 text-white"
           >
@@ -1232,15 +1221,15 @@ const OrderCardItem = memo(function OrderCardItem({
           !selectionMode && isSwiped && "-translate-x-20",
         )}
         onClick={() => {
-          if (selectionMode) { onToggleSelection(); return; }
+          if (selectionMode) { onToggleSelection(row.id); return; }
           if (isSwiped) { onSwipeCancel(); return; }
-          onToggleExpand();
+          onToggleExpand(row.id);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            if (selectionMode) onToggleSelection();
-            else onToggleExpand();
+            if (selectionMode) onToggleSelection(row.id);
+            else onToggleExpand(row.id);
           }
         }}
         aria-expanded={selectionMode ? undefined : isExpanded}
@@ -1250,7 +1239,7 @@ const OrderCardItem = memo(function OrderCardItem({
           if (selectionMode) return;
           const endX = e.changedTouches[0]?.clientX ?? 0;
           const diff = touchStartXRef.current - endX;
-          if (diff > 50) { onSwipeLeft(); return; }
+          if (diff > 50) { onSwipeLeft(row.id); return; }
           if (diff < -35 && isSwiped) { onSwipeCancel(); }
         }}
       >
@@ -1258,7 +1247,7 @@ const OrderCardItem = memo(function OrderCardItem({
           <input
             type="checkbox"
             checked={isSelected}
-            onChange={onToggleSelection}
+            onChange={() => onToggleSelection(row.id)}
             onClick={(event) => event.stopPropagation()}
             className="h-5 w-5 shrink-0 accent-primary"
             aria-label={`${row.product_name} 선택`}
@@ -1302,7 +1291,13 @@ const OrderCardItem = memo(function OrderCardItem({
         </div>
       </div>
       {!selectionMode && isExpanded ? (
-        <OrderExpandPanel row={row} onEditOrder={onEditOrder} onDuplicateOrder={onDuplicateOrder} supabase={supabase} onPatchOrder={onPatchOrder} />
+        <OrderExpandPanel
+          row={row}
+          onEditOrder={() => onEditOrder(row.id)}
+          onDuplicateOrder={() => onDuplicateOrder(row.id)}
+          supabase={supabase}
+          onPatchOrder={onPatchOrder}
+        />
       ) : null}
     </div>
   );
@@ -1434,20 +1429,6 @@ function filterSearchableOrders(
   });
 }
 
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    const update = () => setMatches(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, [query]);
-
-  return matches;
-}
-
 function findVirtualIndex(offsets: number[], value: number) {
   let low = 0;
   let high = Math.max(0, offsets.length - 1);
@@ -1493,7 +1474,7 @@ function useVirtualRange<T>(
 
   useLayoutEffect(() => {
     updateViewport();
-  }, [items.length, totalSize, updateViewport]);
+  }, [estimateSize, items.length, totalSize, updateViewport]);
 
   const range = useMemo(() => {
     if (items.length === 0) return { start: 0, end: 0 };
@@ -1632,7 +1613,6 @@ export function OrdersTable({
   const undoTimerRef = useRef<number | null>(null);
 
   const deferredSearch = useDeferredValue(search);
-  const completedList = useMemo(() => completedOrders ?? [], [completedOrders]);
 
   const filterSnapshot = useMemo<OrderFilterSnapshot>(() => ({
     q: deferredSearch,
@@ -1657,7 +1637,10 @@ export function OrdersTable({
   ]);
 
   const pendingSearchableOrders = useMemo(() => prepareSearchableOrders(pendingOrders), [pendingOrders]);
-  const completedSearchableOrders = useMemo(() => prepareSearchableOrders(completedList), [completedList]);
+  const completedSearchableOrders = useMemo(
+    () => prepareSearchableOrders(completedOrders ?? []),
+    [completedOrders],
+  );
 
   const visiblePendingOrders = useMemo(
     () => statusFilter === "completed" ? [] : filterSearchableOrders(pendingSearchableOrders, filterSnapshot),
@@ -1669,7 +1652,10 @@ export function OrdersTable({
     [completedSearchableOrders, filterSnapshot, statusFilter],
   );
 
-  const loadedOrders = useMemo(() => [...pendingOrders, ...completedList], [completedList, pendingOrders]);
+  const loadedOrders = useMemo(
+    () => [...pendingOrders, ...(completedOrders ?? [])],
+    [completedOrders, pendingOrders],
+  );
   const selectedOrders = useMemo(
     () => loadedOrders.filter((order) => selectedOrderIds.has(order.id)),
     [loadedOrders, selectedOrderIds],
@@ -1690,13 +1676,13 @@ export function OrdersTable({
       : null;
 
   const filterOptions = useMemo(() => {
-    const allOrders = [...pendingOrders, ...completedList];
+    const allOrders = [...pendingOrders, ...(completedOrders ?? [])];
     return {
       platforms: [...new Set(allOrders.map((order) => order.platforms?.name).filter((name): name is string => Boolean(name)))].sort(),
       payments: [...new Set(allOrders.map((order) => order.payment_methods?.name).filter((name): name is string => Boolean(name)))].sort(),
       accounts: [...new Set(allOrders.map((order) => order.buyer_accounts?.label).filter((name): name is string => Boolean(name)))].sort(),
     };
-  }, [completedList, pendingOrders]);
+  }, [completedOrders, pendingOrders]);
 
   const currentFilterSnapshot = useMemo<OrderFilterSnapshot>(() => ({
     q: search,
@@ -1887,15 +1873,19 @@ export function OrdersTable({
     );
   };
 
-  const toggleExpanded = (id: string) => {
+  const toggleExpanded = useCallback((id: string) => {
     setPendingCompleteMenuId(null);
     setCompletedActionsMenuId(null);
     setExpandedOrderId((prev) => (prev === id ? null : id));
-  };
+  }, []);
 
-  const goToOrderDetail = (id: string) => {
+  const goToOrderDetail = useCallback((id: string) => {
     router.push(`/orders/detail?id=${encodeURIComponent(id)}`);
-  };
+  }, [router]);
+
+  const duplicateOrder = useCallback((id: string) => {
+    router.push(`/orders/new?copy=${encodeURIComponent(id)}`);
+  }, [router]);
 
   const handlePatched = useCallback(
     (previous: OrderWithRelations, updated: OrderWithRelations) => {
@@ -2035,7 +2025,7 @@ export function OrdersTable({
     return applyBulkResult(operationResult);
   }, [applyBulkResult, handlePatched, selectedOrders, supabase, userId]);
 
-  const handleDelete = async (row: OrderWithRelations) => {
+  const handleDelete = useCallback(async (row: OrderWithRelations) => {
     const confirmed = window.confirm(`"${row.product_name}" 주문을 휴지통으로 이동할까요?`);
     if (!confirmed) return;
     setDeletingId(row.id);
@@ -2062,7 +2052,7 @@ export function OrdersTable({
     } finally {
       setDeletingId(null);
     }
-  };
+  }, [onOrderDeleted, supabase, userId]);
 
   const undoDelete = async () => {
     if (!undoOrder || isUndoing) return;
@@ -2100,6 +2090,9 @@ export function OrdersTable({
     void onLoadCompleted();
   };
 
+  const handleSwipeLeft = useCallback((id: string) => setSwipedRowId(id), []);
+  const handleSwipeCancel = useCallback(() => setSwipedRowId(null), []);
+
   const mobilePendingSize = useCallback(
     (row: OrderWithRelations) => (expandedOrderId === row.id ? 430 : 92),
     [expandedOrderId],
@@ -2111,10 +2104,14 @@ export function OrdersTable({
   // 가상 스크롤 높이도 실제 행 여백과 맞춰 긴 목록에서 스크롤 위치가 어긋나지 않게 합니다.
   const tableRowSize = useCallback(() => density === "compact" ? 72 : 88, [density]);
 
-  const pendingMobileVirtual = useVirtualRange(visiblePendingOrders, mobilePendingSize);
-  const pendingTableVirtual = useVirtualRange(visiblePendingOrders, tableRowSize);
-  const completedMobileVirtual = useVirtualRange(visibleCompletedOrders, mobileCompletedSize);
-  const completedTableVirtual = useVirtualRange(visibleCompletedOrders, tableRowSize);
+  const pendingVirtual = useVirtualRange(
+    visiblePendingOrders,
+    isDesktop ? tableRowSize : mobilePendingSize,
+  );
+  const completedVirtual = useVirtualRange(
+    showCompletedOrders ? visibleCompletedOrders : EMPTY_ORDER_ROWS,
+    isDesktop ? tableRowSize : mobileCompletedSize,
+  );
 
   return (
     <div className="flex min-h-0 flex-col gap-5">
@@ -2324,7 +2321,9 @@ export function OrdersTable({
           onToggleAllVisible={toggleAllVisibleOrders}
           onPatch={handleBulkPatch}
           onComplete={handleBulkComplete}
-          onExport={() => exportDashboardExcel(selectedOrders, userEmail, `선택 주문 ${selectedOrders.length}건`)}
+          onExport={() => {
+            void exportDashboardExcel(selectedOrders, userEmail, `선택 주문 ${selectedOrders.length}건`);
+          }}
           onClose={closeSelectionMode}
         />
       ) : null}
@@ -2345,8 +2344,8 @@ export function OrdersTable({
         {isDesktop ? (
           <div className="mt-4 overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700">
             <div
-              ref={pendingTableVirtual.scrollRef}
-              onScroll={pendingTableVirtual.onScroll}
+              ref={pendingVirtual.scrollRef}
+              onScroll={pendingVirtual.onScroll}
               className="max-h-96 overflow-y-auto overflow-x-auto lg:max-h-[560px]"
             >
               <Table className="min-w-[52rem]">
@@ -2374,12 +2373,12 @@ export function OrdersTable({
                   </TableRow>
                 ) : (
                   <>
-                    {pendingTableVirtual.topPadding > 0 ? (
+                    {pendingVirtual.topPadding > 0 ? (
                       <TableRow aria-hidden>
-                        <TableCell colSpan={6} className="border-0 p-0" style={{ height: pendingTableVirtual.topPadding }} />
+                        <TableCell colSpan={6} className="border-0 p-0" style={{ height: pendingVirtual.topPadding }} />
                       </TableRow>
                     ) : null}
-                    {pendingTableVirtual.virtualItems.map(({ item: row }) => (
+                    {pendingVirtual.virtualItems.map(({ item: row }) => (
                       <TableRow
                         key={row.id}
                       tabIndex={0}
@@ -2473,9 +2472,9 @@ export function OrdersTable({
                       </TableCell>
                     </TableRow>
                     ))}
-                    {pendingTableVirtual.bottomPadding > 0 ? (
+                    {pendingVirtual.bottomPadding > 0 ? (
                       <TableRow aria-hidden>
-                        <TableCell colSpan={6} className="border-0 p-0" style={{ height: pendingTableVirtual.bottomPadding }} />
+                        <TableCell colSpan={6} className="border-0 p-0" style={{ height: pendingVirtual.bottomPadding }} />
                       </TableRow>
                     ) : null}
                   </>
@@ -2486,8 +2485,8 @@ export function OrdersTable({
           </div>
         ) : (
           <div
-            ref={pendingMobileVirtual.scrollRef}
-            onScroll={pendingMobileVirtual.onScroll}
+            ref={pendingVirtual.scrollRef}
+            onScroll={pendingVirtual.onScroll}
             className="mt-4 max-h-[22rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y"
           >
             {isPendingLoading ? (
@@ -2496,8 +2495,8 @@ export function OrdersTable({
               <p className="text-muted-foreground text-sm">조건에 맞는 미완료 주문이 없습니다.</p>
             ) : (
               <div className="flex flex-col gap-2">
-                {pendingMobileVirtual.topPadding > 0 ? <div aria-hidden style={{ height: pendingMobileVirtual.topPadding }} /> : null}
-                {pendingMobileVirtual.virtualItems.map(({ item: row }) => (
+                {pendingVirtual.topPadding > 0 ? <div aria-hidden style={{ height: pendingVirtual.topPadding }} /> : null}
+                {pendingVirtual.virtualItems.map(({ item: row }) => (
                   <OrderCardItem
                     key={row.id}
                     row={row}
@@ -2506,18 +2505,18 @@ export function OrdersTable({
                     isExpanded={expandedOrderId === row.id}
                     selectionMode={selectionMode}
                     isSelected={selectedOrderIds.has(row.id)}
-                    onToggleExpand={() => toggleExpanded(row.id)}
-                    onToggleSelection={() => toggleOrderSelection(row.id)}
-                    onEditOrder={() => goToOrderDetail(row.id)}
-                    onDuplicateOrder={() => router.push(`/orders/new?copy=${encodeURIComponent(row.id)}`)}
-                    onDelete={() => void handleDelete(row)}
-                    onSwipeLeft={() => setSwipedRowId(row.id)}
-                    onSwipeCancel={() => setSwipedRowId(null)}
+                    onToggleExpand={toggleExpanded}
+                    onToggleSelection={toggleOrderSelection}
+                    onEditOrder={goToOrderDetail}
+                    onDuplicateOrder={duplicateOrder}
+                    onDelete={handleDelete}
+                    onSwipeLeft={handleSwipeLeft}
+                    onSwipeCancel={handleSwipeCancel}
                     supabase={supabase}
-                    onPatchOrder={(updated) => handlePatched(row, updated)}
+                    onPatchOrder={handlePatched}
                   />
                 ))}
-                {pendingMobileVirtual.bottomPadding > 0 ? <div aria-hidden style={{ height: pendingMobileVirtual.bottomPadding }} /> : null}
+                {pendingVirtual.bottomPadding > 0 ? <div aria-hidden style={{ height: pendingVirtual.bottomPadding }} /> : null}
               </div>
             )}
           </div>
@@ -2552,8 +2551,8 @@ export function OrdersTable({
           isDesktop ? (
             <div className="mt-4 overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700">
               <div
-                ref={completedTableVirtual.scrollRef}
-                onScroll={completedTableVirtual.onScroll}
+                ref={completedVirtual.scrollRef}
+                onScroll={completedVirtual.onScroll}
                 className="max-h-96 overflow-y-auto overflow-x-auto lg:max-h-[560px]"
               >
                 <Table className="min-w-[58rem]">
@@ -2582,12 +2581,12 @@ export function OrdersTable({
                   </TableRow>
                 ) : (
                   <>
-                    {completedTableVirtual.topPadding > 0 ? (
+                    {completedVirtual.topPadding > 0 ? (
                       <TableRow aria-hidden>
-                        <TableCell colSpan={7} className="border-0 p-0" style={{ height: completedTableVirtual.topPadding }} />
+                        <TableCell colSpan={7} className="border-0 p-0" style={{ height: completedVirtual.topPadding }} />
                       </TableRow>
                     ) : null}
-                    {completedTableVirtual.virtualItems.map(({ item: row }) => (
+                    {completedVirtual.virtualItems.map(({ item: row }) => (
                       <TableRow
                         key={row.id}
                       tabIndex={0}
@@ -2688,9 +2687,9 @@ export function OrdersTable({
                       </TableCell>
                     </TableRow>
                     ))}
-                    {completedTableVirtual.bottomPadding > 0 ? (
+                    {completedVirtual.bottomPadding > 0 ? (
                       <TableRow aria-hidden>
-                        <TableCell colSpan={7} className="border-0 p-0" style={{ height: completedTableVirtual.bottomPadding }} />
+                        <TableCell colSpan={7} className="border-0 p-0" style={{ height: completedVirtual.bottomPadding }} />
                       </TableRow>
                     ) : null}
                   </>
@@ -2701,8 +2700,8 @@ export function OrdersTable({
             </div>
           ) : (
             <div
-              ref={completedMobileVirtual.scrollRef}
-              onScroll={completedMobileVirtual.onScroll}
+              ref={completedVirtual.scrollRef}
+              onScroll={completedVirtual.onScroll}
               className="mt-4 max-h-[22rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y"
             >
               {isCompletedLoading && completedOrders === null ? (
@@ -2711,8 +2710,8 @@ export function OrdersTable({
                 <p className="text-muted-foreground text-sm">조건에 맞는 완료 주문이 없습니다.</p>
               ) : (
                 <div className="flex flex-col gap-2">
-                  {completedMobileVirtual.topPadding > 0 ? <div aria-hidden style={{ height: completedMobileVirtual.topPadding }} /> : null}
-                  {completedMobileVirtual.virtualItems.map(({ item: row }) => (
+                  {completedVirtual.topPadding > 0 ? <div aria-hidden style={{ height: completedVirtual.topPadding }} /> : null}
+                  {completedVirtual.virtualItems.map(({ item: row }) => (
                     <OrderCardItem
                       key={row.id}
                       row={row}
@@ -2721,18 +2720,18 @@ export function OrdersTable({
                       isExpanded={expandedOrderId === row.id}
                       selectionMode={selectionMode}
                       isSelected={selectedOrderIds.has(row.id)}
-                      onToggleExpand={() => toggleExpanded(row.id)}
-                      onToggleSelection={() => toggleOrderSelection(row.id)}
-                      onEditOrder={() => goToOrderDetail(row.id)}
-                      onDuplicateOrder={() => router.push(`/orders/new?copy=${encodeURIComponent(row.id)}`)}
-                      onDelete={() => void handleDelete(row)}
-                      onSwipeLeft={() => setSwipedRowId(row.id)}
-                      onSwipeCancel={() => setSwipedRowId(null)}
+                      onToggleExpand={toggleExpanded}
+                      onToggleSelection={toggleOrderSelection}
+                      onEditOrder={goToOrderDetail}
+                      onDuplicateOrder={duplicateOrder}
+                      onDelete={handleDelete}
+                      onSwipeLeft={handleSwipeLeft}
+                      onSwipeCancel={handleSwipeCancel}
                       supabase={supabase}
-                      onPatchOrder={(updated) => handlePatched(row, updated)}
+                      onPatchOrder={handlePatched}
                     />
                   ))}
-                  {completedMobileVirtual.bottomPadding > 0 ? <div aria-hidden style={{ height: completedMobileVirtual.bottomPadding }} /> : null}
+                  {completedVirtual.bottomPadding > 0 ? <div aria-hidden style={{ height: completedVirtual.bottomPadding }} /> : null}
                 </div>
               )}
             </div>

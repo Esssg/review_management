@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
 
-import { DashboardCharts } from "@/components/dashboard/dashboard-charts";
 import type { OrderWithRelations } from "@/types/orders";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,22 @@ import {
 } from "@/lib/dashboard-stats";
 
 type PeriodPreset = "thisMonth" | "last3Months" | "yearToDate" | "all" | "custom";
+
+const DashboardCharts = dynamic(
+  () => import("@/components/dashboard/dashboard-charts").then((module) => module.DashboardCharts),
+  {
+    loading: () => (
+      <div className="grid min-w-0 gap-4 xl:grid-cols-2" aria-busy="true" aria-label="차트 불러오는 중">
+        {(["월별 금액 흐름", "운영 상태 추이", "플랫폼별 순위", "구매계정별 순위"] as const).map((title) => (
+          <section key={title} className="min-w-0 rounded-xl border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5">
+            <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+            <div className="mt-4 h-64 animate-pulse rounded-lg bg-surface-soft" />
+          </section>
+        ))}
+      </div>
+    ),
+  },
+);
 
 function getPresetRange(preset: PeriodPreset) {
   const now = new Date();
@@ -189,7 +205,9 @@ export function OrdersDashboard({ orders, userEmail }: { orders: OrderWithRelati
               disabled={filteredByPeriod.length === 0}
               aria-label="선택 기간 엑셀 내보내기"
               title="현재 선택 기간만 엑셀로 내보내기"
-              onClick={() => exportDashboardExcel(filteredByPeriod, userEmail, formatRange(fromDate, toDate))}
+              onClick={() => {
+                void exportDashboardExcel(filteredByPeriod, userEmail, formatRange(fromDate, toDate));
+              }}
             >
               <Download className="h-4 w-4" aria-hidden />
             </Button>

@@ -330,7 +330,7 @@ export function OnboardingTour() {
 
     const frame = window.requestAnimationFrame(measureTarget);
     window.addEventListener("resize", measureTarget);
-    window.addEventListener("scroll", measureTarget, true);
+    window.addEventListener("scroll", measureTarget, { capture: true, passive: true });
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", measureTarget);

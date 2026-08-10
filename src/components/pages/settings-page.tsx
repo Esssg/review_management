@@ -11,6 +11,33 @@ import type { PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import type { Database } from "@/types/database";
 
 type UserItemSetting = Database["public"]["Tables"]["user_item_settings"]["Row"];
+const TEMPLATE_USAGE_PAGE_SIZE = 1000;
+
+async function fetchTemplateUsageCounts(supabase: ReturnType<typeof createClient>) {
+  const counts: Record<string, number> = {};
+
+  // Supabase 기본 반환 제한을 넘는 주문도 템플릿 사용량에서 빠지지 않게 페이지별로 합산합니다.
+  for (let from = 0; ; from += TEMPLATE_USAGE_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("purchase_info_template_id")
+      .is("deleted_at", null)
+      .not("purchase_info_template_id", "is", null)
+      .order("id", { ascending: true })
+      .range(from, from + TEMPLATE_USAGE_PAGE_SIZE - 1);
+    if (error) return counts;
+
+    for (const row of data ?? []) {
+      const templateId = row.purchase_info_template_id;
+      if (!templateId) continue;
+      counts[templateId] = (counts[templateId] ?? 0) + 1;
+    }
+
+    if ((data ?? []).length < TEMPLATE_USAGE_PAGE_SIZE) break;
+  }
+
+  return counts;
+}
 
 export function SettingsPage() {
   const router = useRouter();
@@ -63,6 +90,7 @@ export function SettingsPage() {
         accountsResult,
         hiddenResult,
         templatesResult,
+        templateUsageCounts,
         aiProfileResult,
         publicUserResult,
         preferences,
@@ -90,6 +118,7 @@ export function SettingsPage() {
           .from("purchase_info_templates")
           .select("*")
           .order("created_at", { ascending: false }),
+        fetchTemplateUsageCounts(supabase),
         supabase.from("user_ai_review_profiles").select("*").eq("user_id", user.id).maybeSingle(),
         supabase.from("users").select("name, email").eq("user_id", user.id).maybeSingle(),
         getOrCreateUserPreferences(supabase, user.id),
@@ -99,17 +128,6 @@ export function SettingsPage() {
           .eq("user_id", user.id)
           .not("deleted_at", "is", null),
       ]);
-
-      const templateUsageEntries = await Promise.all(
-        (templatesResult.data ?? []).map(async (template) => {
-          const { count } = await supabase
-            .from("orders")
-            .select("id", { count: "exact", head: true })
-            .is("deleted_at", null)
-            .eq("purchase_info_template_id", template.id);
-          return [template.id, count ?? 0] as const;
-        }),
-      );
 
       if (cancelled) return;
       setUserId(user.id);
@@ -132,7 +150,7 @@ export function SettingsPage() {
         buyerAccounts: accountsResult.data ?? [],
         hidden: hiddenResult.data ?? [],
         purchaseTemplates: templatesResult.data ?? [],
-        templateUsageCounts: Object.fromEntries(templateUsageEntries),
+        templateUsageCounts,
         trashCount: trashCountResult.count ?? 0,
         preferences,
         aiReviewProfile: aiProfileResult.data ?? null,

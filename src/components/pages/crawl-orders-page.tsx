@@ -25,6 +25,7 @@ import { normalizeHexColor } from "@/lib/color";
 import { fetchMasterData, type BuyerAccount, type MasterData, type PaymentMethod, type Platform } from "@/lib/master-data";
 import { createClient } from "@/lib/supabase/client";
 import { getOrCreateUserPreferences } from "@/lib/user-preferences";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/types/database";
 
@@ -539,6 +540,7 @@ function crawlOrderToDraft(row: CrawlOrderRow, userId: string, master: MasterDat
 export function CrawlOrdersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
   const selectedId = searchParams.get("id")?.trim() ?? "";
   const sliderTouchStartXRef = useRef<number | null>(null);
 
@@ -677,6 +679,26 @@ export function CrawlOrdersPage() {
     }
     setPhase("ready");
   }, [router, selectedId]);
+
+  const refreshRunningCrawlStatus = useCallback(async () => {
+    if (!userId) return;
+
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("platform_accounts")
+      .select("id, name, status")
+      .eq("user_id", userId);
+    if (error) {
+      console.error("[crawl] status polling failed", error);
+      return;
+    }
+
+    const nextAccounts = data ?? [];
+    setPlatformAccounts(nextAccounts);
+    if (!nextAccounts.some((account) => account.status === true)) {
+      void loadPage({ silent: true });
+    }
+  }, [loadPage, userId]);
 
   const loadDepositRecommendationData = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
     if (!userId || isDepositDataLoading) return;
@@ -940,9 +962,9 @@ export function CrawlOrdersPage() {
   useEffect(() => {
     if (!hasRunningCrawl) return;
 
-    const timer = window.setInterval(() => void loadPage({ silent: true }), 5000);
+    const timer = window.setInterval(() => void refreshRunningCrawlStatus(), 5000);
     return () => window.clearInterval(timer);
-  }, [hasRunningCrawl, loadPage]);
+  }, [hasRunningCrawl, refreshRunningCrawlStatus]);
 
   const startCrawl = () => {
     if (hasRunningCrawl) {
@@ -1595,7 +1617,8 @@ export function CrawlOrdersPage() {
           </div>
         </div>
 
-        <div className="mt-4 max-h-[30rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y lg:hidden">
+        {!isDesktop ? (
+        <div className="mt-4 max-h-[30rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y">
           {orders.length === 0 ? (
             <p className="text-muted-foreground py-8 text-center text-sm">처리할 크롤링 주문이 없습니다.</p>
           ) : (
@@ -1646,8 +1669,10 @@ export function CrawlOrdersPage() {
             </div>
           )}
         </div>
+        ) : null}
 
-        <div className="mt-4 hidden overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700 lg:block">
+        {isDesktop ? (
+        <div className="mt-4 overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700">
           <div className="max-h-[560px] overflow-y-auto overflow-x-hidden">
             <Table className="w-full table-fixed" containerClassName="overflow-visible">
               <TableHeader className="bg-surface-soft dark:bg-slate-700/40">
@@ -1759,6 +1784,7 @@ export function CrawlOrdersPage() {
             </Table>
           </div>
         </div>
+        ) : null}
         </section>
 
         {orders.length > 0 ? (
@@ -1816,7 +1842,8 @@ export function CrawlOrdersPage() {
           </div>
         </div>
 
-        <div className="mt-4 max-h-[30rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y lg:hidden">
+        {!isDesktop ? (
+        <div className="mt-4 max-h-[30rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y">
           {isDepositDataLoading && !hasLoadedDepositData ? (
             <p className="text-muted-foreground py-8 text-center text-sm">불러오는 중…</p>
           ) : deposits.length === 0 ? (
@@ -1877,8 +1904,10 @@ export function CrawlOrdersPage() {
             </div>
           )}
         </div>
+        ) : null}
 
-        <div className="mt-4 hidden overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700 lg:block">
+        {isDesktop ? (
+        <div className="mt-4 overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700">
           <div className="max-h-[560px] overflow-y-auto overflow-x-hidden">
             <Table className="w-full table-fixed" containerClassName="overflow-visible">
               <TableHeader className="bg-surface-soft dark:bg-slate-700/40">
@@ -1988,6 +2017,7 @@ export function CrawlOrdersPage() {
             </Table>
           </div>
         </div>
+        ) : null}
       </section>
 
       {deposits.length > 0 ? (

@@ -7,8 +7,8 @@ import { Download } from "lucide-react";
 import { UserAccountMenu } from "@/components/auth/user-account-menu";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { OrdersDashboard } from "@/components/orders/orders-dashboard";
-import { createClient } from "@/lib/supabase/client";
 import { exportDashboardExcel } from "@/lib/export-dashboard-excel";
+import { createClient } from "@/lib/supabase/client";
 import type { OrderWithRelations } from "@/types/orders";
 
 export function DashboardPage() {
@@ -88,11 +88,10 @@ export function DashboardPage() {
             disabled={exporting || orders.length === 0}
             onClick={() => {
               setExporting(true);
-              try {
-                exportDashboardExcel(orders, email ?? "");
-              } finally {
-                setExporting(false);
-              }
+              void exportDashboardExcel(orders, email ?? "")
+                .finally(() => {
+                  setExporting(false);
+                });
             }}
             className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline bg-card text-ink-muted shadow-sm transition-colors hover:bg-accent hover:text-primary disabled:opacity-40"
           >

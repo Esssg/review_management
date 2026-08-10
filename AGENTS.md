@@ -1,135 +1,153 @@
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
+# Review Manager 작업 규칙
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+이 파일에는 모든 작업에 공통으로 적용되는 규칙과 프로젝트의 현재 구조·동작 요약을 둡니다. 작업별 절차는 [`skills.md`](skills.md)와 `.agents/skills/`의 해당 `SKILL.md`를 따릅니다.
 
-## 1. Think Before Coding
+## 작업 전
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+- 작업 전에 아래 `프로젝트 개요`, `기술 스택`, `주요 디렉터리`를 읽고 관련 화면·디렉터리·기존 책임을 확인합니다.
+- 가정과 불확실한 점을 먼저 드러내고, 요구사항이 모호하면 임의로 결정하지 않습니다.
+- 요청 범위를 벗어난 기능, 리팩터링, 정리 작업은 추가하지 않습니다.
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+## 변경 원칙
 
-## 2. Simplicity First
+- 새 파일·함수·추상화를 만들기 전에 `src/components`, `src/lib`, `src/types`, `supabase`의 기존 구현을 먼저 찾습니다.
+- 기존 코드를 확장하거나 조합할 수 있으면 새 구현보다 재사용을 우선합니다.
+- 변경한 모든 줄은 사용자 요청과 직접 연결되어야 하며, 기존의 관련 없는 변경은 보존합니다.
+- 새 코드의 주석은 비개발자도 이해할 수 있는 한국어로 작성합니다.
 
-**Minimum code that solves the problem. Nothing speculative.**
+## 작업별 스킬
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
+- 기능 추가·버그 수정·리팩터링은 `review-manager-development` 스킬을 적용합니다.
+- Next.js 라우트·컴포넌트·설정·빌드는 `nextjs-development` 스킬을 적용합니다.
+- 화면·스타일·반응형 동작은 `review-manager-ui` 스킬을 적용합니다.
+- Supabase `public` 스키마 변경은 `supabase-schema-sync` 스킬을 적용합니다.
+- 요청이 여러 범위에 걸치면 해당 스킬을 모두 읽고 서로 충돌하지 않게 적용합니다.
 
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+## 문서와 임시 산출물
 
-## 3. Surgical Changes
+- 프로젝트 구조·동작·책임이 바뀌면 이 파일의 관련 개요를 갱신합니다.
+- Supabase 스키마가 바뀌면 `.agents/skills/supabase-schema-sync/references/database-guide.md`를 최종 스키마와 맞춥니다.
+- 작업 중 만든 임시 메모, 쿼리 덤프, 로그, 1회성 검증 파일은 종료 전에 삭제합니다.
 
-**Touch only what you must. Clean up only your own mess.**
+## 검증과 보고
 
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
+- 변경에 맞는 린트·테스트·빌드를 실행하고, 실행하지 못한 검증은 이유를 밝힙니다.
+- 여러 단계 작업은 실행 단계와 각 단계의 검증 방법을 먼저 제시합니다.
+- 최종 응답에는 변경 내용과 검증 결과를 간단히 정리합니다.
 
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
+## 프로젝트 개요
 
-The test: Every changed line should trace directly to the user's request.
+- 리뷰/주문 운영 데이터를 관리하기 위한 Next.js 기반 웹 애플리케이션입니다.
+- 프론트엔드는 Next.js App Router 구조를 사용하고, 백엔드는 Supabase(PostgreSQL/Auth)를 활용합니다.
+- 주문 데이터의 등록/조회/상태 관리를 중심으로 동작합니다.
+- 입금 계좌 정보는 `bank_account`, 계좌별 입금일·시각·상대방·금액 내역은 `bank_account_deposit`에 저장하며, 두 테이블 모두 인증 사용자 소유 데이터로 RLS가 적용됩니다.
+- 자동 추천(`/menu-4`)은 좌우 슬라이드 2페이지 화면입니다. 페이지 이동 화살표는 슬라이더 좌/우 중앙에 떠 있는 원형 버튼으로 표시되며, 현재 페이지에서 갈 수 없는 방향의 버튼은 숨겨집니다. 첫 페이지 "주문 내역 자동 추천"은 `crawl_orders`의 처리 대기 행을 `purchase_date` 내림차순으로 보여주고, 검수해 `orders`로 저장하거나 목록 행 hover 시 나타나는 삭제 버튼으로 삭제 상태로 바꾸는 크롤링 주문 확인 화면입니다. 상세 검수 화면은 결제 방식 선택란 아래에 `crawl_orders.payment_method` 원문도 함께 보여줍니다. 새로고침 버튼은 사용자 `platform_accounts`의 크롤링 상태와 `name`을 확인하고, 실행 중이 아니면 계정별 쿠팡 크롤링 API를 호출하며 HTTP 2xx 성공 응답 여부에 따라 계정명 기반 완료/실패 메시지를 표시합니다. 실패 시 화면 문구와 브라우저 콘솔에 HTTP 상태 또는 네트워크 오류를 남깁니다. 첫 페이지에는 `review_manager_chrome_extention/dist`에서 만든 버전별 ZIP 다운로드와 `chrome://extensions` 개발자 모드 등록 가이드도 표시합니다. 두 번째 페이지 "입금 내역 자동 추천"은 `bank_account_deposit.bank_account_deposit_status = 0`인 입금 내역을 `date`, `time` 오름차순으로 보여주고, `bank_account`의 계좌명·은행·계좌번호와 함께 표시합니다. 각 입금 행에는 hover 시(모바일은 상시) 삭제 버튼이 나타나며, 누르면 `bank_account_deposit_status`를 99로 바꿔 목록에서 숨깁니다. 입금 건을 펼치면 `orders`를 미완료 주문과 완료 주문으로 나눠 넓은 화면에서는 좌우 2열, 작은 화면에서는 세로 1열로 배치하고, 입금자명과 주문 제목 유사도가 높은 후보를 각각 최대 3개, 최대 2개 보여주며, 제목 후보가 없고 입금자명 앞 4자리가 숫자이면 이를 `MMDD`로 보고 주문 구매일의 월·일이 같은 후보를 보여줍니다. 구매일 일치가 아닌 제목 유사도 후보는 제한선에 걸린 일치율이 1% 이상이고 같은 일치율 후보가 3건 이상이면 최대 개수와 무관하게 같은 점수 후보를 모두 보여줍니다. 후보 카드에는 주문의 플랫폼·구매계정 색상이 들어간 작은 아이콘과 플랫폼명·구매계정명, 구매물품명, 구매일·구매금액이 함께 표시됩니다. 미완료·완료 후보 전체에서 제목 일치율이 가장 높은 주문 1건만 연노랑색으로 강조하되, 완료 주문은 기존 입금금액과 현재 계좌 입금금액이 같을 때만 강조 대상이 됩니다. 입금 계좌명과 구매계정명이 포함 관계이거나 유사하면 `계좌주 일치` 배지를 표시하고, 완료 주문의 기존 입금금액과 현재 계좌 입금금액이 같으면 `입금금액 일치` 배지를 표시하며, 제목 일치율 100% 배지는 별도 색상으로 강조합니다. 미완료 후보 완료처리 시 주문의 입금일·입금금액·입금메모를 입금 내역 값으로 채우고 `bank_account_deposit_status`를 1로 바꾸며, 완료 후보는 기존 주문 입금 정보를 덮어쓰지 않고 입금 내역만 매핑완료로 바꿉니다.
+- 구매장부(`/`)의 미완료 주문 완료처리는 모바일 펼침 패널과 데스크톱 드롭다운에서 입금일자를 오늘(한국 시간), 입금금액을 구매금액, 입금메모를 카톡방 이름(`orders.title`)으로 기본 입력합니다. 입금일자는 `-1일`/`+1일`, 입금금액은 `-500원`/`+500원` 버튼으로 보정할 수 있습니다. 완료 직전 미배송 상품의 구매금액과 입금금액이 같거나, 배송 상품의 두 금액이 다르면 커스텀 확인창에서 `취소하기` 또는 `무시하고 처리하기`를 선택하게 하며 Enter 키는 확인으로 처리합니다.
+- 주문 추가(`/orders/new`)에서는 구매계정을 여러 개 선택할 수 있으며, 선택한 계정마다 나머지 입력값이 같은 별도 주문을 한 번에 생성합니다. 두 계정 이상을 선택하면 주문별 고유값인 주문번호는 입력할 수 없고 `NULL`로 저장됩니다. 주문 수정과 크롤링 주문 등록은 기존처럼 구매계정 1개만 선택합니다.
+- 구매장부(`/`)는 로그인 확인 후 화면 뼈대와 통계 카드를 먼저 렌더링하고, `orders` count 조회와 미완료 주문 조회를 분리합니다. 완료 주문은 기본 접힘 상태이며 사용자가 완료 주문 섹션을 펼칠 때 `is_processed = true` 행을 처음 조회하고 이후 캐시합니다. 미완료·완료 목록은 화면 내부 검색 기준으로 동작하는 가상 스크롤을 사용하며, 화면 크기에 따라 모바일 카드 또는 데스크톱 테이블 중 하나만 마운트해 이중 렌더링을 피합니다.
+- 자동 추천(`/menu-4`)은 현재 보고 있는 추천 페이지만 마운트합니다. 입금 내역 자동 추천에 필요한 입금 계좌·미완료 입금·주문 후보 데이터는 입금 추천 페이지에 진입할 때 조회하며, 주문 후보와 미완료 입금 내역은 Supabase API의 최대 반환 건수를 넘겨도 누락되지 않도록 1,000건 단위로 끝까지 가져옵니다. 펼친 입금 건의 추천 결과는 주문 후보 버전 기준으로 캐시해 같은 유사도 계산을 반복하지 않습니다.
+- 데스크톱(약 `lg` 이상)은 `DesktopSidebar` 글로벌 사이드바와 최대 `1440px` 콘텐츠 셸을 사용하고, 모바일은 `BottomMenu`를 사용합니다. 설정 하위 화면은 `/settings?view=...` 쿼리로 사이드바에서 바로 열며, 화면 내부에는 별도 설정 사이드바를 두지 않습니다.
+- 구매장부에는 미완료 원금·미배송·예약 확인·완료 정보 확인을 묶은 오늘의 운영 요약과 빠른 작업 링크를 표시합니다. 대시보드는 기간 요약·전월 비교·월별/완료율/분류별 Recharts를 제공하고, 월별 상세는 현재 월과 전월을 함께 조회해 비교합니다.
+- 주문 추가/상세 화면은 데스크톱에서 폼 옆에 체크리스트 또는 현재 주문 요약을 배치하며, 구매 정보 템플릿 입력/수정 화면은 입력값을 카카오톡 한 줄 형식으로 실시간 미리보기하고 복사할 수 있습니다.
+- 2차 2A 업무 흐름 개선으로 주문 복제, 저장 후 이동 방식, 서버 동기화 초안, 기본값·최근값, 저장 전 중복 후보 확인을 제공합니다. 신규 주문의 추가 정보에는 메모·상품 URL·주문 상태·구매 예정 시각을 입력할 수 있고, 구매 예정 시각은 장부의 `오늘 구매`, `예약 지남`, `7일 내 예정` 필터와 주문 상태 칩에 연결됩니다.
+- 구매장부는 미완료·완료 목록이 하나의 검색·기간·분류·정렬 도구막대를 공유합니다. 필터는 URL에 반영되고 이름 붙인 저장 보기는 DB에 동기화되며, 촘촘하게/편안하게 표시 밀도를 사용자 설정으로 유지합니다. 모바일에서는 운영 요약을 목록보다 먼저 보여주고, 데스크톱 행과 모바일 상세 패널에서 기존 주문을 새 주문으로 복제할 수 있습니다.
+- 전체 검색은 데스크톱 사이드바 또는 모바일 페이지 헤더에서 열 수 있고 `Ctrl/Cmd + K`도 지원합니다. 메뉴·설정 하위 화면·주문 제목/상품/주문번호/메모·템플릿 제목을 검색하며, 주문 결과는 상태·배송·구매일·금액을 표시하고 전체 결과는 같은 검색어가 적용된 장부로 이어집니다.
+- 자동추천 주문 검수는 데스크톱에서 왼쪽 대기열과 오른쪽 검수 폼의 master-detail 구조를 사용합니다. 처리 후 다음 추천 자동 이동 설정을 사용자별로 저장하고, 상세 화면에서 `J`/`K`로 대기 항목을 이동하거나 `Esc`로 목록에 돌아갑니다.
+- 대시보드와 월별 상세의 핵심 수치·운영 인사이트·분류 행은 해당 기간과 조건이 적용된 구매장부로 이동합니다. 대시보드는 현재 선택 기간만 별도 엑셀로 내보낼 수 있고, 월별 상세는 큰 금액 KPI 4개와 주문 상태·배송 상태·수익 효율 그룹으로 정보 우선순위를 나눕니다.
+- 설정에는 신규 주문 기본값, 저장 후 동작, 장부 밀도, 자동추천 연속 처리 설정을 추가했습니다. 구매 정보 템플릿은 복제·기본 지정·내용 복사·삭제와 사용 주문 수·입력 필드 수·최근 수정일을 한 목록에서 확인할 수 있습니다. `public.users.onboarding_completed_at`이 NULL인 계정에는 메뉴 설명, 닉네임·구매정보 템플릿·주문 기본값·AI 리뷰 기본 정보를 저장하는 첫 로그인 온보딩 튜토리얼을 한 번 표시합니다.
+- 설정 홈에는 리뷰 매니저 브랜드 아이콘을 사용하는 PWA 설치 카드를 표시합니다. Chromium 계열은 설치 프롬프트를 열고, iOS Safari 등 프롬프트를 제공하지 않는 환경은 브라우저별 홈 화면 추가 안내를 보여줍니다. 주문·Supabase 데이터는 오프라인 캐시하지 않습니다.
+- 사용자 업무 설정은 `user_preferences`, 신규 주문 초안은 `user_order_drafts`, 이름 붙인 장부 보기는 `saved_order_views`에 저장합니다. 세 테이블은 사용자 소유 RLS를 적용하고 익명 역할의 테이블 권한을 제거했습니다.
+- 2차 2B 대량 처리 기능으로 구매장부에 데스크톱 체크박스·모바일 명시적 선택 모드와 고정 작업 막대를 추가했습니다. 선택 주문은 배송 상태·플랫폼·결제수단·구매계정·구매 정보 템플릿을 변경 전/후 확인 뒤 일괄 수정할 수 있고, 선택 범위만 엑셀로 내보낼 수 있습니다. 일부 주문만 실패하면 성공 건은 반영하고 실패 건만 선택 상태로 남깁니다.
+- 일괄 완료처리는 단건 완료처리와 같은 기본 입금값·배송/금액 경고·수익 계산을 공통 로직으로 사용합니다. 주문별 입금일·입금금액·메모를 수정한 뒤 요약 확인과 최종 확인을 거치는 단계형 화면으로 처리합니다.
+- 주문 삭제는 실제 행을 바로 지우지 않고 `orders.deleted_at`에 삭제 시각을 기록합니다. 구매장부에서는 8초 동안 실행 취소할 수 있고, 설정의 `주문 휴지통`에서 최근 삭제 주문을 복원하거나 확인 후 영구 삭제할 수 있습니다. 휴지통 목록 변경 후 설정 메뉴의 개수 배지는 렌더가 끝난 뒤 동기화합니다. 일반 장부·검색·대시보드·중복 검사·자동추천 후보는 삭제 주문을 제외합니다.
+- 자동추천(`/menu-4`)에는 주문 추천·입금 추천에 이어 `최근 처리·숨김` 세 번째 탭을 제공합니다. 최근 30일의 status `1` 처리 내역은 확인용으로 표시하고, status `99`로 잘못 숨긴 크롤링 주문과 입금 내역만 status `0` 대기열로 복원합니다.
+- 웹은 크롤링 API `https://review-manager-api.jinitlab.com/crawl/coupang`을 직접 호출하며, 호출 주소는 `NEXT_PUBLIC_CRAWL_API_BASE_URL`로 바꿀 수 있습니다.
 
-## 4. Goal-Driven Execution
+## 기술 스택
 
-**Define success criteria. Loop until verified.**
+- 프레임워크: `next@16`, `react@19`, `typescript` — 일반 웹 빌드는 서버 라우트를 포함하며, Docker 빌드에서는 `output: "standalone"`을 사용합니다.
+- UI: `@base-ui/react`, `shadcn`, `lucide-react`, `tailwindcss@4`
+- 데이터/인증: `@supabase/supabase-js`(브라우저 `localStorage` 세션)
+- 품질 관리: `eslint`, TypeScript 검사, `vitest` — 구매 일정·중복 정규화와 주문 완료 입력·경고·수익 규칙을 단위 테스트합니다.
 
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
+## 디자인 시스템 적용 범위
 
-For multi-step tasks, state a brief plan:
+- 루트 [`DESIGN.md`](DESIGN.md)의 Notion 분석을 데이터 관리 화면에 맞게 적용했습니다. 전역 캔버스는 `#f6f5f4`의 따뜻한 종이색, 패널은 흰색, 경계선은 `#e6e6e6`, 구조적 액션은 파란색(`primary: #0075de`)으로 통일합니다.
+- [`src/app/globals.css`](src/app/globals.css)가 색상·글꼴·반경·표 가독성 토큰을 관리하며, 외부 Google Fonts를 런타임/빌드에 의존하지 않고 `Inter`와 시스템 한글 글꼴을 순서대로 사용합니다. 숫자 데이터는 `tabular-nums`를 유지합니다.
+- [`src/components/ui`](src/components/ui)의 버튼·카드·입력·레이블·표 프리미티브가 공통 토큰을 사용합니다. 카드와 업무 패널은 얇은 경계선과 약한 그림자로 구분하고, 완료·미완료·확인 필요 같은 상태 색은 의미 전달을 위해 화면별로 유지합니다.
+- 구매 장부·대시보드·자동 추천·설정 화면은 같은 패널 크롬과 반응형 여백을 사용하며, 데스크톱에서는 사이드바와 넓은 보조 패널을 사용하고 하단 메뉴는 모바일 브라우저의 안전 영역을 고려합니다. 디자인 변경은 주문/입금 조회·완료처리·추천 매칭 등 데이터 동작을 변경하지 않습니다.
+
+## 주요 디렉터리
+
+- `src/app`: 라우팅 및 페이지 구성(대부분 클라이언트에서 Supabase 조회)
+- `src/components/pages`: 클라이언트 페이지(홈·로그인·대시보드·주문 상세 등)
+- `src/components`: 도메인 UI (`orders`, `auth`, `ui`)
+- `src/lib`: 공통 유틸·`supabase/client.ts`
+- `src/types`: 타입 정의 및 DB 타입 파일
+- `supabase/migrations`: DB 마이그레이션
+- `supabase/seed_orders_from_ledger.sql`: 주문 시드 데이터 스크립트
+
+## 실행/개발 스크립트
+
+- `npm run dev` / `npm run dev:lan`: 로컬 개발(서버 라우트 포함, HMR)
+- `npm run build`: 서버 라우트를 포함한 일반 Next.js 웹 빌드
+- `npm run lint`: 린트 검사
+- `npm test`: 날짜·구매 일정·주문 중복 정규화 단위 테스트
+- `npm run gen:types`: Supabase public 스키마 타입 생성
+- `docker compose up --build -d`: Docker 전용 standalone 웹 이미지를 빌드하고 백그라운드에서 실행
+
+## Docker Compose로 웹 실행
+
+Docker는 전체 Next.js 기능을 지원하는 프로덕션 서버 모드로 실행합니다. `BUILD_TARGET=docker`일 때 `output: "standalone"`을 사용해 실행에 필요한 파일만 최종 이미지에 포함합니다.
+
+1. 환경변수 파일을 만들고 Supabase 값을 입력합니다.
+
+```bash
+cp .env.example .env
 ```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
+
+필수 값은 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`입니다. 외부 접속 포트는 `APP_PORT`로 바꿀 수 있으며 기본값은 `3000`입니다.
+
+2. 이미지를 빌드하고 컨테이너를 실행합니다.
+
+```bash
+docker compose up --build -d
 ```
 
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+3. 브라우저에서 `http://localhost:3000`으로 접속합니다. `APP_PORT`를 바꿨다면 해당 포트로 접속합니다.
 
-## 5. Reuse Existing First
+```bash
+# 실행 상태와 로그 확인
+docker compose ps
+docker compose logs -f web
 
-`docs/project_overview.md`를 먼저 참고해 프로젝트 구조와 기존 책임 분리를 확인한 뒤 작업한다.
+# 종료 및 컨테이너 제거
+docker compose down
+```
 
-Core rules:
-- 새 함수/새 파일을 만들기 전에, 같은 목적의 기존 코드가 있는지 먼저 찾는다.
-- 기존 컴포넌트/유틸/타입을 확장하거나 조합해 해결 가능한 경우, 신규 생성보다 재사용을 우선한다.
-- 중복 로직이 생기면 새 구현 대신 기존 공통 로직으로 통합한다.
+`NEXT_PUBLIC_*` 환경변수는 `next build` 시 브라우저 번들에 고정됩니다. 값을 변경한 경우 `docker compose up --build -d`로 이미지를 다시 빌드해야 합니다. 실제 `.env` 파일은 Git과 Docker 빌드 컨텍스트에서 제외됩니다.
 
-Work order:
-1. `docs/project_overview.md`에서 관련 디렉터리와 역할을 확인한다.
-2. `src/components`, `src/lib`, `src/types`, `supabase`에서 동일/유사 책임 코드를 탐색한다.
-3. 재사용 가능 코드를 찾으면 최소 변경으로 연결한다.
-4. 아래 조건을 만족할 때만 새 함수/파일을 만든다.
+## 웹 배포
 
-New files or functions are allowed only when:
-- 기존 코드가 요구사항을 충족하지 못하고 확장 시 부작용이 큰 경우
-- 책임 분리가 명확해져 유지보수성이 실제로 개선되는 경우
-- 생성 이유와 기존 코드 재사용이 어려운 이유를 작업 설명에 명시한 경우
+일반 웹 배포는 `npm run build` 후 `npm run start`로 Next.js 서버를 실행하거나, Docker Compose로 standalone 이미지를 실행합니다. 이 프로젝트는 정적 export를 지원하지 않습니다.
 
-Examples:
-- 주문 목록 표시 변경: `src/components/orders`의 기존 테이블/셀 구조를 우선 수정한다.
-- Supabase 쿼리 확장: 기존 쿼리 유틸/타입 정의를 확장하고, 동일 로직의 신규 파일 복제를 피한다.
+## DB 공통 맥락
 
-## 6. Project Documentation and Comments
+- **Supabase `public` 스키마 경계(필수):** 기준 프로젝트의 `public` 스키마에는 Review Manager와 무관한 다른 프로젝트의 테이블도 함께 존재합니다. 이 환경에서는 `RLS`가 활성화된 테이블을 이 프로젝트 소유로 보고, `RLS`가 비활성화된 테이블은 다른 프로젝트 소유로 봅니다. 현재 이 저장소가 실제로 사용하는 테이블의 허용 목록은 `users`, `platforms`, `payment_methods`, `buyer_accounts`, `purchase_info_templates`, `user_ai_review_profiles`, `user_item_settings`, `user_preferences`, `user_order_drafts`, `saved_order_views`, `orders`, `bank_account`, `bank_account_deposit`, `platform_accounts`, `crawl_orders`입니다. Supabase MCP, SQL, 마이그레이션, 시드, 애플리케이션 코드의 조회·쓰기·DDL은 이 목록에 있는 테이블에만 적용합니다. `RLS`가 꺼진 테이블은 이름을 알고 있더라도 절대 조회·수정·삭제·DDL·마이그레이션·시드 대상에 포함하지 않습니다. `RLS`가 켜져 있어도 현재 허용 목록에 없는 `coupang_payment_method_mappings`처럼 이 저장소에서 사용하지 않는 테이블은 명시적인 사용자 요청 없이는 건드리지 않습니다. 스키마나 데이터 작업 전에는 메타데이터를 읽기 전용으로 확인해 대상이 허용 목록에 있고 `RLS`가 켜져 있는지 검증하며, 조건이 불명확하면 작업을 중단하고 확인을 요청합니다.
+- 기준 Supabase 프로젝트는 `xhjjoxzwpgqlodflaiix`입니다. `public` 애플리케이션 테이블은 주문·플랫폼·결제수단·구매계정·구매 정보 템플릿·AI 리뷰 프로필·항목 숨김 설정·사용자 업무 설정·주문 초안·저장 보기·사용자 프로필·입금 계좌·입금 내역으로 구성됩니다.
+- 위 `public` 테이블은 RLS를 사용합니다. 사용자 소유 데이터는 `auth.uid()` 기준으로 제한하고, `platforms`와 `payment_methods`의 시스템 기본 행(`user_id IS NULL`)은 인증 사용자가 조회할 수 있으며 사용자별 추가 행은 소유자만 변경합니다.
+- `user_preferences`, `user_order_drafts`, `saved_order_views`는 사용자별 데이터이며 익명 역할의 테이블 권한을 제거하고 인증 사용자 소유 정책을 적용합니다.
+- `bank_password`, `resident_number`는 민감 정보이므로 화면과 로그에 원문을 노출하거나 저장된 초안·검색 결과에 포함하지 않습니다.
+- 주문·입금 조회와 쓰기에는 기존 FK와 소유자/RLS 조건을 유지합니다. DB 스키마 변경 시 `supabase-schema-sync` 스킬을 적용하고, 최종 전체 스키마를 `.agents/skills/supabase-schema-sync/references/database-guide.md`에 동기화합니다.
+- 전체 테이블의 컬럼·FK·제약조건·인덱스·샘플 데이터와 조회 패턴은 위 DB 참조 파일에서 확인합니다.
 
-When working in this repository:
-- 코드를 만들 때는 항상 비개발자가 알아들을 수 있게 한국어 주석을 작성해야 한다.
-- 코드를 짜기 전 `docs/project_overview.md`를 확인해서 중복코드가 발생하지 않도록 신경써야 한다.
-- 코드 수정사항이 생기면 `docs/project_overview.md`에 업데이트해야 한다.
-- 임시 파일이나 1회성 검증 산출물은 작업 종료 전에 삭제하고, 저장소에는 유지할 필요가 있는 산출물만 남긴다.
+## 지침·참조 위치
 
-Temporary files to delete include:
-- Scratch notes such as `tmp_*.md` or `scratch_*`
-- Temporary query dumps or log files
-- One-off verification output files
-
-## 7. DB Guide Sync
-
-MCP(Supabase)를 사용하여 데이터베이스 스키마를 변경할 때, 동일한 작업 컨텍스트 내에서 반드시 `docs/guide_db.md` 파일을 최신 상태로 업데이트해야 한다.
-
-This rule applies when MCP changes:
-- Tables: create, delete, rename
-- Columns: add, delete, rename, type/default/nullability changes
-- Constraints: Primary Key, Foreign Key, Unique, Index changes
-- Schema: any migration that affects the `public` schema structure
-
-Required actions:
-1. 스키마 변경 직후 MCP 도구를 다시 호출하여 변경된 전체 스키마 정보를 정확히 읽어온다.
-2. 읽어온 정보를 바탕으로 `docs/guide_db.md`를 수정하여 최종 스키마 상태를 반영한다.
-3. 문서 내 샘플 로우가 있고 스키마 변경의 영향을 받는다면 실제 데이터 구조에 맞게 수정한다.
-4. 응답 마지막에 `docs/guide_db.md`가 업데이트되었음을 사용자에게 명시적으로 알린다.
-
-Scope:
-- Focus on user-defined tables in the `public` schema.
-- Unless explicitly requested, exclude Supabase internal schemas such as `auth` and `storage`.
-
-## 8. Web UI Consistency
-
-이 프로젝트는 웹으로 배포되므로, 화면 설계/수정 시 데스크톱 웹과 모바일 브라우저를 함께 고려한다.
-
-Core rules:
-- 모든 작업 시작 전에 루트의 `DESIGN.md`를 확인하고, 화면/UI를 만들거나 수정할 때 정의된 디자인 규칙과 토큰을 준수한다.
-- UI 변경 시 데스크톱 웹과 모바일 브라우저에서의 사용성을 함께 점검한다.
-- 화면 구조는 반응형을 기본으로 설계하고, 작은 화면에서도 주요 동작이 가려지지 않게 구성한다.
-- 터치 중심 환경을 고려해 버튼 크기, 간격, 스크롤 동선, 고정 영역(헤더/푸터) 충돌을 확인한다.
-- 웹 전용 상호작용(hover, 우클릭, 큰 화면 전제 레이아웃)에 의존하지 않는다.
-
-Implementation checklist:
-1. 새 화면/컴포넌트 추가 시 모바일 우선 레이아웃을 먼저 검토한다.
-2. 화면 깨짐 가능성이 있는 고정 폭, 과도한 가로 배치, 절대 위치 사용을 최소화한다.
-3. 주요 액션(조회/저장/이동)이 작은 화면에서도 한 손 조작 가능한 위치와 흐름인지 확인한다.
-4. 필요 시 브레이크포인트별 UI 차이는 허용하되, 기능/정보의 의미는 데스크톱 웹과 모바일 브라우저에서 일관되게 유지한다.
+- `AGENTS.md`: 공통 작업 규칙과 프로젝트 개요·실행·DB 핵심 맥락
+- `skills.md`: 저장소 스킬 인덱스
+- `.agents/skills/review-manager-development/SKILL.md`: 일반 개발 절차
+- `.agents/skills/nextjs-development/SKILL.md`: Next.js 라우트·서버·빌드 절차
+- `.agents/skills/review-manager-ui/SKILL.md`: UI·반응형·디자인 절차
+- `.agents/skills/supabase-schema-sync/SKILL.md`: Supabase 스키마 변경 절차
+- `.agents/skills/supabase-schema-sync/references/database-guide.md`: 상세 `public` 스키마와 조회 패턴
+- `docs/README.md`: 기본 Next.js 안내 문서

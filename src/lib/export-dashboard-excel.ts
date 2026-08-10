@@ -1,5 +1,3 @@
-import * as XLSX from "xlsx";
-
 import type { OrderWithRelations } from "@/types/orders";
 
 function toNum(v: string | number | null | undefined): number {
@@ -13,7 +11,8 @@ function emptyIfZero(v: string | number | null | undefined): number | string {
   return n === 0 ? "" : n;
 }
 
-export function exportDashboardExcel(orders: OrderWithRelations[], userEmail: string, scopeLabel = "전체 기간") {
+export async function exportDashboardExcel(orders: OrderWithRelations[], userEmail: string, scopeLabel = "전체 기간") {
+  const XLSX = await import("xlsx");
   const wb = XLSX.utils.book_new();
   const now = new Date();
   const nowStr = now.toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
