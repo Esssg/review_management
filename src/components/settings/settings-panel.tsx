@@ -703,6 +703,66 @@ function OrderDefaultsSettingsView({
   );
 }
 
+function SettingsHomeView({
+  alerts,
+  displayName,
+  accountEmail,
+  purchaseTemplateCount,
+  trashCount,
+  onNavigate,
+  onLogout,
+}: {
+  alerts: ReactNode;
+  displayName: string;
+  accountEmail: string;
+  purchaseTemplateCount: number;
+  trashCount: number;
+  onNavigate: (view: SettingsPanelView) => void;
+  onLogout: () => void | Promise<void>;
+}) {
+  return (
+    <div className="flex flex-col gap-5">
+      {alerts}
+      <PwaInstallCard />
+
+      <button
+        type="button"
+        onClick={() => onNavigate("account")}
+        className="flex w-full touch-manipulation flex-col items-stretch gap-1 rounded-lg border border-hairline bg-card p-4 text-left shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] transition-colors hover:bg-accent/50 active:bg-accent"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="text-lg font-semibold tracking-tight">{(displayName || "회원").replace(/님$/, "")}님</div>
+            <div className="text-muted-foreground mt-0.5 truncate text-sm">{accountEmail || "—"}</div>
+          </div>
+          <ChevronRight className="text-muted-foreground mt-0.5 h-5 w-5 shrink-0" aria-hidden />
+        </div>
+      </button>
+
+      {/* 설정 홈은 성격이 비슷한 항목을 카드 격자로 묶어 넓은 화면의 빈 공간을 줄입니다. */}
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <SettingsNavRow label="주문 기본값" description="기본 항목·저장 후 동작" onClick={() => onNavigate("defaults")} />
+        <SettingsNavRow label="구매 정보 템플릿" description={`${purchaseTemplateCount}개 저장됨`} onClick={() => onNavigate("purchase-templates")} />
+        <SettingsNavRow label="AI 설정 관리" description="리뷰 생성 기본 정보" onClick={() => onNavigate("ai")} />
+        <SettingsNavRow label="결제플랫폼 관리" onClick={() => onNavigate("platforms")} />
+        <SettingsNavRow label="결제수단 관리" onClick={() => onNavigate("payment-methods")} />
+        <SettingsNavRow label="구매계정 관리" onClick={() => onNavigate("buyer-accounts")} />
+        <SettingsNavRow label="주문 휴지통" description="삭제 주문 복원·영구 삭제" badge={`${trashCount}건`} onClick={() => onNavigate("trash")} />
+      </div>
+
+      <SettingsNavRow label="공지사항" disabled badge="준비 중" />
+
+      <button
+        type="button"
+        onClick={() => void onLogout()}
+        className="min-h-12 w-full touch-manipulation rounded-full border border-red-200 bg-card py-3 text-sm font-medium text-red-600 shadow-sm transition-colors hover:bg-red-50 active:bg-red-100 dark:border-red-900/60 dark:bg-slate-800 dark:text-red-500 dark:hover:bg-red-950/40"
+      >
+        로그아웃하기
+      </button>
+    </div>
+  );
+}
+
 function SettingsNavRow({
   label,
   description,
@@ -1397,44 +1457,14 @@ export function SettingsPanel({
 
   /* home */
   return (
-    <div className="flex flex-col gap-5">
-      {alerts}
-      <PwaInstallCard />
-
-      <button
-        type="button"
-        onClick={() => setView("account")}
-        className="flex w-full touch-manipulation flex-col items-stretch gap-1 rounded-lg border border-hairline bg-card p-4 text-left shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] transition-colors hover:bg-accent/50 active:bg-accent"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="text-lg font-semibold tracking-tight">{(displayName || "회원").replace(/님$/, "")}님</div>
-            <div className="text-muted-foreground mt-0.5 truncate text-sm">{accountEmail || "—"}</div>
-          </div>
-          <ChevronRight className="text-muted-foreground mt-0.5 h-5 w-5 shrink-0" aria-hidden />
-        </div>
-      </button>
-
-      {/* 설정 홈은 성격이 비슷한 항목을 카드 격자로 묶어 넓은 화면의 빈 공간을 줄입니다. */}
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        <SettingsNavRow label="주문 기본값" description="기본 항목·저장 후 동작" onClick={() => setView("defaults")} />
-        <SettingsNavRow label="구매 정보 템플릿" description={`${purchaseTemplates.length}개 저장됨`} onClick={() => setView("purchase-templates")} />
-        <SettingsNavRow label="AI 설정 관리" description="리뷰 생성 기본 정보" onClick={() => setView("ai")} />
-        <SettingsNavRow label="결제플랫폼 관리" onClick={() => setView("platforms")} />
-        <SettingsNavRow label="결제수단 관리" onClick={() => setView("payment-methods")} />
-        <SettingsNavRow label="구매계정 관리" onClick={() => setView("buyer-accounts")} />
-        <SettingsNavRow label="주문 휴지통" description="삭제 주문 복원·영구 삭제" badge={`${trashCount}건`} onClick={() => setView("trash")} />
-      </div>
-
-      <SettingsNavRow label="공지사항" disabled badge="준비 중" />
-
-      <button
-        type="button"
-        onClick={() => void handleLogout()}
-        className="min-h-12 w-full touch-manipulation rounded-full border border-red-200 bg-card py-3 text-sm font-medium text-red-600 shadow-sm transition-colors hover:bg-red-50 active:bg-red-100 dark:border-red-900/60 dark:bg-slate-800 dark:text-red-500 dark:hover:bg-red-950/40"
-      >
-        로그아웃하기
-      </button>
-    </div>
+    <SettingsHomeView
+      alerts={alerts}
+      displayName={displayName}
+      accountEmail={accountEmail}
+      purchaseTemplateCount={purchaseTemplates.length}
+      trashCount={trashCount}
+      onNavigate={setView}
+      onLogout={handleLogout}
+    />
   );
 }
