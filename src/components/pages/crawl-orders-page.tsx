@@ -8,6 +8,7 @@ import type { TouchEvent } from "react";
 import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Banknote, Building2, CheckCircle2, ChevronLeft, ChevronRight, CreditCard, History, Loader2, RefreshCw, RotateCcw, ShoppingBag, Trash2, UserCircle, Wallet } from "lucide-react";
+import useSWR, { mutate as mutateSWR } from "swr";
 
 import { UserAccountMenu } from "@/components/auth/user-account-menu";
 import { ChromeExtensionInstallGuide } from "@/components/pages/chrome-extension-install-guide";
@@ -120,6 +121,185 @@ async function fetchAllRecommendationPages<T>(
       return { data: rows, error: null };
     }
   }
+}
+
+type CrawlOrdersSWRKey = readonly ["recommendations", "crawl-orders", string];
+type SelectedCrawlOrderSWRKey = readonly ["recommendations", "crawl-order", string, string];
+type CrawlMasterSWRKey = readonly ["recommendations", "master", string];
+type PlatformAccountsSWRKey = readonly ["recommendations", "platform-accounts", string];
+type DepositRecommendationSWRKey = readonly ["recommendations", "deposit-data", string];
+type RecoverySWRKey = readonly ["recommendations", "recovery", string];
+
+type DepositRecommendationData = {
+  bankAccounts: DepositBankAccountSummary[];
+  deposits: DepositWithAccount[];
+  orders: PendingDepositOrder[];
+};
+
+type RecoveryData = {
+  crawlOrders: CrawlOrderRow[];
+  deposits: DepositWithAccount[];
+};
+
+async function fetchCrawlOrders(key: CrawlOrdersSWRKey) {
+  const [, , userId] = key;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("crawl_orders")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("crawl_order_status", 0)
+    .order("purchase_date", { ascending: false, nullsFirst: false });
+
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+async function fetchSelectedCrawlOrder(key: SelectedCrawlOrderSWRKey) {
+  const [, , userId, selectedId] = key;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("crawl_orders")
+    .select("*")
+    .eq("id", selectedId)
+    .eq("user_id", userId)
+    .eq("crawl_order_status", 0)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function fetchCrawlMaster(key: CrawlMasterSWRKey) {
+  const [, , userId] = key;
+  return fetchMasterData(createClient(), userId);
+}
+
+async function fetchPlatformAccounts(key: PlatformAccountsSWRKey) {
+  const [, , userId] = key;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("platform_accounts")
+    .select("id, name, status")
+    .eq("user_id", userId);
+
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+async function fetchDepositRecommendationData(key: DepositRecommendationSWRKey): Promise<DepositRecommendationData> {
+  const [, , userId] = key;
+  const supabase = createClient();
+  const [bankAccountsResult, depositsResult, pendingOrdersResult] = await Promise.all([
+    // 입금 자동추천 화면에는 민감 인증값을 빼고 운영자가 확인할 계좌 정보만 가져옵니다.
+    supabase
+      .from("bank_account")
+      .select("id, bank_account_name, bank, bank_account_number")
+      .eq("user_id", userId)
+      .order("id", { ascending: true }),
+    // 미완료 입금 내역은 오래된 순서를 유지하며 모든 페이지를 가져옵니다.
+    fetchAllRecommendationPages<DepositWithAccount>(async (from, to) => {
+      const result = await supabase
+        .from("bank_account_deposit")
+        .select(`
+          id,
+          bank_account_id,
+          date,
+          time,
+          counterparty,
+          amount,
+          bank_account_deposit_status,
+          bank_account:bank_account_id (
+            bank_account_name,
+            bank,
+            bank_account_number
+          )
+        `)
+        .eq("bank_account_deposit_status", 0)
+        .order("date", { ascending: true })
+        .order("time", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+
+      return {
+        data: (result.data ?? []) as DepositWithAccount[],
+        error: result.error,
+      };
+    }),
+    // 주문도 구매일과 ID 순서로 끝까지 가져와 최근 주문이 추천에서 누락되지 않게 합니다.
+    fetchAllRecommendationPages<PendingDepositOrder>(async (from, to) => {
+      const result = await supabase
+        .from("orders")
+        .select(
+          "id, title, product_name, purchase_date, purchase_price_krw, deposit_date, deposit_amount_krw, is_processed, is_item_delivered, platform_id, buyer_account_id",
+        )
+        .eq("user_id", userId)
+        .is("deleted_at", null)
+        .order("purchase_date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+
+      return {
+        data: (result.data ?? []) as PendingDepositOrder[],
+        error: result.error,
+      };
+    }),
+  ]);
+
+  const error = bankAccountsResult.error ?? depositsResult.error ?? pendingOrdersResult.error;
+  if (error) throw new Error(error.message);
+
+  return {
+    bankAccounts: (bankAccountsResult.data ?? []) as DepositBankAccountSummary[],
+    deposits: depositsResult.data ?? [],
+    orders: pendingOrdersResult.data ?? [],
+  };
+}
+
+async function fetchRecoveryData(key: RecoverySWRKey): Promise<RecoveryData> {
+  const [, , userId] = key;
+  const supabase = createClient();
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const cutoffDate = cutoff.toISOString().slice(0, 10);
+  const [crawlResult, depositResult] = await Promise.all([
+    supabase
+      .from("crawl_orders")
+      .select("*")
+      .eq("user_id", userId)
+      .in("crawl_order_status", [1, 99])
+      .gte("updated_at", cutoff.toISOString())
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .limit(100),
+    supabase
+      .from("bank_account_deposit")
+      .select(`
+        id,
+        bank_account_id,
+        date,
+        time,
+        counterparty,
+        amount,
+        bank_account_deposit_status,
+        bank_account:bank_account_id (
+          bank_account_name,
+          bank,
+          bank_account_number
+        )
+      `)
+      .in("bank_account_deposit_status", [1, 99])
+      .gte("date", cutoffDate)
+      .order("date", { ascending: false })
+      .order("time", { ascending: false })
+      .limit(100),
+  ]);
+
+  const error = crawlResult.error ?? depositResult.error;
+  if (error) throw new Error(error.message);
+
+  return {
+    crawlOrders: crawlResult.data ?? [],
+    deposits: (depositResult.data ?? []) as DepositWithAccount[],
+  };
 }
 
 function readValue(row: CrawlOrderRow, keys: string[]) {
@@ -1502,18 +1682,9 @@ export function CrawlOrdersPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [activeAutoRecommendPage, setActiveAutoRecommendPage] = useState(0);
-  const [orders, setOrders] = useState<CrawlOrderRow[]>([]);
   const [sessionStartPendingCount, setSessionStartPendingCount] = useState<number | null>(null);
-  const [selectedOrder, setSelectedOrder] = useState<CrawlOrderRow | null>(null);
-  const [master, setMaster] = useState<MasterData | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [hoveredOrderId, setHoveredOrderId] = useState<string | null>(null);
-  const [platformAccounts, setPlatformAccounts] = useState<PlatformAccountRow[]>([]);
-  const [bankAccounts, setBankAccounts] = useState<DepositBankAccountSummary[]>([]);
-  const [deposits, setDeposits] = useState<DepositWithAccount[]>([]);
-  const [depositRecommendationOrders, setDepositRecommendationOrders] = useState<PendingDepositOrder[]>([]);
-  const [hasLoadedDepositData, setHasLoadedDepositData] = useState(false);
-  const [isDepositDataLoading, setIsDepositDataLoading] = useState(false);
   const [expandedDepositId, setExpandedDepositId] = useState<number | null>(null);
   const [completingDepositId, setCompletingDepositId] = useState<number | null>(null);
   const [deletingDepositId, setDeletingDepositId] = useState<number | null>(null);
@@ -1521,12 +1692,132 @@ export function CrawlOrdersPage() {
   const [isStartingCrawl, setIsStartingCrawl] = useState(false);
   const [crawlNotice, setCrawlNotice] = useState<string | null>(null);
   const [autoAdvanceRecommendations, setAutoAdvanceRecommendations] = useState(true);
-  const [recoveryCrawlOrders, setRecoveryCrawlOrders] = useState<CrawlOrderRow[]>([]);
-  const [recoveryDeposits, setRecoveryDeposits] = useState<DepositWithAccount[]>([]);
-  const [hasLoadedRecoveryData, setHasLoadedRecoveryData] = useState(false);
-  const [isRecoveryDataLoading, setIsRecoveryDataLoading] = useState(false);
-  const [recoveryError, setRecoveryError] = useState("");
   const [restoringRecoveryKey, setRestoringRecoveryKey] = useState<string | null>(null);
+
+  const crawlOrdersKey = useMemo(
+    () => userId ? (["recommendations", "crawl-orders", userId] satisfies CrawlOrdersSWRKey) : null,
+    [userId],
+  );
+  const selectedCrawlOrderKey = useMemo(
+    () => userId && selectedId
+      ? (["recommendations", "crawl-order", userId, selectedId] satisfies SelectedCrawlOrderSWRKey)
+      : null,
+    [selectedId, userId],
+  );
+  const crawlMasterKey = useMemo(
+    () => userId ? (["recommendations", "master", userId] satisfies CrawlMasterSWRKey) : null,
+    [userId],
+  );
+  const platformAccountsKey = useMemo(
+    () => userId ? (["recommendations", "platform-accounts", userId] satisfies PlatformAccountsSWRKey) : null,
+    [userId],
+  );
+  const depositRecommendationKey = useMemo(
+    () => userId && !selectedId && activeAutoRecommendPage === 1
+      ? (["recommendations", "deposit-data", userId] satisfies DepositRecommendationSWRKey)
+      : null,
+    [activeAutoRecommendPage, selectedId, userId],
+  );
+  const recoveryKey = useMemo(
+    () => userId && !selectedId && activeAutoRecommendPage === 2
+      ? (["recommendations", "recovery", userId] satisfies RecoverySWRKey)
+      : null,
+    [activeAutoRecommendPage, selectedId, userId],
+  );
+
+  const {
+    data: ordersData,
+    error: ordersError,
+    isLoading: isOrdersLoading,
+    mutate: mutateOrders,
+  } = useSWR<CrawlOrderRow[]>(crawlOrdersKey, fetchCrawlOrders, { revalidateOnFocus: false });
+  const {
+    data: selectedOrderData,
+    error: selectedOrderError,
+    isLoading: isSelectedOrderLoading,
+  } = useSWR<CrawlOrderRow | null>(selectedCrawlOrderKey, fetchSelectedCrawlOrder, { revalidateOnFocus: false });
+  const {
+    data: masterData,
+    error: masterError,
+    isLoading: isMasterLoading,
+  } = useSWR<MasterData>(crawlMasterKey, fetchCrawlMaster, { revalidateOnFocus: false });
+  const {
+    data: platformAccountsData,
+    error: platformAccountsError,
+    isLoading: isPlatformAccountsLoading,
+    mutate: mutatePlatformAccounts,
+  } = useSWR<PlatformAccountRow[]>(platformAccountsKey, fetchPlatformAccounts, { revalidateOnFocus: false });
+  const {
+    data: depositRecommendationData,
+    error: depositRecommendationError,
+    isLoading: isDepositRecommendationLoading,
+    isValidating: isDepositRecommendationValidating,
+    mutate: mutateDepositRecommendationData,
+  } = useSWR<DepositRecommendationData>(depositRecommendationKey, fetchDepositRecommendationData, { revalidateOnFocus: false });
+  const {
+    data: recoveryData,
+    error: recoveryDataError,
+    isLoading: isRecoveryDataInitialLoading,
+    isValidating: isRecoveryDataValidating,
+    mutate: mutateRecoveryData,
+  } = useSWR<RecoveryData>(recoveryKey, fetchRecoveryData, { revalidateOnFocus: false });
+
+  const orders = useMemo(() => ordersData ?? [], [ordersData]);
+  const selectedOrder = selectedOrderData ?? null;
+  const master = masterData ?? null;
+  const platformAccounts = useMemo(() => platformAccountsData ?? [], [platformAccountsData]);
+  const bankAccounts = depositRecommendationData?.bankAccounts ?? [];
+  const deposits = depositRecommendationData?.deposits ?? [];
+  const depositRecommendationOrders = useMemo(
+    () => depositRecommendationData?.orders ?? [],
+    [depositRecommendationData],
+  );
+  const hasLoadedDepositData = Boolean(depositRecommendationData);
+  const isDepositDataLoading = isDepositRecommendationLoading || isDepositRecommendationValidating;
+  const recoveryCrawlOrders = recoveryData?.crawlOrders ?? [];
+  const recoveryDeposits = recoveryData?.deposits ?? [];
+  const hasLoadedRecoveryData = Boolean(recoveryData);
+  const isRecoveryDataLoading = isRecoveryDataInitialLoading || isRecoveryDataValidating;
+  const recoveryError = recoveryDataError?.message ?? "";
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const baseError = ordersError ?? selectedOrderError ?? masterError ?? platformAccountsError;
+    if (baseError) {
+      setErrorMessage(baseError.message);
+      setPhase("error");
+      return;
+    }
+
+    const selectedOrderLoaded = !selectedId || selectedOrderData !== undefined;
+    if (isOrdersLoading || isSelectedOrderLoading || isMasterLoading || isPlatformAccountsLoading || !selectedOrderLoaded) return;
+
+    if (selectedId && !selectedOrderData) {
+      setErrorMessage("처리 대기 중인 크롤링 주문을 찾을 수 없습니다.");
+      setPhase("error");
+      return;
+    }
+
+    setPhase("ready");
+  }, [
+    isMasterLoading,
+    isOrdersLoading,
+    isPlatformAccountsLoading,
+    isSelectedOrderLoading,
+    masterError,
+    ordersError,
+    platformAccountsError,
+    selectedId,
+    selectedOrderData,
+    selectedOrderError,
+    userId,
+  ]);
+
+  useEffect(() => {
+    if (!ordersData) return;
+    setSessionStartPendingCount((current) => current ?? ordersData.length);
+  }, [ordersData]);
 
   const loadPage = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     const supabase = createClient();
@@ -1549,251 +1840,48 @@ export function CrawlOrdersPage() {
         // 추천 목록 조회는 계속 진행하고 자동 이동만 기본값으로 유지합니다.
       });
 
-    if (selectedId) {
-      const [orderResult, ordersResult, masterData, platformAccountsResult] = await Promise.all([
-        supabase
-          .from("crawl_orders")
-          .select("*")
-          .eq("id", selectedId)
-          .eq("user_id", user.id)
-          .eq("crawl_order_status", 0)
-          .maybeSingle(),
-        supabase
-          .from("crawl_orders")
-          .select("*")
-          .eq("user_id", user.id)
-          .eq("crawl_order_status", 0)
-          .order("purchase_date", { ascending: false, nullsFirst: false }),
-        fetchMasterData(supabase, user.id),
-        supabase
-          .from("platform_accounts")
-          .select("id, name, status")
-          .eq("user_id", user.id),
-      ]);
-
-      if (orderResult.error || ordersResult.error || platformAccountsResult.error) {
-        setErrorMessage(orderResult.error?.message ?? ordersResult.error?.message ?? platformAccountsResult.error?.message ?? "조회 오류가 발생했습니다.");
-        setPhase("error");
-        return;
+    if (silent) {
+      void mutateSWR(["recommendations", "crawl-orders", user.id] satisfies CrawlOrdersSWRKey);
+      void mutateSWR(["recommendations", "platform-accounts", user.id] satisfies PlatformAccountsSWRKey);
+      if (selectedId) {
+        void mutateSWR(["recommendations", "crawl-order", user.id, selectedId] satisfies SelectedCrawlOrderSWRKey);
       }
-      if (!orderResult.data) {
-        setErrorMessage("처리 대기 중인 크롤링 주문을 찾을 수 없습니다.");
-        setPhase("error");
-        return;
-      }
-
-      setSelectedOrder(orderResult.data);
-      setMaster(masterData);
-      const nextOrders = ordersResult.data ?? [];
-      setOrders(nextOrders);
-      setSessionStartPendingCount((current) => current ?? nextOrders.length);
-      setPlatformAccounts(platformAccountsResult.data ?? []);
-      setPhase("ready");
-      return;
     }
-
-    const [ordersResult, masterData, platformAccountsResult] = await Promise.all([
-      supabase
-        .from("crawl_orders")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("crawl_order_status", 0)
-        .order("purchase_date", { ascending: false, nullsFirst: false }),
-      fetchMasterData(supabase, user.id),
-      supabase
-        .from("platform_accounts")
-        .select("id, name, status")
-        .eq("user_id", user.id),
-    ]);
-
-    if (ordersResult.error || platformAccountsResult.error) {
-      setErrorMessage(
-        ordersResult.error?.message ??
-        platformAccountsResult.error?.message ??
-        "조회 오류가 발생했습니다.",
-      );
-      setPhase("error");
-      return;
-    }
-
-    const nextOrders = ordersResult.data ?? [];
-    setOrders(nextOrders);
-    setSessionStartPendingCount((current) => current ?? nextOrders.length);
-    setSelectedOrder(null);
-    setMaster(masterData);
-    setPlatformAccounts(platformAccountsResult.data ?? []);
-    if (!silent) {
-      setBankAccounts([]);
-      setDeposits([]);
-      setDepositRecommendationOrders([]);
-      setExpandedDepositId(null);
-      setHasLoadedDepositData(false);
-      setHasLoadedRecoveryData(false);
-    }
-    setPhase("ready");
   }, [router, selectedId]);
 
   const refreshRunningCrawlStatus = useCallback(async () => {
     if (!userId) return;
 
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("platform_accounts")
-      .select("id, name, status")
-      .eq("user_id", userId);
-    if (error) {
+    try {
+      const nextAccounts = (await mutatePlatformAccounts()) ?? platformAccounts;
+      if (!nextAccounts.some((account) => account.status === true)) {
+        void mutateSWR(["recommendations", "crawl-orders", userId] satisfies CrawlOrdersSWRKey);
+        if (selectedId) {
+          void mutateSWR(["recommendations", "crawl-order", userId, selectedId] satisfies SelectedCrawlOrderSWRKey);
+        }
+      }
+    } catch (error) {
       console.error("[crawl] status polling failed", error);
-      return;
     }
-
-    const nextAccounts = data ?? [];
-    setPlatformAccounts(nextAccounts);
-    if (!nextAccounts.some((account) => account.status === true)) {
-      void loadPage({ silent: true });
-    }
-  }, [loadPage, userId]);
+  }, [mutatePlatformAccounts, platformAccounts, selectedId, userId]);
 
   const loadDepositRecommendationData = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
-    if (!userId || isDepositDataLoading) return;
-    if (!force && hasLoadedDepositData) return;
-
-    setIsDepositDataLoading(true);
+    if (!userId || selectedId || activeAutoRecommendPage !== 1 || !force) return;
     try {
-      const supabase = createClient();
-      const [bankAccountsResult, depositsResult, pendingOrdersResult] = await Promise.all([
-        // 입금 자동추천 화면에는 민감 인증값을 빼고 운영자가 확인할 계좌 정보만 가져옵니다.
-        supabase
-          .from("bank_account")
-          .select("id, bank_account_name, bank, bank_account_number")
-          .eq("user_id", userId)
-          .order("id", { ascending: true }),
-        // 미완료 입금 내역은 오래된 순서를 유지하며 모든 페이지를 가져옵니다.
-        fetchAllRecommendationPages<DepositWithAccount>(async (from, to) => {
-          const result = await supabase
-            .from("bank_account_deposit")
-            .select(`
-              id,
-              bank_account_id,
-              date,
-              time,
-              counterparty,
-              amount,
-              bank_account_deposit_status,
-              bank_account:bank_account_id (
-                bank_account_name,
-                bank,
-                bank_account_number
-              )
-            `)
-            .eq("bank_account_deposit_status", 0)
-            .order("date", { ascending: true })
-            .order("time", { ascending: true })
-            .order("id", { ascending: true })
-            .range(from, to);
-
-          return {
-            data: (result.data ?? []) as DepositWithAccount[],
-            error: result.error,
-          };
-        }),
-        // 주문도 구매일과 ID 순서로 끝까지 가져와 최근 주문이 추천에서 누락되지 않게 합니다.
-        fetchAllRecommendationPages<PendingDepositOrder>(async (from, to) => {
-          const result = await supabase
-            .from("orders")
-            .select(
-              "id, title, product_name, purchase_date, purchase_price_krw, deposit_date, deposit_amount_krw, is_processed, is_item_delivered, platform_id, buyer_account_id",
-            )
-            .eq("user_id", userId)
-            .is("deleted_at", null)
-            .order("purchase_date", { ascending: true })
-            .order("id", { ascending: true })
-            .range(from, to);
-
-          return {
-            data: (result.data ?? []) as PendingDepositOrder[],
-            error: result.error,
-          };
-        }),
-      ]);
-
-      if (bankAccountsResult.error || depositsResult.error || pendingOrdersResult.error) {
-        setErrorMessage(
-          bankAccountsResult.error?.message ??
-          depositsResult.error?.message ??
-          pendingOrdersResult.error?.message ??
-          "조회 오류가 발생했습니다.",
-        );
-        setPhase("error");
-        return;
-      }
-
-      setBankAccounts((bankAccountsResult.data ?? []) as DepositBankAccountSummary[]);
-      setDeposits(depositsResult.data ?? []);
-      setDepositRecommendationOrders(pendingOrdersResult.data ?? []);
-      setHasLoadedDepositData(true);
+      await mutateDepositRecommendationData();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-      setPhase("error");
-    } finally {
-      setIsDepositDataLoading(false);
+      console.error("[crawl] deposit recommendation refresh failed", error);
     }
-  }, [hasLoadedDepositData, isDepositDataLoading, userId]);
+  }, [activeAutoRecommendPage, mutateDepositRecommendationData, selectedId, userId]);
 
   const loadRecoveryData = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
-    if (!userId || isRecoveryDataLoading) return;
-    if (!force && hasLoadedRecoveryData) return;
-
-    setIsRecoveryDataLoading(true);
-    setRecoveryError("");
+    if (!userId || selectedId || activeAutoRecommendPage !== 2 || !force) return;
     try {
-      const supabase = createClient();
-      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      const cutoffDate = cutoff.toISOString().slice(0, 10);
-      const [crawlResult, depositResult] = await Promise.all([
-        supabase
-          .from("crawl_orders")
-          .select("*")
-          .eq("user_id", userId)
-          .in("crawl_order_status", [1, 99])
-          .gte("updated_at", cutoff.toISOString())
-          .order("updated_at", { ascending: false, nullsFirst: false })
-          .limit(100),
-        supabase
-          .from("bank_account_deposit")
-          .select(`
-            id,
-            bank_account_id,
-            date,
-            time,
-            counterparty,
-            amount,
-            bank_account_deposit_status,
-            bank_account:bank_account_id (
-              bank_account_name,
-              bank,
-              bank_account_number
-            )
-          `)
-          .in("bank_account_deposit_status", [1, 99])
-          .gte("date", cutoffDate)
-          .order("date", { ascending: false })
-          .order("time", { ascending: false })
-          .limit(100),
-      ]);
-
-      if (crawlResult.error || depositResult.error) {
-        setRecoveryError(crawlResult.error?.message ?? depositResult.error?.message ?? "복구 내역을 불러오지 못했습니다.");
-        return;
-      }
-      setRecoveryCrawlOrders(crawlResult.data ?? []);
-      setRecoveryDeposits((depositResult.data ?? []) as DepositWithAccount[]);
-      setHasLoadedRecoveryData(true);
+      await mutateRecoveryData();
     } catch (error) {
-      setRecoveryError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsRecoveryDataLoading(false);
+      console.error("[crawl] recovery refresh failed", error);
     }
-  }, [hasLoadedRecoveryData, isRecoveryDataLoading, userId]);
+  }, [activeAutoRecommendPage, mutateRecoveryData, selectedId, userId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadPage(), 0);
@@ -1801,14 +1889,10 @@ export function CrawlOrdersPage() {
   }, [loadPage]);
 
   useEffect(() => {
-    if (phase !== "ready" || selectedId || activeAutoRecommendPage !== 1) return;
-    void loadDepositRecommendationData();
-  }, [activeAutoRecommendPage, loadDepositRecommendationData, phase, selectedId]);
-
-  useEffect(() => {
-    if (phase !== "ready" || selectedId || activeAutoRecommendPage !== 2) return;
-    void loadRecoveryData();
-  }, [activeAutoRecommendPage, loadRecoveryData, phase, selectedId]);
+    if (phase !== "ready" || selectedId || activeAutoRecommendPage !== 1 || !depositRecommendationError) return;
+    setErrorMessage(depositRecommendationError.message);
+    setPhase("error");
+  }, [activeAutoRecommendPage, depositRecommendationError, phase, selectedId]);
 
   useEffect(() => {
     if (phase !== "ready" || !selectedId) return;
@@ -1893,8 +1977,9 @@ export function CrawlOrdersPage() {
       return { error: statusResult.error?.message ?? "이미 처리된 크롤링 주문입니다." };
     }
 
+    void mutateOrders((current) => current?.filter((item) => item.id !== selectedOrder.id) ?? [], { revalidate: false });
     return { redirectHref: await getNextRecommendationHref() };
-  }, [getNextRecommendationHref, selectedOrder, userId]);
+  }, [getNextRecommendationHref, mutateOrders, selectedOrder, userId]);
 
   const deleteSelectedCrawlOrder = useCallback(async () => {
     if (!selectedOrder || !userId) return { error: "주문 정보를 불러오지 못했습니다." };
@@ -1909,8 +1994,9 @@ export function CrawlOrdersPage() {
 
     if (error) return { error: error.message };
     if (count === 0) return { error: "이미 처리된 크롤링 주문입니다." };
+    void mutateOrders((current) => current?.filter((item) => item.id !== selectedOrder.id) ?? [], { revalidate: false });
     return { redirectHref: await getNextRecommendationHref() };
-  }, [getNextRecommendationHref, selectedOrder, userId]);
+  }, [getNextRecommendationHref, mutateOrders, selectedOrder, userId]);
 
   const selectedImportActions = useMemo<CrawlReviewActions>(() => {
     return {
@@ -2081,11 +2167,11 @@ export function CrawlOrdersPage() {
         return;
       }
 
-      setOrders((prev) => prev.filter((item) => item.id !== row.id));
+      void mutateOrders((current) => current?.filter((item) => item.id !== row.id) ?? [], { revalidate: false });
     } finally {
       setDeletingId(null);
     }
-  }, [loadPage, userId]);
+  }, [loadPage, mutateOrders, userId]);
 
   const showAutoRecommendPage = useCallback((page: number) => {
     setActiveAutoRecommendPage(Math.min(2, Math.max(0, page)));
@@ -2132,12 +2218,14 @@ export function CrawlOrdersPage() {
         return;
       }
 
-      setDeposits((prev) => prev.filter((item) => item.id !== deposit.id));
+      void mutateDepositRecommendationData((current) => current
+        ? { ...current, deposits: current.deposits.filter((item) => item.id !== deposit.id) }
+        : current, { revalidate: false });
       setExpandedDepositId((current) => (current === deposit.id ? null : current));
     } finally {
       setDeletingDepositId(null);
     }
-  }, [loadDepositRecommendationData]);
+  }, [loadDepositRecommendationData, mutateDepositRecommendationData]);
 
   const restoreCrawlOrder = useCallback(async (row: CrawlOrderRow) => {
     if (!userId || row.crawl_order_status !== 99) return;
@@ -2156,15 +2244,19 @@ export function CrawlOrdersPage() {
         await loadRecoveryData({ force: true });
         return;
       }
-      setRecoveryCrawlOrders((current) => current.filter((item) => item.id !== row.id));
+      void mutateRecoveryData((current) => current
+        ? { ...current, crawlOrders: current.crawlOrders.filter((item) => item.id !== row.id) }
+        : current, { revalidate: false });
       await loadPage({ silent: true });
     } finally {
       setRestoringRecoveryKey(null);
     }
-  }, [loadPage, loadRecoveryData, userId]);
+  }, [loadPage, loadRecoveryData, mutateRecoveryData, userId]);
 
   const restoreDeposit = useCallback(async (deposit: DepositWithAccount) => {
     if (deposit.bank_account_deposit_status !== 99) return;
+    const currentUserId = userId;
+    if (!currentUserId) return;
     const key = `deposit:${deposit.id}`;
     setRestoringRecoveryKey(key);
     try {
@@ -2179,13 +2271,19 @@ export function CrawlOrdersPage() {
         await loadRecoveryData({ force: true });
         return;
       }
-      setRecoveryDeposits((current) => current.filter((item) => item.id !== deposit.id));
+      void mutateRecoveryData((current) => current
+        ? { ...current, deposits: current.deposits.filter((item) => item.id !== deposit.id) }
+        : current, { revalidate: false });
       // 입금 추천 탭으로 돌아갈 때 복원된 대기 내역을 다시 조회합니다.
-      setHasLoadedDepositData(false);
+      void mutateSWR(
+        ["recommendations", "deposit-data", currentUserId] satisfies DepositRecommendationSWRKey,
+        undefined,
+        { revalidate: false },
+      );
     } finally {
       setRestoringRecoveryKey(null);
     }
-  }, [loadRecoveryData]);
+  }, [loadRecoveryData, mutateRecoveryData, userId]);
 
   const completeDepositRecommendation = useCallback(async (deposit: DepositWithAccount, order: PendingDepositOrder) => {
     if (!userId) return;
@@ -2239,13 +2337,18 @@ export function CrawlOrdersPage() {
         return;
       }
 
-      setDeposits((prev) => prev.filter((item) => item.id !== deposit.id));
-      setDepositRecommendationOrders((prev) => prev.filter((item) => item.id !== order.id));
+      void mutateDepositRecommendationData((current) => current
+        ? {
+            ...current,
+            deposits: current.deposits.filter((item) => item.id !== deposit.id),
+            orders: current.orders.filter((item) => item.id !== order.id),
+          }
+        : current, { revalidate: false });
       setExpandedDepositId(null);
     } finally {
       setCompletingDepositId(null);
     }
-  }, [loadDepositRecommendationData, userId]);
+  }, [loadDepositRecommendationData, mutateDepositRecommendationData, userId]);
 
   const mapCompletedDepositRecommendation = useCallback(async (deposit: DepositWithAccount, order: PendingDepositOrder) => {
     const confirmed = window.confirm(
@@ -2273,12 +2376,14 @@ export function CrawlOrdersPage() {
         return;
       }
 
-      setDeposits((prev) => prev.filter((item) => item.id !== deposit.id));
+      void mutateDepositRecommendationData((current) => current
+        ? { ...current, deposits: current.deposits.filter((item) => item.id !== deposit.id) }
+        : current, { revalidate: false });
       setExpandedDepositId(null);
     } finally {
       setCompletingDepositId(null);
     }
-  }, [loadDepositRecommendationData]);
+  }, [loadDepositRecommendationData, mutateDepositRecommendationData]);
 
   const selectCrawlOrder = useCallback((id: string) => {
     router.push(`${crawlListHref}?id=${encodeURIComponent(id)}`);
