@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HexColorInput, HexColorPicker } from "react-colorful";
 import { ArrowLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 
@@ -341,6 +341,66 @@ function AddItemForm({
           추가
         </button>
       </div>
+    </div>
+  );
+}
+
+function PlatformSettingsView({
+  header,
+  alerts,
+  platformsWithMeta,
+  deletingId,
+  savingColorId,
+  onDeletePlatform,
+  onChangePlatformColor,
+  onAddPlatform,
+}: {
+  header: ReactNode;
+  alerts: ReactNode;
+  platformsWithMeta: ItemWithMeta<Platform>[];
+  deletingId: string | null;
+  savingColorId: string | null;
+  onDeletePlatform: (platform: Platform) => void | Promise<void>;
+  onChangePlatformColor: (platform: Platform, nextColor: string) => Promise<void>;
+  onAddPlatform: (name: string, color: string) => Promise<void>;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      {header}
+      {alerts}
+      <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+        <SectionHeader
+          title="결제 플랫폼"
+          description="기본 항목은 숨기기/보이기 토글, 직접 추가한 항목은 삭제됩니다."
+        />
+        <div className="flex flex-col gap-2">
+          {platformsWithMeta.length === 0 ? (
+            <p className="text-muted-foreground text-sm">등록된 플랫폼이 없습니다.</p>
+          ) : (
+            platformsWithMeta.map((platform) => (
+              <ItemRow
+                key={platform.id}
+                label={platform.name}
+                color={platform.color}
+                isSystem={platform.isSystem}
+                isHidden={platform.isHidden}
+                canEditColor={!platform.isSystem}
+                isDeleting={deletingId === platform.id}
+                isSavingColor={savingColorId === platform.id}
+                onDelete={() => void onDeletePlatform(platform)}
+                onChangeColor={(next) => onChangePlatformColor(platform, next)}
+              />
+            ))
+          )}
+        </div>
+        <div className="mt-3">
+          <AddItemForm
+            placeholder="새 플랫폼 이름"
+            defaultColor={DEFAULT_PLATFORM_COLOR}
+            onAdd={onAddPlatform}
+          />
+        </div>
+      </section>
     </div>
   );
 }
@@ -1073,43 +1133,16 @@ export function SettingsPanel({
 
   if (view === "platforms") {
     return (
-      <div className="flex flex-col gap-4">
-        {subHeader}
-        {alerts}
-        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
-          <SectionHeader
-            title="결제 플랫폼"
-            description="기본 항목은 숨기기/보이기 토글, 직접 추가한 항목은 삭제됩니다."
-          />
-          <div className="flex flex-col gap-2">
-            {platformsWithMeta.length === 0 ? (
-              <p className="text-muted-foreground text-sm">등록된 플랫폼이 없습니다.</p>
-            ) : (
-              platformsWithMeta.map((p) => (
-                <ItemRow
-                  key={p.id}
-                  label={p.name}
-                  color={p.color}
-                  isSystem={p.isSystem}
-                  isHidden={p.isHidden}
-                  canEditColor={!p.isSystem}
-                  isDeleting={deletingId === p.id}
-                  isSavingColor={savingColorId === p.id}
-                  onDelete={() => void handleDeletePlatform(p)}
-                  onChangeColor={(next) => handlePlatformColorChange(p, next)}
-                />
-              ))
-            )}
-          </div>
-          <div className="mt-3">
-            <AddItemForm
-              placeholder="새 플랫폼 이름"
-              defaultColor={DEFAULT_PLATFORM_COLOR}
-              onAdd={handleAddPlatform}
-            />
-          </div>
-        </section>
-      </div>
+      <PlatformSettingsView
+        header={subHeader}
+        alerts={alerts}
+        platformsWithMeta={platformsWithMeta}
+        deletingId={deletingId}
+        savingColorId={savingColorId}
+        onDeletePlatform={handleDeletePlatform}
+        onChangePlatformColor={handlePlatformColorChange}
+        onAddPlatform={handleAddPlatform}
+      />
     );
   }
 
