@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
@@ -19,6 +20,22 @@ const trashKrwFormatter = new Intl.NumberFormat("ko-KR", {
   maximumFractionDigits: 0,
 });
 
+type TrashSWRKey = readonly ["orders", "trash", string];
+
+async function fetchTrashOrders(key: TrashSWRKey): Promise<OrderWithRelations[]> {
+  const [, , userId] = key;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("orders")
+    .select(ORDER_LIST_SELECT)
+    .eq("user_id", userId)
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false })
+    .limit(100);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as OrderWithRelations[];
+}
+
 export function OrderTrashPanel({
   userId,
   onCountChange,
@@ -26,37 +43,26 @@ export function OrderTrashPanel({
   userId: string;
   onCountChange: (count: number) => void;
 }) {
-  const [orders, setOrders] = useState<OrderWithRelations[]>([]);
-  const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const {
+    data: ordersData,
+    error: ordersError,
+    isLoading,
+    isValidating,
+    mutate,
+  } = useSWR<OrderWithRelations[]>(["orders", "trash", userId] satisfies TrashSWRKey, fetchTrashOrders, {
+    revalidateOnFocus: false,
+  });
+  const orders = ordersData ?? [];
+  const phase = ordersError ? "error" : isLoading ? "loading" : "ready";
+  const isTrashLoading = isLoading || isValidating;
 
   const loadTrash = useCallback(async () => {
-    setPhase("loading");
     setErrorMessage("");
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("orders")
-      .select(ORDER_LIST_SELECT)
-      .eq("user_id", userId)
-      .not("deleted_at", "is", null)
-      .order("deleted_at", { ascending: false })
-      .limit(100);
-    if (error) {
-      setErrorMessage(error.message);
-      setPhase("error");
-      return;
-    }
-    const next = (data ?? []) as OrderWithRelations[];
-    setOrders(next);
-    setPhase("ready");
-  }, [userId]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void loadTrash(), 0);
-    return () => window.clearTimeout(timer);
-  }, [loadTrash]);
+    await mutate();
+  }, [mutate]);
 
   useEffect(() => {
     // 휴지통 목록 렌더가 끝난 뒤 설정 메뉴의 개수 배지를 맞춰 React 상태 충돌을 피합니다.
@@ -78,7 +84,7 @@ export function OrderTrashPanel({
       setErrorMessage(error.message);
       return;
     }
-    setOrders((current) => current.filter((item) => item.id !== order.id));
+    void mutate((current) => current?.filter((item) => item.id !== order.id) ?? [], { revalidate: false });
     setSuccessMessage("주문을 구매장부로 복원했습니다.");
     window.setTimeout(() => setSuccessMessage(""), 3500);
   };
@@ -102,7 +108,7 @@ export function OrderTrashPanel({
       setErrorMessage(error.message);
       return;
     }
-    setOrders((current) => current.filter((item) => item.id !== order.id));
+    void mutate((current) => current?.filter((item) => item.id !== order.id) ?? [], { revalidate: false });
   };
 
   return (
@@ -112,13 +118,13 @@ export function OrderTrashPanel({
           <h3 className="text-base font-semibold">최근 삭제 주문</h3>
           <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">최근 삭제한 주문을 최대 100건까지 보여줍니다. 복원하면 구매장부에 다시 나타납니다.</p>
         </div>
-        <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1.5" disabled={phase === "loading"} onClick={() => void loadTrash()}>
-          <RefreshCw className={`h-3.5 w-3.5 ${phase === "loading" ? "animate-spin" : ""}`} aria-hidden />
+        <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1.5" disabled={isTrashLoading} onClick={() => void loadTrash()}>
+          <RefreshCw className={`h-3.5 w-3.5 ${isTrashLoading ? "animate-spin" : ""}`} aria-hidden />
           새로고침
         </Button>
       </div>
 
-      {errorMessage ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">{errorMessage}</p> : null}
+      {errorMessage || ordersError ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">{errorMessage || ordersError?.message || "휴지통을 불러오지 못했습니다."}</p> : null}
       {successMessage ? <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950">{successMessage}</p> : null}
 
       {phase === "loading" ? (
