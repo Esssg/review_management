@@ -10,18 +10,20 @@ import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigg
 import { OrderDetailForm, type OrderFormSummary } from "@/components/orders/order-detail-form";
 import { fetchMasterData } from "@/lib/master-data";
 import { getKoreaDateInputValue } from "@/lib/korea-date";
+import type { NewOrderInitialData } from "@/lib/new-order-data";
 import { createClient } from "@/lib/supabase/client";
 import type { OrderWithRelations } from "@/types/orders";
 
-export function NewOrderPage() {
+export function NewOrderPage({ initialData = null }: { initialData?: NewOrderInitialData | null }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const copyId = searchParams.get("copy")?.trim() ?? "";
-  const [ready, setReady] = useState(false);
-  const [email, setEmail] = useState<string | null>(null);
-  const [userId, setUserId] = useState("");
-  const [master, setMaster] = useState<Awaited<ReturnType<typeof fetchMasterData>> | null>(null);
-  const [copyOrder, setCopyOrder] = useState<OrderWithRelations | null>(null);
+  const hasMatchingInitialData = Boolean(initialData && initialData.copyId === copyId);
+  const [ready, setReady] = useState(hasMatchingInitialData);
+  const [email, setEmail] = useState<string | null>(initialData?.email ?? null);
+  const [userId, setUserId] = useState(initialData?.userId ?? "");
+  const [master, setMaster] = useState<Awaited<ReturnType<typeof fetchMasterData>> | null>(initialData?.master ?? null);
+  const [copyOrder, setCopyOrder] = useState<OrderWithRelations | null>(initialData?.copyOrder ?? null);
   const [summary, setSummary] = useState<OrderFormSummary | null>(null);
 
   useEffect(() => {
@@ -38,6 +40,17 @@ export function NewOrderPage() {
       }
       setEmail(user.email ?? user.id);
       setUserId(user.id);
+
+      if (initialData?.userId === user.id && initialData.copyId === copyId) {
+        setMaster(initialData.master);
+        setCopyOrder(initialData.copyOrder);
+        setReady(true);
+        return;
+      }
+
+      setReady(false);
+      setMaster(null);
+      setCopyOrder(null);
       const [data, copyResult] = await Promise.all([
         fetchMasterData(supabase, user.id),
         copyId
@@ -57,7 +70,7 @@ export function NewOrderPage() {
     return () => {
       cancelled = true;
     };
-  }, [copyId, router]);
+  }, [copyId, initialData, router]);
 
   if (!ready || !master) {
     return (
@@ -110,6 +123,9 @@ export function NewOrderPage() {
           platforms={master.platforms}
           paymentMethods={master.paymentMethods}
           buyerAccounts={master.buyerAccounts}
+          initialPurchaseTemplates={hasMatchingInitialData ? initialData?.purchaseTemplates : undefined}
+          initialPreferences={hasMatchingInitialData ? initialData?.preferences : undefined}
+          initialDraftData={hasMatchingInitialData ? initialData?.draftData ?? null : undefined}
         />
         {/* 입력 중인 값과 누락 항목을 실시간으로 보여줘 데스크톱 보조 영역을 실제 확인 작업에 사용합니다. */}
         <aside className="h-fit min-w-0 rounded-xl border bg-card p-4 shadow-xs lg:sticky lg:top-5">

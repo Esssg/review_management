@@ -96,6 +96,8 @@ type NewOrderDraft = {
   ai_review_user_prompt: string;
 };
 
+type UserOrderDraftData = Database["public"]["Tables"]["user_order_drafts"]["Row"]["draft_data"];
+
 type DuplicateCandidate = Pick<
   OrderRow,
   "id" | "title" | "product_name" | "purchase_date" | "order_number" | "buyer_account_id" | "purchase_price_krw"
@@ -826,6 +828,8 @@ export function OrderDetailForm({
   paymentMethods,
   buyerAccounts,
   initialPurchaseTemplates,
+  initialPreferences,
+  initialDraftData,
 }: {
   order?: OrderWithRelations;
   draftOrder?: DraftOrderWithRelations;
@@ -837,6 +841,8 @@ export function OrderDetailForm({
   paymentMethods: PaymentMethod[];
   buyerAccounts: BuyerAccount[];
   initialPurchaseTemplates?: PurchaseTemplateRow[];
+  initialPreferences?: UserPreferences;
+  initialDraftData?: UserOrderDraftData | null;
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -891,8 +897,10 @@ export function OrderDetailForm({
   const [purchaseTemplates, setPurchaseTemplates] = useState<PurchaseTemplateRow[]>(initialPurchaseTemplates ?? []);
   const [aiExtraInput, setAiExtraInput] = useState(initialOrder?.ai_review_user_prompt ?? "");
   const [workflowUserId, setWorkflowUserId] = useState(userId ?? "");
-  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
-  const [orderSaveAction, setOrderSaveAction] = useState<OrderSaveAction>("ledger");
+  const [preferences, setPreferences] = useState<UserPreferences | null>(initialPreferences ?? null);
+  const [orderSaveAction, setOrderSaveAction] = useState<OrderSaveAction>(
+    (initialPreferences?.order_save_action as OrderSaveAction) ?? "ledger",
+  );
   const [availableDraft, setAvailableDraft] = useState<NewOrderDraft | null>(null);
   const [draftReady, setDraftReady] = useState(!isNewOrderMode);
   const [duplicateCandidates, setDuplicateCandidates] = useState<DuplicateCandidate[]>([]);
@@ -904,6 +912,7 @@ export function OrderDetailForm({
   const importRedirectHrefRef = useRef<string | null>(null);
   const isCurrentlyProcessed = isProcessed === "true";
   const isMultipleBuyerAccounts = isNewOrderMode && buyerAccountIds.length > 1;
+  const shouldApplyNewOrderDefaults = !initialOrder;
   const selectedBuyerAccountIds = useMemo(
     () => (isNewOrderMode ? buyerAccountIds : buyerAccountId ? [buyerAccountId] : []),
     [buyerAccountId, buyerAccountIds, isNewOrderMode],
@@ -1092,8 +1101,46 @@ export function OrderDetailForm({
     setAiExtraInput(draft.ai_review_user_prompt);
   }, []);
 
+  const applyNewOrderWorkflowData = useCallback(
+    (nextPreferences: UserPreferences, draftData: UserOrderDraftData | null) => {
+      setPreferences(nextPreferences);
+      setOrderSaveAction(nextPreferences.order_save_action as OrderSaveAction);
+
+      // 복제 주문에는 복제된 값을 유지하고, 완전히 새 주문일 때만 기본값 또는 최근값을 채웁니다.
+      if (shouldApplyNewOrderDefaults) {
+        setPlatformId(nextPreferences.default_platform_id ?? nextPreferences.recent_platform_id ?? "");
+        setPaymentMethodId(
+          nextPreferences.default_payment_method_id ?? nextPreferences.recent_payment_method_id ?? "",
+        );
+        const preferredAccountId =
+          nextPreferences.default_buyer_account_id ?? nextPreferences.recent_buyer_account_id;
+        setBuyerAccountIds(preferredAccountId ? [preferredAccountId] : []);
+        setLinkedPurchaseTemplateId(
+          nextPreferences.default_purchase_info_template_id
+            ?? nextPreferences.recent_purchase_info_template_id
+            ?? "",
+        );
+      }
+
+      const parsedDraft = draftData ? parseNewOrderDraft(draftData) : null;
+      if (parsedDraft) {
+        setAvailableDraft(parsedDraft);
+        setDraftReady(false);
+      } else {
+        setDraftReady(true);
+      }
+    },
+    [shouldApplyNewOrderDefaults],
+  );
+
   useEffect(() => {
     if (!isNewOrderMode) return;
+
+    if (initialPreferences !== undefined && initialDraftData !== undefined && userId) {
+      setWorkflowUserId(userId);
+      applyNewOrderWorkflowData(initialPreferences, initialDraftData);
+      return;
+    }
 
     let cancelled = false;
     void (async () => {
@@ -1113,32 +1160,7 @@ export function OrderDetailForm({
         if (cancelled) return;
         if (draftResult.error) throw draftResult.error;
 
-        setPreferences(nextPreferences);
-        setOrderSaveAction(nextPreferences.order_save_action as OrderSaveAction);
-
-        // 복제 주문에는 복제된 값을 유지하고, 완전히 새 주문일 때만 기본값 또는 최근값을 채웁니다.
-        if (!initialOrder) {
-          setPlatformId(nextPreferences.default_platform_id ?? nextPreferences.recent_platform_id ?? "");
-          setPaymentMethodId(
-            nextPreferences.default_payment_method_id ?? nextPreferences.recent_payment_method_id ?? "",
-          );
-          const preferredAccountId =
-            nextPreferences.default_buyer_account_id ?? nextPreferences.recent_buyer_account_id;
-          setBuyerAccountIds(preferredAccountId ? [preferredAccountId] : []);
-          setLinkedPurchaseTemplateId(
-            nextPreferences.default_purchase_info_template_id
-              ?? nextPreferences.recent_purchase_info_template_id
-              ?? "",
-          );
-        }
-
-        const parsedDraft = draftResult.data ? parseNewOrderDraft(draftResult.data.draft_data) : null;
-        if (parsedDraft) {
-          setAvailableDraft(parsedDraft);
-          setDraftReady(false);
-        } else {
-          setDraftReady(true);
-        }
+        applyNewOrderWorkflowData(nextPreferences, draftResult.data?.draft_data ?? null);
       } catch (error) {
         if (cancelled) return;
         setDraftReady(true);
@@ -1152,9 +1174,7 @@ export function OrderDetailForm({
     return () => {
       cancelled = true;
     };
-    // 신규 주문 컴포넌트가 생성될 때 한 번만 서버 초안과 설정을 읽습니다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNewOrderMode, userId]);
+  }, [applyNewOrderWorkflowData, initialDraftData, initialPreferences, isNewOrderMode, supabase, userId]);
 
   const newOrderDraft = useMemo<NewOrderDraft>(() => ({
     version: 1,
