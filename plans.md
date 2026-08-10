@@ -39,6 +39,7 @@
 - 완료: `OrderCardItem` 확장 패널을 memoized 경계로 유지하고 row별 수정·복제·patch callback을 안정화함. 부모의 기존 stable callback과 주문 동작은 유지함
 - 완료: `order-detail-form.tsx`의 AI 리뷰 스트리밍 상태·결과 표시·생성/복사 책임을 memoized `AiReviewPanel`로 분리하고, 부모의 주문 입력·draft/dirty guard·저장 책임은 유지함
 - 완료: `crawl-orders-page.tsx`의 주문 추천·입금 추천·최근 처리/숨김 탭 UI를 top-level memoized 컴포넌트로 분리하고, 부모의 Supabase 조회·polling·mutation 책임과 현재 탭만 마운트하는 동작은 유지함
+- 완료: `orders-table.tsx`의 완료 주문 헤더·데스크톱 표·모바일 카드 UI를 top-level memoized `CompletedOrdersSection`으로 분리하고, 부모의 조회·필터·가상 스크롤 계산·mutation 책임과 현재 viewport branch만 마운트하는 동작은 유지함
 - 보류: 나머지 대형 화면 컴포넌트 분리와 SWR/server fetch 전환은 동작·인증·데이터 freshness 영향이 커 별도 측정 후 진행
 
 ## 기준 검증 결과
@@ -71,6 +72,7 @@
 | 완료 | `OrderCardItem` 확장 패널의 row 바인딩 callback과 memo 경계를 정리함. 부모의 기존 stable callback은 유지함 | `rerender-memo`, `rerender-functional-setstate` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx) | 중간 |
 | 완료 | AI streaming delta마다 2천 줄이 넘는 주문 폼 전체가 다시 렌더링됨 | `rerender-memo`, `rerender-use-ref-transient-values` | [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx) | 중간 |
 | 완료 | 크롤링 화면의 세 탭 UI와 반응형 목록·표 JSX가 부모 render helper에 집중됨 | `rerender-memo`, `rerender-no-inline-components` | [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx) | 중간~높음 |
+| 완료 | 구매장부의 완료 주문 헤더·표·카드 JSX가 `OrdersTable`의 데이터·mutation 책임과 한 render 범위에 집중됨 | `rerender-memo`, `rerender-no-inline-components` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx) | 중간 |
 | P1 | 설정 초기 조회에서 템플릿마다 주문 사용량 count 쿼리를 하나씩 실행함 | `async-defer-await`, `async-parallel` | [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx) | 중간 |
 | P2 | 여러 파일에서 `lucide-react` named import를 사용하지만 Next 16 기본 최적화 대상인지 확인이 필요했음 | `bundle-barrel-imports` | `src/components/**/*.tsx`, `src/components/pages/**/*.tsx` | 낮음 |
 | P2 | 주문 폼·크롤링 화면·장부·설정 패널이 데이터 조회부터 여러 화면의 JSX까지 한 컴포넌트에 집중됨 | `rerender-memo`, `rerender-split-combined-hooks`, `rerender-no-inline-components` | [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx), [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx), [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx) | 중간~높음 |
@@ -110,7 +112,8 @@
 1. `OrderCardItem`에 전달되는 선택·펼치기·수정·복제·삭제·swipe callback을 안정화해 memo가 실제로 작동하도록 한다. 상태 변경은 가능한 functional setState를 사용한다.
 2. AI 리뷰 스트림을 별도 memoized 영역으로 분리한다. 스트리밍 텍스트의 갱신이 주문 입력·요약·완료처리 영역을 다시 그리지 않도록 하되, 취소·재시도·저장 전 stream 순서는 유지한다.
 3. 완료: 크롤링 페이지의 주문·입금·복구 탭 섹션을 top-level memoized component로 분리하고, 현재 탭만 렌더링하는 기존 동작을 유지했다.
-4. 이 단계에서는 전역 context, 범용 form framework, 대규모 reducer 도입을 하지 않는다.
+4. 완료: 장부 완료 주문 섹션을 top-level memoized component로 분리하고, 조회·필터·가상 스크롤·mutation 책임과 데스크톱 표/모바일 카드 단일 branch 마운트를 유지했다.
+5. 이 단계에서는 전역 context, 범용 form framework, 대규모 reducer 도입을 하지 않는다.
 
 ### 4단계: 중복 책임과 설정 조회 정리
 
@@ -157,6 +160,11 @@
 - `npx tsc --noEmit`: 통과
 - Playwright: 주문 상세 화면을 데스크톱·390px 모바일에서 확인. AI 리뷰 패널을 펼쳐 추가 정보 입력·생성 버튼·결과 영역이 표시되고, 모바일 가로 overflow와 브라우저 error 0건을 확인함
 - Playwright: `/recommendations`를 데스크톱·390px 모바일에서 확인. 주문·입금·최근 처리/숨김 탭 전환과 각 탭 핵심 빈 상태 UI, 현재 탭만 DOM에 마운트되는 구조, 모바일 가로 overflow 없음 및 브라우저 error 0건을 확인함
+- `npm run lint`: 통과
+- `npx tsc --noEmit`: 통과
+- `npm test`: 2개 파일, 9개 테스트 통과
+- `npm run build`: Next.js 16.2.3 빌드 통과
+- Playwright: `/`의 완료 주문 섹션을 1440px·390px에서 펼쳐 확인. 데스크톱은 완료 표만, 모바일은 완료 카드만 마운트되고 완료 행이 표시되며 두 viewport에서 body 가로 overflow와 브라우저 error 0건을 확인함
 
 ## 명시적 제외
 
