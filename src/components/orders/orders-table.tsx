@@ -1857,6 +1857,258 @@ const CompletedOrdersSection = memo(function CompletedOrdersSection({
   );
 });
 
+type PendingOrdersSectionProps = {
+  density: LedgerDensity;
+  visiblePendingOrders: OrderWithRelations[];
+  isPendingLoading: boolean;
+  isDesktop: boolean;
+  pendingScrollRef: RefObject<HTMLDivElement | null>;
+  pendingOnScroll: () => void;
+  pendingVirtualItems: Array<{ item: OrderWithRelations; index: number }>;
+  pendingTopPadding: number;
+  pendingBottomPadding: number;
+  selectionMode: boolean;
+  selectedOrderIds: Set<string>;
+  deletingId: string | null;
+  swipedRowId: string | null;
+  expandedOrderId: string | null;
+  pendingCompleteMenuId: string | null;
+  toggleExpanded: (id: string) => void;
+  toggleOrderSelection: (id: string) => void;
+  goToOrderDetail: (id: string) => void;
+  duplicateOrder: (id: string) => void;
+  handleDelete: (row: OrderWithRelations) => void;
+  handleSwipeLeft: (id: string) => void;
+  handleSwipeCancel: () => void;
+  supabase: ReturnType<typeof createClient>;
+  handlePatched: (previous: OrderWithRelations, updated: OrderWithRelations) => void;
+  onPendingCompleteMenuChange: (rowId: string, open: boolean) => void;
+};
+
+const PendingOrdersSection = memo(function PendingOrdersSection({
+  density,
+  visiblePendingOrders,
+  isPendingLoading,
+  isDesktop,
+  pendingScrollRef,
+  pendingOnScroll,
+  pendingVirtualItems,
+  pendingTopPadding,
+  pendingBottomPadding,
+  selectionMode,
+  selectedOrderIds,
+  deletingId,
+  swipedRowId,
+  expandedOrderId,
+  pendingCompleteMenuId,
+  toggleExpanded,
+  toggleOrderSelection,
+  goToOrderDetail,
+  duplicateOrder,
+  handleDelete,
+  handleSwipeLeft,
+  handleSwipeCancel,
+  supabase,
+  handlePatched,
+  onPendingCompleteMenuChange,
+}: PendingOrdersSectionProps) {
+  return (
+    <section className={cn("flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]", density === "compact" ? "p-3" : "p-4")}>
+      <div className="flex shrink-0 items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold tracking-tight text-amber-700 dark:text-amber-300">
+            미완료 주문
+          </h2>
+          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
+            {visiblePendingOrders.length.toLocaleString("ko-KR")}
+          </span>
+        </div>
+      </div>
+
+      {isDesktop ? (
+        <div className="mt-4 overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700">
+          <div
+            ref={pendingScrollRef}
+            onScroll={pendingOnScroll}
+            className="max-h-96 overflow-y-auto overflow-x-auto lg:max-h-[560px]"
+          >
+            <Table className="min-w-[52rem]">
+              <TableHeader className="bg-surface-soft dark:bg-slate-700/40">
+                <TableRow>
+                  <TableHead className="px-3">주문 정보</TableHead>
+                  <TableHead className="whitespace-nowrap px-3">구매일</TableHead>
+                  <TableHead className="whitespace-nowrap text-right">구매금액</TableHead>
+                  <TableHead className="whitespace-nowrap px-3">플랫폼</TableHead>
+                  <TableHead className="min-w-[14rem] px-3">추가 정보</TableHead>
+                  <TableHead className="whitespace-nowrap px-3 text-right">완료</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isPendingLoading ? (
+                  <TableLoadingRow colSpan={6} />
+                ) : visiblePendingOrders.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={6}
+                      className="px-3 py-4 text-center text-sm text-muted-foreground"
+                    >
+                      조건에 맞는 미완료 주문이 없습니다.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  <>
+                    {pendingTopPadding > 0 ? (
+                      <TableRow aria-hidden>
+                        <TableCell colSpan={6} className="border-0 p-0" style={{ height: pendingTopPadding }} />
+                      </TableRow>
+                    ) : null}
+                    {pendingVirtualItems.map(({ item: row }) => (
+                      <TableRow
+                        key={row.id}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={selectionMode ? `${row.product_name} 주문 선택` : `${row.product_name} 주문 상세`}
+                        aria-pressed={selectionMode ? selectedOrderIds.has(row.id) : undefined}
+                        className={cn(
+                          "group cursor-pointer border-l-2 border-l-amber-400/90 bg-amber-50/30 transition-colors hover:bg-amber-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-amber-500/50 dark:hover:bg-amber-500/10",
+                          selectedOrderIds.has(row.id) && "bg-primary/10 ring-1 ring-inset ring-primary/30 hover:bg-primary/10",
+                        )}
+                        onClick={() => selectionMode ? toggleOrderSelection(row.id) : goToOrderDetail(row.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            if (selectionMode) toggleOrderSelection(row.id);
+                            else goToOrderDetail(row.id);
+                          }
+                        }}
+                      >
+                        <TableCell className={cn("relative max-w-[14rem] px-3", selectionMode ? "pl-10 pr-3" : "pr-20", density === "compact" ? "py-2" : "py-4")}>
+                          {selectionMode ? (
+                            <input
+                              type="checkbox"
+                              checked={selectedOrderIds.has(row.id)}
+                              onChange={() => toggleOrderSelection(row.id)}
+                              onClick={(event) => event.stopPropagation()}
+                              className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 accent-primary"
+                              aria-label={`${row.product_name} 선택`}
+                            />
+                          ) : null}
+                          <div>
+                            {row.title?.trim() ? (
+                              <p className="text-muted-foreground line-clamp-1 text-xs">{row.title}</p>
+                            ) : null}
+                            <p className="line-clamp-1 font-semibold">{row.product_name}</p>
+                            <p className="text-muted-foreground mt-1 line-clamp-1 text-xs">
+                              {row.notes?.trim() || "메모 없음"}
+                            </p>
+                          </div>
+                          {!selectionMode ? <>
+                            <button
+                              type="button"
+                              aria-label="주문 복제"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                duplicateOrder(row.id);
+                              }}
+                              className="absolute right-11 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl border bg-background text-muted-foreground opacity-0 transition hover:text-primary group-hover:opacity-100 focus:opacity-100"
+                            >
+                              <Copy className="h-3.5 w-3.5" aria-hidden />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="주문 삭제"
+                              disabled={deletingId === row.id}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleDelete(row); }}
+                              className={cn(
+                                "absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl border border-destructive/40 bg-destructive/10 text-destructive transition",
+                                "md:opacity-0 md:group-hover:opacity-100",
+                                swipedRowId === row.id
+                                  ? "pointer-events-auto opacity-100"
+                                  : "pointer-events-none opacity-0 md:pointer-events-auto",
+                              )}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </> : null}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap px-3">{formatDate(row.purchase_date)}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-medium">
+                          {formatKrw(row.purchase_price_krw)}
+                        </TableCell>
+                        <TableCell className="px-3">
+                          <PlatformBadge platform={row.platforms} />
+                        </TableCell>
+                        <TableCell className="min-w-0 px-3 py-2 align-top">
+                          <OrderDetailChips row={row} density="table" />
+                        </TableCell>
+                        <TableCell className="relative whitespace-nowrap px-3 py-2 align-top">
+                          {selectionMode ? (
+                            <span className="text-xs font-medium text-primary">{selectedOrderIds.has(row.id) ? "선택됨" : "선택"}</span>
+                          ) : <WebPendingCompleteDropdown
+                            row={row}
+                            isOpen={pendingCompleteMenuId === row.id}
+                            onClose={() => onPendingCompleteMenuChange(row.id, false)}
+                            onToggle={() => onPendingCompleteMenuChange(row.id, pendingCompleteMenuId !== row.id)}
+                            supabase={supabase}
+                            onPatched={(updated) => handlePatched(row, updated)}
+                          />}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {pendingBottomPadding > 0 ? (
+                      <TableRow aria-hidden>
+                        <TableCell colSpan={6} className="border-0 p-0" style={{ height: pendingBottomPadding }} />
+                      </TableRow>
+                    ) : null}
+                  </>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      ) : (
+        <div
+          ref={pendingScrollRef}
+          onScroll={pendingOnScroll}
+          className="mt-4 max-h-[22rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y"
+        >
+          {isPendingLoading ? (
+            <OrderListLoading label="미완료 주문" />
+          ) : visiblePendingOrders.length === 0 ? (
+            <p className="text-muted-foreground text-sm">조건에 맞는 미완료 주문이 없습니다.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {pendingTopPadding > 0 ? <div aria-hidden style={{ height: pendingTopPadding }} /> : null}
+              {pendingVirtualItems.map(({ item: row }) => (
+                <OrderCardItem
+                  key={row.id}
+                  row={row}
+                  isDeleting={deletingId === row.id}
+                  isSwiped={!selectionMode && swipedRowId === row.id}
+                  isExpanded={expandedOrderId === row.id}
+                  selectionMode={selectionMode}
+                  isSelected={selectedOrderIds.has(row.id)}
+                  onToggleExpand={toggleExpanded}
+                  onToggleSelection={toggleOrderSelection}
+                  onEditOrder={goToOrderDetail}
+                  onDuplicateOrder={duplicateOrder}
+                  onDelete={handleDelete}
+                  onSwipeLeft={handleSwipeLeft}
+                  onSwipeCancel={handleSwipeCancel}
+                  supabase={supabase}
+                  onPatchOrder={handlePatched}
+                />
+              ))}
+              {pendingBottomPadding > 0 ? <div aria-hidden style={{ height: pendingBottomPadding }} /> : null}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+});
+
 /** 많은 주문을 한꺼번에 선택해도 브라우저가 DB 요청을 과도하게 동시에 보내지 않도록 나눠 처리합니다. */
 async function runOrderMutationBatches<T, R>(
   items: T[],
@@ -2424,6 +2676,10 @@ export function OrdersTable({
     setCompletedActionsMenuId(open ? rowId : null);
   }, []);
 
+  const handlePendingCompleteMenuChange = useCallback((rowId: string, open: boolean) => {
+    setPendingCompleteMenuId(open ? rowId : null);
+  }, []);
+
   const handleSwipeLeft = useCallback((id: string) => setSwipedRowId(id), []);
   const handleSwipeCancel = useCallback(() => setSwipedRowId(null), []);
 
@@ -2662,200 +2918,33 @@ export function OrdersTable({
         />
       ) : null}
 
-      {/* ── 미완료 주문 섹션 ───────────────────────── */}
-      <section className={cn("flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]", density === "compact" ? "p-3" : "p-4")}>
-        <div className="flex shrink-0 items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-semibold tracking-tight text-amber-700 dark:text-amber-300">
-              미완료 주문
-            </h2>
-            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
-              {visiblePendingOrders.length.toLocaleString("ko-KR")}
-            </span>
-          </div>
-        </div>
-
-        {isDesktop ? (
-          <div className="mt-4 overflow-hidden rounded-lg border border-hairline shadow-xs dark:border-slate-700">
-            <div
-              ref={pendingVirtual.scrollRef}
-              onScroll={pendingVirtual.onScroll}
-              className="max-h-96 overflow-y-auto overflow-x-auto lg:max-h-[560px]"
-            >
-              <Table className="min-w-[52rem]">
-              <TableHeader className="bg-surface-soft dark:bg-slate-700/40">
-                <TableRow>
-                  <TableHead className="px-3">주문 정보</TableHead>
-                  <TableHead className="whitespace-nowrap px-3">구매일</TableHead>
-                  <TableHead className="whitespace-nowrap text-right">구매금액</TableHead>
-                  <TableHead className="whitespace-nowrap px-3">플랫폼</TableHead>
-                  <TableHead className="min-w-[14rem] px-3">추가 정보</TableHead>
-                  <TableHead className="whitespace-nowrap px-3 text-right">완료</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isPendingLoading ? (
-                  <TableLoadingRow colSpan={6} />
-                ) : visiblePendingOrders.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={6}
-                      className="px-3 py-4 text-center text-sm text-muted-foreground"
-                    >
-                      조건에 맞는 미완료 주문이 없습니다.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  <>
-                    {pendingVirtual.topPadding > 0 ? (
-                      <TableRow aria-hidden>
-                        <TableCell colSpan={6} className="border-0 p-0" style={{ height: pendingVirtual.topPadding }} />
-                      </TableRow>
-                    ) : null}
-                    {pendingVirtual.virtualItems.map(({ item: row }) => (
-                      <TableRow
-                        key={row.id}
-                      tabIndex={0}
-                      role="button"
-                      aria-label={selectionMode ? `${row.product_name} 주문 선택` : `${row.product_name} 주문 상세`}
-                      aria-pressed={selectionMode ? selectedOrderIds.has(row.id) : undefined}
-                      className={cn(
-                        "group cursor-pointer border-l-2 border-l-amber-400/90 bg-amber-50/30 transition-colors hover:bg-amber-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-amber-500/50 dark:hover:bg-amber-500/10",
-                        selectedOrderIds.has(row.id) && "bg-primary/10 ring-1 ring-inset ring-primary/30 hover:bg-primary/10",
-                      )}
-                      onClick={() => selectionMode ? toggleOrderSelection(row.id) : goToOrderDetail(row.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          if (selectionMode) toggleOrderSelection(row.id);
-                          else goToOrderDetail(row.id);
-                        }
-                      }}
-                    >
-                      <TableCell className={cn("relative max-w-[14rem] px-3", selectionMode ? "pl-10 pr-3" : "pr-20", density === "compact" ? "py-2" : "py-4")}>
-                        {selectionMode ? (
-                          <input
-                            type="checkbox"
-                            checked={selectedOrderIds.has(row.id)}
-                            onChange={() => toggleOrderSelection(row.id)}
-                            onClick={(event) => event.stopPropagation()}
-                            className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 accent-primary"
-                            aria-label={`${row.product_name} 선택`}
-                          />
-                        ) : null}
-                        <div>
-                          {row.title?.trim() ? (
-                            <p className="text-muted-foreground line-clamp-1 text-xs">{row.title}</p>
-                          ) : null}
-                          <p className="line-clamp-1 font-semibold">{row.product_name}</p>
-                          <p className="text-muted-foreground mt-1 line-clamp-1 text-xs">
-                            {row.notes?.trim() || "메모 없음"}
-                          </p>
-                        </div>
-                        {!selectionMode ? <><button
-                          type="button"
-                          aria-label="주문 복제"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            router.push(`/orders/new?copy=${encodeURIComponent(row.id)}`);
-                          }}
-                          className="absolute right-11 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl border bg-background text-muted-foreground opacity-0 transition hover:text-primary group-hover:opacity-100 focus:opacity-100"
-                        >
-                          <Copy className="h-3.5 w-3.5" aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label="주문 삭제"
-                          disabled={deletingId === row.id}
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleDelete(row); }}
-                          className={cn(
-                            "absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-xl border border-destructive/40 bg-destructive/10 text-destructive transition",
-                            "md:opacity-0 md:group-hover:opacity-100",
-                            swipedRowId === row.id
-                              ? "pointer-events-auto opacity-100"
-                              : "pointer-events-none opacity-0 md:pointer-events-auto",
-                          )}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button></> : null}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap px-3">{formatDate(row.purchase_date)}</TableCell>
-                      <TableCell className="whitespace-nowrap text-right font-medium">
-                        {formatKrw(row.purchase_price_krw)}
-                      </TableCell>
-                      <TableCell className="px-3">
-                        <PlatformBadge platform={row.platforms} />
-                      </TableCell>
-                      <TableCell className="min-w-0 px-3 py-2 align-top">
-                        <OrderDetailChips row={row} density="table" />
-                      </TableCell>
-                      <TableCell className="relative whitespace-nowrap px-3 py-2 align-top">
-                        {selectionMode ? (
-                          <span className="text-xs font-medium text-primary">{selectedOrderIds.has(row.id) ? "선택됨" : "선택"}</span>
-                        ) : <WebPendingCompleteDropdown
-                            row={row}
-                            isOpen={pendingCompleteMenuId === row.id}
-                            onClose={() => setPendingCompleteMenuId(null)}
-                          onToggle={() =>
-                            setPendingCompleteMenuId((prev) => (prev === row.id ? null : row.id))
-                          }
-                          supabase={supabase}
-                          onPatched={(updated) => handlePatched(row, updated)}
-                        />}
-                      </TableCell>
-                    </TableRow>
-                    ))}
-                    {pendingVirtual.bottomPadding > 0 ? (
-                      <TableRow aria-hidden>
-                        <TableCell colSpan={6} className="border-0 p-0" style={{ height: pendingVirtual.bottomPadding }} />
-                      </TableRow>
-                    ) : null}
-                  </>
-                )}
-              </TableBody>
-            </Table>
-            </div>
-          </div>
-        ) : (
-          <div
-            ref={pendingVirtual.scrollRef}
-            onScroll={pendingVirtual.onScroll}
-            className="mt-4 max-h-[22rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y"
-          >
-            {isPendingLoading ? (
-              <OrderListLoading label="미완료 주문" />
-            ) : visiblePendingOrders.length === 0 ? (
-              <p className="text-muted-foreground text-sm">조건에 맞는 미완료 주문이 없습니다.</p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {pendingVirtual.topPadding > 0 ? <div aria-hidden style={{ height: pendingVirtual.topPadding }} /> : null}
-                {pendingVirtual.virtualItems.map(({ item: row }) => (
-                  <OrderCardItem
-                    key={row.id}
-                    row={row}
-                    isDeleting={deletingId === row.id}
-                    isSwiped={!selectionMode && swipedRowId === row.id}
-                    isExpanded={expandedOrderId === row.id}
-                    selectionMode={selectionMode}
-                    isSelected={selectedOrderIds.has(row.id)}
-                    onToggleExpand={toggleExpanded}
-                    onToggleSelection={toggleOrderSelection}
-                    onEditOrder={goToOrderDetail}
-                    onDuplicateOrder={duplicateOrder}
-                    onDelete={handleDelete}
-                    onSwipeLeft={handleSwipeLeft}
-                    onSwipeCancel={handleSwipeCancel}
-                    supabase={supabase}
-                    onPatchOrder={handlePatched}
-                  />
-                ))}
-                {pendingVirtual.bottomPadding > 0 ? <div aria-hidden style={{ height: pendingVirtual.bottomPadding }} /> : null}
-              </div>
-            )}
-          </div>
-        )}
-      </section>
+      <PendingOrdersSection
+        density={density}
+        visiblePendingOrders={visiblePendingOrders}
+        isPendingLoading={isPendingLoading}
+        isDesktop={isDesktop}
+        pendingScrollRef={pendingVirtual.scrollRef}
+        pendingOnScroll={pendingVirtual.onScroll}
+        pendingVirtualItems={pendingVirtual.virtualItems}
+        pendingTopPadding={pendingVirtual.topPadding}
+        pendingBottomPadding={pendingVirtual.bottomPadding}
+        selectionMode={selectionMode}
+        selectedOrderIds={selectedOrderIds}
+        deletingId={deletingId}
+        swipedRowId={swipedRowId}
+        expandedOrderId={expandedOrderId}
+        pendingCompleteMenuId={pendingCompleteMenuId}
+        toggleExpanded={toggleExpanded}
+        toggleOrderSelection={toggleOrderSelection}
+        goToOrderDetail={goToOrderDetail}
+        duplicateOrder={duplicateOrder}
+        handleDelete={handleDelete}
+        handleSwipeLeft={handleSwipeLeft}
+        handleSwipeCancel={handleSwipeCancel}
+        supabase={supabase}
+        handlePatched={handlePatched}
+        onPendingCompleteMenuChange={handlePendingCompleteMenuChange}
+      />
 
       <CompletedOrdersSection
         density={density}
