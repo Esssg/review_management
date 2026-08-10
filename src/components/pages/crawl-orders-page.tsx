@@ -1399,6 +1399,97 @@ function crawlOrderToDraft(row: CrawlOrderRow, userId: string, master: MasterDat
   };
 }
 
+type CrawlReviewActions = {
+  onSave: (payload: OrderInsert) => Promise<{ error?: string; redirectHref?: string }>;
+  onDelete: () => Promise<{ error?: string; redirectHref?: string }>;
+  afterSaveHref: string;
+  afterDeleteHref: string;
+  deleteConfirmLabel: string;
+};
+
+const CrawlOrderReviewPage = memo(function CrawlOrderReviewPage({
+  selectedOrder,
+  draftOrder,
+  orders,
+  master,
+  sessionStartPendingCount,
+  autoAdvanceRecommendations,
+  crawlPaymentMethod,
+  importActions,
+  onToggleAutoAdvance,
+  onSelectOrder,
+}: {
+  selectedOrder: CrawlOrderRow;
+  draftOrder: ReturnType<typeof crawlOrderToDraft>;
+  orders: CrawlOrderRow[];
+  master: MasterData;
+  sessionStartPendingCount: number | null;
+  autoAdvanceRecommendations: boolean;
+  crawlPaymentMethod: string;
+  importActions: CrawlReviewActions;
+  onToggleAutoAdvance: () => void;
+  onSelectOrder: (id: string) => void;
+}) {
+  return (
+    <div className="text-foreground mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6 lg:px-8">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">자동 추천 확인</h1>
+          <p className="text-muted-foreground mt-1 text-sm leading-snug break-words">
+            저장하면 장부에 주문이 추가됩니다. 이번 흐름에서 {Math.max(0, (sessionStartPendingCount ?? orders.length) - orders.length)}건 처리 · {orders.length}건 남음
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
+          <GlobalSearchTrigger />
+          <label className="flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border bg-card px-3 text-xs font-medium">
+            <input type="checkbox" checked={autoAdvanceRecommendations} onChange={onToggleAutoAdvance} className="h-4 w-4 accent-primary" />
+            처리 후 다음 항목
+          </label>
+          <Link href={crawlListHref} className={cn(buttonVariants({ variant: "outline", size: "default" }), "shrink-0")}>
+            목록으로
+          </Link>
+        </div>
+      </div>
+
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[20rem_minmax(0,1fr)]">
+        {/* 넓은 화면에서는 대기 목록을 유지해 저장 후 흐름과 다른 추천을 함께 확인합니다. */}
+        <aside className="hidden h-fit max-h-[calc(100vh-8rem)] overflow-y-auto rounded-xl border bg-card p-3 shadow-xs lg:sticky lg:top-5 lg:block">
+          <div className="mb-3 flex items-center justify-between gap-2 px-1">
+            <h2 className="text-sm font-semibold">추천 대기 목록</h2>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">{orders.length}</span>
+          </div>
+          <div className="grid gap-1.5">
+            {orders.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                onClick={() => onSelectOrder(row.id)}
+                className={cn(
+                  "rounded-xl border px-3 py-2.5 text-left transition-colors",
+                  row.id === selectedOrder.id ? "border-primary/40 bg-primary/8" : "border-transparent bg-muted/35 hover:bg-muted/70",
+                )}
+              >
+                <span className="block truncate text-sm font-semibold">{displayPrimary(row)}</span>
+                <span className="mt-1 block truncate text-xs text-muted-foreground">{displaySecondary(row) || `ID ${row.id}`}</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-3 border-t pt-3 text-[11px] text-muted-foreground">J/K 이전·다음 · Esc 목록</p>
+        </aside>
+        <OrderDetailForm
+          key={selectedOrder.id}
+          draftOrder={draftOrder}
+          crawlPaymentMethod={crawlPaymentMethod}
+          importActions={importActions}
+          platforms={master.platforms}
+          paymentMethods={master.paymentMethods}
+          buyerAccounts={master.buyerAccounts}
+        />
+      </div>
+    </div>
+  );
+});
+
 export function CrawlOrdersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1766,7 +1857,7 @@ export function CrawlOrdersPage() {
     return data ? `${crawlListHref}?id=${encodeURIComponent(data.id)}` : crawlListHref;
   }, [autoAdvanceRecommendations, userId]);
 
-  const toggleAutoAdvance = () => {
+  const toggleAutoAdvance = useCallback(() => {
     if (!userId) return;
     const next = !autoAdvanceRecommendations;
     setAutoAdvanceRecommendations(next);
@@ -1775,7 +1866,63 @@ export function CrawlOrdersPage() {
       { user_id: userId, auto_advance_recommendations: next },
       { onConflict: "user_id" },
     );
-  };
+  }, [autoAdvanceRecommendations, userId]);
+
+  const saveSelectedCrawlOrder = useCallback(async (payload: OrderInsert) => {
+    if (!selectedOrder || !userId) return { error: "주문 정보를 불러오지 못했습니다." };
+
+    const supabase = createClient();
+    const insertResult = await supabase
+      .from("orders")
+      .insert({ ...payload, user_id: userId })
+      .select("id")
+      .single();
+
+    if (insertResult.error) return { error: insertResult.error.message };
+
+    // 주문 삽입 후 원본 상태를 바꿉니다. 상태 변경 실패 시 방금 넣은 주문을 되돌립니다.
+    const statusResult = await supabase
+      .from("crawl_orders")
+      .update({ crawl_order_status: 1 }, { count: "exact" })
+      .eq("id", selectedOrder.id)
+      .eq("user_id", userId)
+      .eq("crawl_order_status", 0);
+
+    if (statusResult.error || statusResult.count === 0) {
+      await supabase.from("orders").delete().eq("id", insertResult.data.id);
+      return { error: statusResult.error?.message ?? "이미 처리된 크롤링 주문입니다." };
+    }
+
+    return { redirectHref: await getNextRecommendationHref() };
+  }, [getNextRecommendationHref, selectedOrder, userId]);
+
+  const deleteSelectedCrawlOrder = useCallback(async () => {
+    if (!selectedOrder || !userId) return { error: "주문 정보를 불러오지 못했습니다." };
+
+    const supabase = createClient();
+    const { error, count } = await supabase
+      .from("crawl_orders")
+      .update({ crawl_order_status: 99 }, { count: "exact" })
+      .eq("id", selectedOrder.id)
+      .eq("user_id", userId)
+      .eq("crawl_order_status", 0);
+
+    if (error) return { error: error.message };
+    if (count === 0) return { error: "이미 처리된 크롤링 주문입니다." };
+    return { redirectHref: await getNextRecommendationHref() };
+  }, [getNextRecommendationHref, selectedOrder, userId]);
+
+  const selectedImportActions = useMemo<CrawlReviewActions>(() => {
+    return {
+      afterSaveHref: crawlListHref,
+      afterDeleteHref: crawlListHref,
+      deleteConfirmLabel: selectedOrder
+        ? `"${displayPrimary(selectedOrder)}" 항목을 삭제 처리할까요?`
+        : "크롤링 주문을 삭제 처리할까요?",
+      onSave: saveSelectedCrawlOrder,
+      onDelete: deleteSelectedCrawlOrder,
+    };
+  }, [deleteSelectedCrawlOrder, saveSelectedCrawlOrder, selectedOrder]);
 
   const preparedDepositRecommendationOrders = useMemo<PreparedDepositOrder[]>(
     () =>
@@ -2167,104 +2314,18 @@ export function CrawlOrdersPage() {
 
   if (selectedId && selectedOrder && draftOrder && master && userId) {
     return (
-      <div className="text-foreground mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6 lg:px-8">
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight">자동 추천 확인</h1>
-            <p className="text-muted-foreground mt-1 text-sm leading-snug break-words">
-              저장하면 장부에 주문이 추가됩니다. 이번 흐름에서 {Math.max(0, (sessionStartPendingCount ?? orders.length) - orders.length)}건 처리 · {orders.length}건 남음
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
-            <GlobalSearchTrigger />
-            <label className="flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border bg-card px-3 text-xs font-medium">
-              <input type="checkbox" checked={autoAdvanceRecommendations} onChange={toggleAutoAdvance} className="h-4 w-4 accent-primary" />
-              처리 후 다음 항목
-            </label>
-            <Link href={crawlListHref} className={cn(buttonVariants({ variant: "outline", size: "default" }), "shrink-0")}>
-              목록으로
-            </Link>
-          </div>
-        </div>
-
-        <div className="grid min-w-0 gap-5 lg:grid-cols-[20rem_minmax(0,1fr)]">
-          {/* 넓은 화면에서는 대기 목록을 유지해 저장 후 흐름과 다른 추천을 함께 확인합니다. */}
-          <aside className="hidden h-fit max-h-[calc(100vh-8rem)] overflow-y-auto rounded-xl border bg-card p-3 shadow-xs lg:sticky lg:top-5 lg:block">
-            <div className="mb-3 flex items-center justify-between gap-2 px-1">
-              <h2 className="text-sm font-semibold">추천 대기 목록</h2>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">{orders.length}</span>
-            </div>
-            <div className="grid gap-1.5">
-              {orders.map((row) => (
-                <button
-                  key={row.id}
-                  type="button"
-                  onClick={() => router.push(`${crawlListHref}?id=${encodeURIComponent(row.id)}`)}
-                  className={cn(
-                    "rounded-xl border px-3 py-2.5 text-left transition-colors",
-                    row.id === selectedOrder.id ? "border-primary/40 bg-primary/8" : "border-transparent bg-muted/35 hover:bg-muted/70",
-                  )}
-                >
-                  <span className="block truncate text-sm font-semibold">{displayPrimary(row)}</span>
-                  <span className="mt-1 block truncate text-xs text-muted-foreground">{displaySecondary(row) || `ID ${row.id}`}</span>
-                </button>
-              ))}
-            </div>
-            <p className="mt-3 border-t pt-3 text-[11px] text-muted-foreground">J/K 이전·다음 · Esc 목록</p>
-          </aside>
-          <OrderDetailForm
-            key={selectedOrder.id}
-            draftOrder={draftOrder}
-            crawlPaymentMethod={readText(selectedOrder, ["payment_method"])}
-            importActions={{
-            afterSaveHref: crawlListHref,
-            afterDeleteHref: crawlListHref,
-            deleteConfirmLabel: `"${displayPrimary(selectedOrder)}" 항목을 삭제 처리할까요?`,
-            onSave: async (payload: OrderInsert) => {
-              const supabase = createClient();
-              const insertResult = await supabase
-                .from("orders")
-                .insert({ ...payload, user_id: userId })
-                .select("id")
-                .single();
-
-              if (insertResult.error) return { error: insertResult.error.message };
-
-              // 주문 삽입 후 원본 상태를 바꿉니다. 상태 변경 실패 시 방금 넣은 주문을 되돌립니다.
-              const statusResult = await supabase
-                .from("crawl_orders")
-                .update({ crawl_order_status: 1 }, { count: "exact" })
-                .eq("id", selectedOrder.id)
-                .eq("user_id", userId)
-                .eq("crawl_order_status", 0);
-
-              if (statusResult.error || statusResult.count === 0) {
-                await supabase.from("orders").delete().eq("id", insertResult.data.id);
-                return { error: statusResult.error?.message ?? "이미 처리된 크롤링 주문입니다." };
-              }
-
-              return { redirectHref: await getNextRecommendationHref() };
-            },
-            onDelete: async () => {
-              const supabase = createClient();
-              const { error, count } = await supabase
-                .from("crawl_orders")
-                .update({ crawl_order_status: 99 }, { count: "exact" })
-                .eq("id", selectedOrder.id)
-                .eq("user_id", userId)
-                .eq("crawl_order_status", 0);
-
-              if (error) return { error: error.message };
-              if (count === 0) return { error: "이미 처리된 크롤링 주문입니다." };
-              return { redirectHref: await getNextRecommendationHref() };
-            },
-            }}
-            platforms={master.platforms}
-            paymentMethods={master.paymentMethods}
-            buyerAccounts={master.buyerAccounts}
-          />
-        </div>
-      </div>
+      <CrawlOrderReviewPage
+        selectedOrder={selectedOrder}
+        draftOrder={draftOrder}
+        orders={orders}
+        master={master}
+        sessionStartPendingCount={sessionStartPendingCount}
+        autoAdvanceRecommendations={autoAdvanceRecommendations}
+        crawlPaymentMethod={readText(selectedOrder, ["payment_method"])}
+        importActions={selectedImportActions}
+        onToggleAutoAdvance={toggleAutoAdvance}
+        onSelectOrder={selectCrawlOrder}
+      />
     );
   }
 

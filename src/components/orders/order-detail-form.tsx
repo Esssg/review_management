@@ -649,6 +649,172 @@ const AiReviewPanel = memo(function AiReviewPanel({
   );
 });
 
+const AdditionalOrderInfoSection = memo(function AdditionalOrderInfoSection({
+  scheduledPurchaseAt,
+  onScheduledPurchaseAtChange,
+  orderStatus,
+  onOrderStatusChange,
+  productUrl,
+  onProductUrlChange,
+  notes,
+  onNotesChange,
+}: {
+  scheduledPurchaseAt: string;
+  onScheduledPurchaseAtChange: (value: string) => void;
+  orderStatus: string;
+  onOrderStatusChange: (value: string) => void;
+  productUrl: string;
+  onProductUrlChange: (value: string) => void;
+  notes: string;
+  onNotesChange: (value: string) => void;
+}) {
+  return (
+    <details
+      className="group rounded-2xl border bg-card text-card-foreground shadow-sm ring-1 ring-border/60"
+    >
+      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:hidden">
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-700 ring-1 ring-sky-500/20 dark:text-sky-300">
+            <CalendarClock className="h-4 w-4" aria-hidden />
+          </span>
+          <span>
+            <span className="block text-sm font-semibold">추가 정보</span>
+            <span className="block text-xs text-muted-foreground">구매 일정·상품 링크·메모</span>
+          </span>
+        </span>
+        <span className="text-xs font-medium text-muted-foreground group-open:hidden">펼치기</span>
+        <span className="hidden text-xs font-medium text-muted-foreground group-open:inline">접기</span>
+      </summary>
+      <div className="border-t border-border/60 px-4 pb-2">
+        <div className="grid gap-x-4 sm:grid-cols-2">
+          <FormRow label="구매 예정 시각" hint="선택">
+            <Input
+              type="datetime-local"
+              value={scheduledPurchaseAt}
+              onChange={(event) => onScheduledPurchaseAtChange(event.target.value)}
+              className="h-10 rounded-xl md:text-sm"
+            />
+          </FormRow>
+          <FormRow label="주문 상태" hint="선택">
+            <Input
+              value={orderStatus}
+              onChange={(event) => onOrderStatusChange(event.target.value)}
+              placeholder="예: 결제 대기, 발송 준비"
+              className="h-10 rounded-xl md:text-sm"
+            />
+          </FormRow>
+        </div>
+        <FormRow label="상품 URL" hint="선택">
+          <Input
+            type="url"
+            value={productUrl}
+            onChange={(event) => onProductUrlChange(event.target.value)}
+            placeholder="https://"
+            className="h-10 rounded-xl md:text-sm"
+          />
+        </FormRow>
+        <FormRow label="메모" hint="선택">
+          <textarea
+            rows={3}
+            value={notes}
+            onChange={(event) => onNotesChange(event.target.value)}
+            className={controlTextareaClass}
+            placeholder="주문 처리에 필요한 메모를 적어 주세요"
+          />
+        </FormRow>
+      </div>
+    </details>
+  );
+});
+
+const OrderCompletionInfoSection = memo(function OrderCompletionInfoSection({
+  isEditMode,
+  isImportMode,
+  isProcessed,
+  onIsProcessedChange,
+  depositDate,
+  onDepositDateChange,
+  depositAmount,
+  onDepositAmountChange,
+  depositMemo,
+  onDepositMemoChange,
+}: {
+  isEditMode: boolean;
+  isImportMode: boolean;
+  isProcessed: string;
+  onIsProcessedChange: (value: string) => void;
+  depositDate: string;
+  onDepositDateChange: (value: string) => void;
+  depositAmount: string;
+  onDepositAmountChange: (value: string) => void;
+  depositMemo: string;
+  onDepositMemoChange: (value: string) => void;
+}) {
+  return (
+    <Card className="bg-muted/20 shadow-sm ring-border/50 dark:bg-muted/10" size="sm">
+      <CardHeader className="border-border/50 border-b pb-4">
+        <div className="flex items-start gap-3">
+          <span className="bg-background text-muted-foreground flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-border/80">
+            <Sparkles className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+          </span>
+          <div className="min-w-0 space-y-1">
+            <CardTitle className="text-base">완료정보</CardTitle>
+            <CardDescription className="text-xs leading-relaxed">
+              입금이 끝난 주문이면 입금일·금액을 입력해 두면 장부 정리에 도움이 됩니다.
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="divide-y divide-border/50">
+          {!isEditMode && !isImportMode ? (
+            <FormRow label="입금 완료 여부" hint="처음부터 완료로 넣을 때만 선택">
+              <select
+                value={isProcessed}
+                onChange={(event) => onIsProcessedChange(event.target.value)}
+                className={controlSelectClass}
+              >
+                <option value="false">미완료</option>
+                <option value="true">완료</option>
+              </select>
+            </FormRow>
+          ) : null}
+          <div className="grid gap-0 sm:grid-cols-2 sm:gap-x-4">
+            <FormRow label="입금일">
+              <Input
+                type="date"
+                value={depositDate}
+                onChange={(event) => onDepositDateChange(event.target.value)}
+                className="h-10 rounded-xl md:text-sm"
+              />
+            </FormRow>
+            <FormRow label="실입금 금액" hint="원">
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
+                value={depositAmount}
+                onChange={(event) => onDepositAmountChange(event.target.value)}
+                className="h-10 rounded-xl tabular-nums md:text-sm"
+              />
+            </FormRow>
+          </div>
+          <FormRow label="입금 메모">
+            <textarea
+              rows={3}
+              value={depositMemo}
+              onChange={(event) => onDepositMemoChange(event.target.value)}
+              className={controlTextareaClass}
+              placeholder="입금 확인 메모가 있으면 적어 주세요"
+            />
+          </FormRow>
+        </div>
+      </CardContent>
+    </Card>
+  );
+});
+
 export function OrderDetailForm({
   order,
   draftOrder,
@@ -2009,61 +2175,16 @@ export function OrderDetailForm({
         </CardContent>
       </Card>
 
-      <details
-        className="group rounded-2xl border bg-card text-card-foreground shadow-sm ring-1 ring-border/60"
-      >
-        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:hidden">
-          <span className="flex min-w-0 items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-700 ring-1 ring-sky-500/20 dark:text-sky-300">
-              <CalendarClock className="h-4 w-4" aria-hidden />
-            </span>
-            <span>
-              <span className="block text-sm font-semibold">추가 정보</span>
-              <span className="block text-xs text-muted-foreground">구매 일정·상품 링크·메모</span>
-            </span>
-          </span>
-          <span className="text-xs font-medium text-muted-foreground group-open:hidden">펼치기</span>
-          <span className="hidden text-xs font-medium text-muted-foreground group-open:inline">접기</span>
-        </summary>
-        <div className="border-t border-border/60 px-4 pb-2">
-          <div className="grid gap-x-4 sm:grid-cols-2">
-            <FormRow label="구매 예정 시각" hint="선택">
-              <Input
-                type="datetime-local"
-                value={scheduledPurchaseAt}
-                onChange={(event) => setScheduledPurchaseAt(event.target.value)}
-                className="h-10 rounded-xl md:text-sm"
-              />
-            </FormRow>
-            <FormRow label="주문 상태" hint="선택">
-              <Input
-                value={orderStatus}
-                onChange={(event) => setOrderStatus(event.target.value)}
-                placeholder="예: 결제 대기, 발송 준비"
-                className="h-10 rounded-xl md:text-sm"
-              />
-            </FormRow>
-          </div>
-          <FormRow label="상품 URL" hint="선택">
-            <Input
-              type="url"
-              value={productUrl}
-              onChange={(event) => setProductUrl(event.target.value)}
-              placeholder="https://"
-              className="h-10 rounded-xl md:text-sm"
-            />
-          </FormRow>
-          <FormRow label="메모" hint="선택">
-            <textarea
-              rows={3}
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              className={controlTextareaClass}
-              placeholder="주문 처리에 필요한 메모를 적어 주세요"
-            />
-          </FormRow>
-        </div>
-      </details>
+      <AdditionalOrderInfoSection
+        scheduledPurchaseAt={scheduledPurchaseAt}
+        onScheduledPurchaseAtChange={setScheduledPurchaseAt}
+        orderStatus={orderStatus}
+        onOrderStatusChange={setOrderStatus}
+        productUrl={productUrl}
+        onProductUrlChange={setProductUrl}
+        notes={notes}
+        onNotesChange={setNotes}
+      />
 
       {isEditMode && order ? (
         <AiReviewPanel
@@ -2079,67 +2200,18 @@ export function OrderDetailForm({
         />
       ) : null}
 
-      <Card className="bg-muted/20 shadow-sm ring-border/50 dark:bg-muted/10" size="sm">
-        <CardHeader className="border-border/50 border-b pb-4">
-          <div className="flex items-start gap-3">
-            <span className="bg-background text-muted-foreground flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-border/80">
-              <Sparkles className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-            </span>
-            <div className="min-w-0 space-y-1">
-              <CardTitle className="text-base">완료정보</CardTitle>
-              <CardDescription className="text-xs leading-relaxed">
-                입금이 끝난 주문이면 입금일·금액을 입력해 두면 장부 정리에 도움이 됩니다.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="divide-y divide-border/50">
-            {!isEditMode && !isImportMode ? (
-              <FormRow label="입금 완료 여부" hint="처음부터 완료로 넣을 때만 선택">
-                <select
-                  value={isProcessed}
-                  onChange={(event) => setIsProcessed(event.target.value)}
-                  className={controlSelectClass}
-                >
-                  <option value="false">미완료</option>
-                  <option value="true">완료</option>
-                </select>
-              </FormRow>
-            ) : null}
-            <div className="grid gap-0 sm:grid-cols-2 sm:gap-x-4">
-              <FormRow label="입금일">
-                <Input
-                  type="date"
-                  value={depositDate}
-                  onChange={(event) => setDepositDate(event.target.value)}
-                  className="h-10 rounded-xl md:text-sm"
-                />
-              </FormRow>
-              <FormRow label="실입금 금액" hint="원">
-                <Input
-                  type="number"
-                  min={0}
-                  step={1}
-                  inputMode="numeric"
-                  value={depositAmount}
-                  onChange={(event) => setDepositAmount(event.target.value)}
-                  className="h-10 rounded-xl tabular-nums md:text-sm"
-                />
-              </FormRow>
-            </div>
-            <FormRow label="입금 메모">
-              <textarea
-                rows={3}
-                value={depositMemo}
-                onChange={(event) => setDepositMemo(event.target.value)}
-                className={controlTextareaClass}
-                placeholder="입금 확인 메모가 있으면 적어 주세요"
-              />
-            </FormRow>
-          </div>
-        </CardContent>
-      </Card>
+      <OrderCompletionInfoSection
+        isEditMode={isEditMode}
+        isImportMode={isImportMode}
+        isProcessed={isProcessed}
+        onIsProcessedChange={setIsProcessed}
+        depositDate={depositDate}
+        onDepositDateChange={setDepositDate}
+        depositAmount={depositAmount}
+        onDepositAmountChange={setDepositAmount}
+        depositMemo={depositMemo}
+        onDepositMemoChange={setDepositMemo}
+      />
 
       {isImportMode && importActions ? (
         <div
