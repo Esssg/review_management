@@ -608,6 +608,101 @@ function NicknameSettingsView({
   );
 }
 
+function OrderDefaultsSettingsView({
+  header,
+  alerts,
+  preferences,
+  platforms,
+  paymentMethods,
+  buyerAccounts,
+  purchaseTemplates,
+  isHidden,
+  onUpdatePreferences,
+}: {
+  header: ReactNode;
+  alerts: ReactNode;
+  preferences: UserPreferences;
+  platforms: Platform[];
+  paymentMethods: PaymentMethod[];
+  buyerAccounts: BuyerAccount[];
+  purchaseTemplates: PurchaseTemplateRow[];
+  isHidden: (targetId: string, itemType: string) => boolean;
+  onUpdatePreferences: (
+    patch: Database["public"]["Tables"]["user_preferences"]["Update"],
+  ) => Promise<boolean>;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      {header}
+      {alerts}
+      <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5">
+        <SectionHeader
+          title="새 주문 기본값"
+          description="선택한 값은 새 주문을 열 때 먼저 적용됩니다. 지정하지 않은 항목은 마지막 저장 주문의 값을 사용합니다."
+        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">결제 플랫폼</span>
+            <select value={preferences.default_platform_id ?? ""} onChange={(event) => void onUpdatePreferences({ default_platform_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
+              <option value="">최근 사용값</option>
+              {platforms.filter((item) => !isHidden(item.id, "platform")).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">결제 수단</span>
+            <select value={preferences.default_payment_method_id ?? ""} onChange={(event) => void onUpdatePreferences({ default_payment_method_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
+              <option value="">최근 사용값</option>
+              {paymentMethods.filter((item) => !isHidden(item.id, "payment_method")).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">구매 계정</span>
+            <select value={preferences.default_buyer_account_id ?? ""} onChange={(event) => void onUpdatePreferences({ default_buyer_account_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
+              <option value="">최근 사용값</option>
+              {buyerAccounts.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">구매 정보 템플릿</span>
+            <select value={preferences.default_purchase_info_template_id ?? ""} onChange={(event) => void onUpdatePreferences({ default_purchase_info_template_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
+              <option value="">최근 사용값</option>
+              {purchaseTemplates.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5">
+        <SectionHeader title="업무 흐름" description="저장 뒤 이동 방식과 목록 표시 밀도를 정합니다." />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">주문 저장 후</span>
+            <select value={preferences.order_save_action} onChange={(event) => void onUpdatePreferences({ order_save_action: event.target.value as OrderSaveAction })} className="h-10 rounded-xl border border-input bg-background px-3">
+              <option value="ledger">구매장부로 이동</option>
+              <option value="same">같은 정보로 계속 등록</option>
+              <option value="blank">빈 입력 화면 열기</option>
+            </select>
+          </label>
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">구매장부 밀도</span>
+            <select value={preferences.ledger_density} onChange={(event) => void onUpdatePreferences({ ledger_density: event.target.value })} className="h-10 rounded-xl border border-input bg-background px-3">
+              <option value="compact">촘촘하게</option>
+              <option value="comfortable">편안하게</option>
+            </select>
+          </label>
+        </div>
+        <label className="mt-4 flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm">
+          <span>
+            <span className="block font-medium">자동추천 연속 처리</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">저장·삭제 후 다음 대기 추천으로 이동합니다.</span>
+          </span>
+          <input type="checkbox" checked={preferences.auto_advance_recommendations} onChange={(event) => void onUpdatePreferences({ auto_advance_recommendations: event.target.checked })} className="h-5 w-5 accent-primary" />
+        </label>
+      </section>
+    </div>
+  );
+}
+
 function SettingsNavRow({
   label,
   description,
@@ -1192,74 +1287,17 @@ export function SettingsPanel({
 
   if (view === "defaults") {
     return (
-      <div className="flex flex-col gap-4">
-        {subHeader}
-        {alerts}
-        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5">
-          <SectionHeader
-            title="새 주문 기본값"
-            description="선택한 값은 새 주문을 열 때 먼저 적용됩니다. 지정하지 않은 항목은 마지막 저장 주문의 값을 사용합니다."
-          />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">결제 플랫폼</span>
-              <select value={preferences.default_platform_id ?? ""} onChange={(event) => void updatePreferences({ default_platform_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
-                <option value="">최근 사용값</option>
-                {platforms.filter((item) => !isHidden(item.id, "platform")).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            </label>
-            <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">결제 수단</span>
-              <select value={preferences.default_payment_method_id ?? ""} onChange={(event) => void updatePreferences({ default_payment_method_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
-                <option value="">최근 사용값</option>
-                {paymentMethods.filter((item) => !isHidden(item.id, "payment_method")).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            </label>
-            <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">구매 계정</span>
-              <select value={preferences.default_buyer_account_id ?? ""} onChange={(event) => void updatePreferences({ default_buyer_account_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
-                <option value="">최근 사용값</option>
-                {buyerAccounts.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-              </select>
-            </label>
-            <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">구매 정보 템플릿</span>
-              <select value={preferences.default_purchase_info_template_id ?? ""} onChange={(event) => void updatePreferences({ default_purchase_info_template_id: event.target.value || null })} className="h-10 rounded-xl border border-input bg-background px-3">
-                <option value="">최근 사용값</option>
-                {purchaseTemplates.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-              </select>
-            </label>
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5">
-          <SectionHeader title="업무 흐름" description="저장 뒤 이동 방식과 목록 표시 밀도를 정합니다." />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">주문 저장 후</span>
-              <select value={preferences.order_save_action} onChange={(event) => void updatePreferences({ order_save_action: event.target.value as OrderSaveAction })} className="h-10 rounded-xl border border-input bg-background px-3">
-                <option value="ledger">구매장부로 이동</option>
-                <option value="same">같은 정보로 계속 등록</option>
-                <option value="blank">빈 입력 화면 열기</option>
-              </select>
-            </label>
-            <label className="grid gap-1.5 text-sm">
-              <span className="font-medium">구매장부 밀도</span>
-              <select value={preferences.ledger_density} onChange={(event) => void updatePreferences({ ledger_density: event.target.value })} className="h-10 rounded-xl border border-input bg-background px-3">
-                <option value="compact">촘촘하게</option>
-                <option value="comfortable">편안하게</option>
-              </select>
-            </label>
-          </div>
-          <label className="mt-4 flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm">
-            <span>
-              <span className="block font-medium">자동추천 연속 처리</span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">저장·삭제 후 다음 대기 추천으로 이동합니다.</span>
-            </span>
-            <input type="checkbox" checked={preferences.auto_advance_recommendations} onChange={(event) => void updatePreferences({ auto_advance_recommendations: event.target.checked })} className="h-5 w-5 accent-primary" />
-          </label>
-        </section>
-      </div>
+      <OrderDefaultsSettingsView
+        header={subHeader}
+        alerts={alerts}
+        preferences={preferences}
+        platforms={platforms}
+        paymentMethods={paymentMethods}
+        buyerAccounts={buyerAccounts}
+        purchaseTemplates={purchaseTemplates}
+        isHidden={isHidden}
+        onUpdatePreferences={updatePreferences}
+      />
     );
   }
 

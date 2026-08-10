@@ -34,6 +34,7 @@
 - 완료: 설정 패널의 `buyer-accounts` view 목록·추가 UI를 `BuyerAccountSettingsView` top-level 컴포넌트로 분리하고, 부모의 상태·Supabase mutation 책임은 유지함
 - 완료: 설정 패널의 `account` view 계정 정보·닉네임 이동 UI를 `AccountSettingsView` top-level 컴포넌트로 분리하고, 부모의 상태·callback 책임은 유지함
 - 완료: 설정 패널의 `nickname` view 입력·저장 UI를 `NicknameSettingsView` top-level 컴포넌트로 분리하고, 부모의 상태·Supabase mutation 책임은 유지함
+- 완료: 설정 패널의 `defaults` view 주문 기본값·업무 흐름 UI를 `OrderDefaultsSettingsView` top-level 컴포넌트로 분리하고, 부모의 preferences 상태·숨김 필터·Supabase mutation 책임은 유지함
 - 보류: 나머지 대형 화면 컴포넌트 분리와 SWR/server fetch 전환은 동작·인증·데이터 freshness 영향이 커 별도 측정 후 진행
 
 ## 기준 검증 결과
@@ -145,6 +146,7 @@
 - Playwright: `/settings?view=buyer-accounts`를 데스크톱·모바일에서 확인. 구매 계정 목록·색상/삭제 버튼·추가 입력이 표시되고 입력 시 추가 버튼 활성화 및 브라우저 오류 0건
 - Playwright: `/settings?view=account`를 데스크톱·모바일에서 확인. 계정 정보와 닉네임 이동 버튼을 표시하고 닉네임 변경 화면 이동 및 브라우저 오류 0건을 확인함
 - Playwright: `/settings?view=nickname`을 데스크톱·모바일에서 확인. 닉네임 입력·저장 버튼과 입력에 따른 저장 버튼 활성화 및 브라우저 오류 0건을 확인함
+- Playwright: `/settings?view=defaults`를 데스크톱·모바일에서 확인. 주문 기본값 선택지·업무 흐름 선택지·자동추천 연속 처리 체크박스와 브라우저 오류 0건을 확인함
 
 ## 명시적 제외
 
