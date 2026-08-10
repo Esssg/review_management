@@ -34,10 +34,10 @@ const menuItems = [
   {
     id: 4,
     label: "자동 추천",
-    href: "/menu-4",
+    href: "/recommendations",
     icon: Sparkles,
     onboardingTarget: "recommendations",
-    isActive: (pathname: string) => pathname.startsWith("/menu-4"),
+    isActive: (pathname: string) => pathname.startsWith("/recommendations"),
   },
   {
     id: 5,

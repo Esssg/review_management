@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { BottomMenu } from "@/components/navigation/bottom-menu";
 import { DesktopSidebar } from "@/components/navigation/desktop-sidebar";
 import { GlobalCommandPalette } from "@/components/navigation/global-command-palette";
-import { OnboardingTour } from "@/components/onboarding/onboarding-tour";
+import { OnboardingTourLoader } from "@/components/onboarding/onboarding-tour-loader";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -44,7 +44,7 @@ export default function RootLayout({
         </Suspense>
         <div className="flex min-h-full flex-1 flex-col pb-16 lg:pl-60 lg:pb-0">{children}</div>
         <BottomMenu />
-        <OnboardingTour />
+        <OnboardingTourLoader />
       </body>
     </html>
   );

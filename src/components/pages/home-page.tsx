@@ -126,7 +126,7 @@ function HomeOperationsSummary({
             주문 추가
             <ArrowUpRight className="h-4 w-4" aria-hidden />
           </Link>
-          <Link href="/menu-4" className="flex min-h-10 items-center justify-between rounded-lg border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-surface-soft">
+          <Link href="/recommendations" className="flex min-h-10 items-center justify-between rounded-lg border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-surface-soft">
             자동추천 확인
             <ArrowUpRight className="h-4 w-4" aria-hidden />
           </Link>

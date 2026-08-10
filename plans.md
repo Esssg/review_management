@@ -19,8 +19,15 @@
 
 - 완료: `xlsx` 클릭 시점 로딩, 대시보드 차트 dynamic import, 장부 가상 범위 계산 축소, 크롤링 반응형 branch 단일 마운트, 중복 조회 병렬화, 크롤링 상태 polling 경량화
 - 완료: 장부 카드 callback 안정화, AI stream 프레임 단위 반영, 설정 템플릿 사용량 N+1 제거, 완료처리 mutation 공통화, media query 공통 hook, passive scroll listener, 작은 파생 계산 정리
+- 완료: 장부 URL 필터 snapshot은 값이 바뀐 state만 반영하고, master data의 숨김 ID membership은 `Set`으로 조회함
+- 완료: 설정 화면의 템플릿 사용량 조회를 `purchase-templates` view 진입 시점으로 지연하고, 다른 설정 화면 초기 조회에서는 제외
+- 완료: 전역 레이아웃의 온보딩 튜토리얼을 첫 렌더 직후 별도 dynamic chunk로 지연 로드하고 서버 렌더링에서 제외
+- 완료: 크롤링 페이지의 입금 추천 로컬 render helper를 top-level 컴포넌트로 분리하고, 자동 추천 기준 경로를 `/recommendations`로 변경함. 기존 `/menu-4`는 쿼리 보존 리다이렉트로 유지
+- 완료: 구매장부의 모바일·데스크톱 완료 입력과 완료 취소에서 반복되던 기본값·경고·mutation·busy 상태 처리를 공통 훅으로 정리함
+- 완료: 모바일 주문 카드의 상위 `key={row.id}`로 이미 초기화되는 페이지 state를 effect에서 다시 설정하지 않도록 정리해 React lint 오류를 제거함
 - 확인 결과: Next 16.2.3 문서상 `lucide-react`와 `recharts`는 이미 `optimizePackageImports` 기본 최적화 대상이므로 별도 `next.config.ts` 변경은 하지 않음
-- 보류: 대형 화면 컴포넌트의 추가 분리, 전역 온보딩 dynamic loading, 대시보드 전체 데이터 조회 축소, SWR/server fetch 전환은 동작·인증·데이터 freshness 영향이 커 별도 측정 후 진행
+- 완료: 대시보드와 월별 상세는 실제 사용 필드만 명시적으로 조회하고, 1,000건 단위 페이지네이션으로 전체 주문을 누락 없이 읽음
+- 보류: 대형 화면 컴포넌트의 추가 분리, SWR/server fetch 전환은 동작·인증·데이터 freshness 영향이 커 별도 측정 후 진행
 
 ## 기준 검증 결과
 
@@ -54,14 +61,14 @@
 | P1 | 설정 초기 조회에서 템플릿마다 주문 사용량 count 쿼리를 하나씩 실행함 | `async-defer-await`, `async-parallel` | [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx) | 중간 |
 | P2 | 여러 파일에서 `lucide-react` named import를 사용하지만 Next 16 기본 최적화 대상인지 확인이 필요했음 | `bundle-barrel-imports` | `src/components/**/*.tsx`, `src/components/pages/**/*.tsx` | 낮음 |
 | P2 | 주문 폼·크롤링 화면·장부·설정 패널이 데이터 조회부터 여러 화면의 JSX까지 한 컴포넌트에 집중됨 | `rerender-memo`, `rerender-split-combined-hooks`, `rerender-no-inline-components` | [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx), [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx), [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx) | 중간~높음 |
-| P2 | 모바일/데스크톱 완료처리와 완료 취소 UI에 유사한 상태·mutation 로직이 반복됨 | 저장소 재사용 원칙, `rerender-memo` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/lib/order-completion.ts`](src/lib/order-completion.ts) | 중간~높음 |
-| P2 | 크롤링 페이지의 로컬 render helper가 부모 렌더마다 새 closure와 JSX를 계산함 | `rerender-no-inline-components`, `rerender-memo`, `js-combine-iterations` | [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx) | 중간 |
-| P2 | 전역 layout이 검색 팔레트·온보딩을 모든 라우트에서 마운트하고, 온보딩은 인증 상태를 별도로 확인함 | `bundle-dynamic-imports`, `client-swr-dedup`, `client-event-listeners` | [`src/app/layout.tsx`](src/app/layout.tsx), [`src/components/onboarding/onboarding-tour.tsx`](src/components/onboarding/onboarding-tour.tsx) | 중간 |
-| P2 | 설정 화면이 현재 view와 무관한 템플릿 상세·사용량까지 항상 조회함 | `async-defer-await` | [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx) | 중간 |
+| 완료 | 모바일/데스크톱 완료처리와 완료 취소 UI에 유사한 상태·mutation 로직이 반복됨 | 저장소 재사용 원칙, `rerender-memo` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/lib/order-completion.ts`](src/lib/order-completion.ts) | 중간~높음 |
+| 완료 | 크롤링 페이지의 입금 추천 로컬 render helper를 `DepositRecommendationList` top-level 컴포넌트로 분리함 | `rerender-no-inline-components`, `rerender-memo`, `js-combine-iterations` | [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx) | 중간 |
+| 완료 | 전역 layout의 온보딩을 별도 dynamic chunk로 지연 로드하고, 기존 컴포넌트의 인증 확인·표시 동작은 유지함 | `bundle-dynamic-imports` | [`src/app/layout.tsx`](src/app/layout.tsx), [`src/components/onboarding/onboarding-tour-loader.tsx`](src/components/onboarding/onboarding-tour-loader.tsx) | 중간 |
+| 완료 | 설정 화면의 템플릿 사용량 조회를 필요한 view에서만 실행하도록 지연함 | `async-defer-await` | [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx) | 중간 |
 | P2 | 온보딩의 capture scroll listener가 실제로 `preventDefault`를 사용하지 않는데 passive 옵션이 없음 | `client-passive-event-listeners` | [`src/components/onboarding/onboarding-tour.tsx`](src/components/onboarding/onboarding-tour.tsx) | 낮음 |
 | P3 | 단순 배열 치환을 위한 `useMemo`, 매 렌더 객체 생성, 렌더 중 `JSON.stringify` 등 작은 계산이 남아 있음 | `rerender-simple-expression-in-memo`, `rendering-hoist-jsx`, `rerender-dependencies` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx) | 낮음~중간 |
-| P3 | URL 필터 동기화가 모든 필터 state를 다시 설정할 수 있고, master/hidden 목록에 작은 반복 검색이 있음 | `rerender-dependencies`, `js-set-map-lookups`, `js-index-maps` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/lib/master-data.ts`](src/lib/master-data.ts) | 낮음 |
-| P3 | 대시보드·월별 상세가 관계 데이터를 포함한 주문 전체를 클라이언트로 가져옴 | `async-defer-await` | [`src/components/pages/dashboard-page.tsx`](src/components/pages/dashboard-page.tsx), [`src/components/pages/monthly-dashboard-detail-page.tsx`](src/components/pages/monthly-dashboard-detail-page.tsx) | 중간 |
+| 완료 | URL 필터 동기화가 모든 필터 state를 다시 설정할 수 있고, master/hidden 목록에 작은 반복 검색이 있음 | `rerender-dependencies`, `js-set-map-lookups`, `js-index-maps` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/lib/master-data.ts`](src/lib/master-data.ts) | 낮음 |
+| 완료 | 대시보드·월별 상세가 `*`와 미사용 템플릿 관계까지 가져오고 1,000건 이후 행을 보장하지 않음 | `async-defer-await`, Supabase 1,000건 페이지네이션 규칙 | [`src/lib/dashboard-data.ts`](src/lib/dashboard-data.ts), [`src/types/orders.ts`](src/types/orders.ts), [`src/components/pages/dashboard-page.tsx`](src/components/pages/dashboard-page.tsx), [`src/components/pages/monthly-dashboard-detail-page.tsx`](src/components/pages/monthly-dashboard-detail-page.tsx) | 중간 |
 
 ## 실행 순서
 
@@ -94,18 +101,18 @@
 
 ### 4단계: 중복 책임과 설정 조회 정리
 
-1. 모바일/데스크톱 완료처리에서 공통인 기본값·입력 검증·warning·mutation 결과 처리를 테스트로 고정한 뒤 작은 공통 로직만 추출한다. UI별 입력 배치는 그대로 둔다.
+1. 완료: 모바일/데스크톱 완료처리에서 공통인 기본값·입력 검증·warning·mutation 결과 처리를 공통 훅으로 정리했다. UI별 입력 배치는 그대로 유지했다.
 2. 완료 취소 mutation도 같은 방식으로 중복을 줄이되, 완료 주문과 미완료 주문의 기존 입금 정보 규칙을 변경하지 않는다.
-3. 설정 템플릿 사용량은 현재 view에서 필요할 때만 지연 조회하고, 기존 목록에 표시되는 사용 주문 수는 동일하게 유지한다. 스키마나 새로운 서버 API는 만들지 않는다.
-4. 전역 온보딩은 인증 사용자에게 필요한 경우에만 상세 초기화를 수행하도록 검토하고, 게스트 화면의 auth check와 튜토리얼 표시 타이밍을 수동 확인한다.
+3. 완료: 설정 템플릿 사용량은 현재 view에서 필요할 때만 지연 조회하고, 기존 목록에 표시되는 사용 주문 수는 동일하게 유지한다. 스키마나 새로운 서버 API는 만들지 않았다.
+4. 완료: 전역 온보딩은 로더에서 첫 렌더 직후 dynamic import하고, 게스트 화면에서는 튜토리얼이 표시되지 않는지 확인했다. 인증 계정이 없어 첫 로그인 저장 흐름은 별도 확인이 필요하다.
 5. scroll listener에는 passive 옵션을 추가하되, capture와 cleanup 동작을 보존한다.
 
 ### 5단계: 낮은 위험도의 계산·유지보수 정리
 
 1. 단순한 `useMemo`와 모듈 수준에서 안전하게 고정할 수 있는 정적 객체를 정리한다.
-2. 주문 폼 dirty snapshot과 URL 필터 동기화는 state의 의미를 바꾸지 않는 범위에서만 비교 비용과 불필요한 setter 호출을 줄인다.
-3. 반복 membership/lookup이 실제 데이터 크기에서 의미가 있을 때만 `Set`/`Map`을 적용한다.
-4. 대시보드 전체 주문 조회 축소는 UI·데이터 계약을 먼저 측정한 후 별도 과제로 판단한다. 서버 집계나 RPC로 즉시 확장하지 않는다.
+2. 완료: 주문 폼 dirty snapshot과 URL 필터 동기화는 state의 의미를 바꾸지 않는 범위에서 비교 비용과 불필요한 setter 호출을 줄였다.
+3. 완료: master data의 숨김 ID membership에 `Set`을 적용했다. 반복 lookup이 실제 데이터 크기에서 의미가 있는 경우에만 자료구조를 바꾼다.
+4. 완료: 대시보드·월별 상세가 사용하는 주문 필드와 관계 필드만 조회하도록 전용 select를 만들고, `purchase_date`·`id` 안정 정렬과 1,000건 단위 range 반복 조회를 적용했다. 서버 집계·RPC·SWR로 확장하지 않았다.
 
 ## 단계별 검증
 
@@ -116,6 +123,14 @@
 - 자동추천 단계: 세 탭 전환, 1,000건 초과 pagination, polling, 삭제/복원, 후보 캐시
 - 설정 단계: 모든 `?view` 화면, 템플릿 사용량·복제·삭제, 온보딩·PWA 카드
 - 실패 시 해당 단계의 변경만 되돌릴 수 있도록 작은 커밋 단위로 유지한다.
+
+## 최근 변경 검증
+
+- `npx tsc --noEmit`: 통과
+- `npm test`: 2개 파일, 9개 테스트 통과
+- `npm run build`: 통과
+- `npm run lint`: 통과
+- Playwright: `/dashboard`, `/dashboard/monthly?month=2026-08` 렌더링 및 Supabase 주문 요청 확인. 명시적 select, `offset=0&limit=1000`, `purchase_date.desc,id.desc`, 월별 날짜 범위가 반영되었고 브라우저 오류 0건
 
 ## 명시적 제외
 

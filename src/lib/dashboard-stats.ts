@@ -1,4 +1,4 @@
-import type { OrderWithRelations } from "@/types/orders";
+import type { DashboardOrder } from "@/types/orders";
 
 export type MonthlyStat = {
   month: string;
@@ -60,7 +60,7 @@ export function formatPercent(value: number | null) {
 }
 
 /** 현재 주문 배열에서 화면 요약에 필요한 운영 수치를 한 번만 계산합니다. */
-export function summarizeOrders(orders: OrderWithRelations[]): OrderSummary {
+export function summarizeOrders(orders: DashboardOrder[]): OrderSummary {
   const summary = orders.reduce<OrderSummary>(
     (prev, order) => {
       const purchaseAmount = toDashboardNumber(order.purchase_price_krw);
@@ -145,7 +145,7 @@ function finalizeMonthlyStat(stat: MonthlyStat) {
   return stat;
 }
 
-export function buildMonthlyStats(orders: OrderWithRelations[]) {
+export function buildMonthlyStats(orders: DashboardOrder[]) {
   const map = new Map<string, MonthlyStat>();
 
   orders.forEach((order) => {
@@ -173,7 +173,7 @@ export function buildMonthlyStats(orders: OrderWithRelations[]) {
     .sort((a, b) => b.month.localeCompare(a.month));
 }
 
-export function buildMonthStat(orders: OrderWithRelations[], month: string) {
+export function buildMonthStat(orders: DashboardOrder[], month: string) {
   const stat = orders.reduce<MonthlyStat>((prev, order) => {
     const purchaseAmount = toDashboardNumber(order.purchase_price_krw);
     prev.purchaseAmount += purchaseAmount;
@@ -195,8 +195,8 @@ export function buildMonthStat(orders: OrderWithRelations[], month: string) {
 }
 
 export function buildGroupedStats(
-  orders: OrderWithRelations[],
-  keySelector: (order: OrderWithRelations) => string,
+  orders: DashboardOrder[],
+  keySelector: (order: DashboardOrder) => string,
 ) {
   const map = new Map<string, GroupedDashboardStat>();
   orders.forEach((order) => {

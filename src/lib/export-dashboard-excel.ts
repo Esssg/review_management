@@ -1,4 +1,4 @@
-import type { OrderWithRelations } from "@/types/orders";
+import type { DashboardOrder } from "@/types/orders";
 
 function toNum(v: string | number | null | undefined): number {
   if (v === null || v === undefined) return 0;
@@ -11,7 +11,7 @@ function emptyIfZero(v: string | number | null | undefined): number | string {
   return n === 0 ? "" : n;
 }
 
-export async function exportDashboardExcel(orders: OrderWithRelations[], userEmail: string, scopeLabel = "전체 기간") {
+export async function exportDashboardExcel(orders: DashboardOrder[], userEmail: string, scopeLabel = "전체 기간") {
   const XLSX = await import("xlsx");
   const wb = XLSX.utils.book_new();
   const now = new Date();
@@ -76,7 +76,7 @@ export async function exportDashboardExcel(orders: OrderWithRelations[], userEma
   d.push([]);
 
   // Grouped stats helper
-  const buildGroup = (keySelector: (o: OrderWithRelations) => string) => {
+  const buildGroup = (keySelector: (o: DashboardOrder) => string) => {
     const map = new Map<
       string,
       { purchaseAmount: number; depositAmount: number; profitKrw: number }

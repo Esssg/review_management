@@ -418,6 +418,8 @@ export function SettingsPanel({
   hiddenSettings,
   initialPurchaseTemplates,
   templateUsageCounts,
+  initialTemplateUsageCountsLoaded,
+  onLoadTemplateUsageCounts,
   initialTrashCount,
   initialPreferences,
   initialAiReviewProfile,
@@ -432,6 +434,8 @@ export function SettingsPanel({
   hiddenSettings: UserItemSetting[];
   initialPurchaseTemplates: PurchaseTemplateRow[];
   templateUsageCounts: Record<string, number>;
+  initialTemplateUsageCountsLoaded: boolean;
+  onLoadTemplateUsageCounts: () => Promise<Record<string, number>>;
   initialTrashCount: number;
   initialPreferences: UserPreferences;
   initialAiReviewProfile: Database["public"]["Tables"]["user_ai_review_profiles"]["Row"] | null;
@@ -452,6 +456,8 @@ export function SettingsPanel({
   const [purchaseTemplates, setPurchaseTemplates] = useState<PurchaseTemplateRow[]>(initialPurchaseTemplates);
   const [preferences, setPreferences] = useState(initialPreferences);
   const [usageCounts, setUsageCounts] = useState(templateUsageCounts);
+  const [isTemplateUsageCountsLoaded, setIsTemplateUsageCountsLoaded] = useState(initialTemplateUsageCountsLoaded);
+  const [isLoadingTemplateUsageCounts, setIsLoadingTemplateUsageCounts] = useState(false);
   const [trashCount, setTrashCount] = useState(initialTrashCount);
   const [hidden, setHidden] = useState<UserItemSetting[]>(hiddenSettings);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -464,6 +470,30 @@ export function SettingsPanel({
   const [aiOccupation, setAiOccupation] = useState(initialAiReviewProfile?.occupation ?? "");
   const [aiExtraContext, setAiExtraContext] = useState(initialAiReviewProfile?.extra_context ?? "");
   const [isSavingAiProfile, setIsSavingAiProfile] = useState(false);
+
+  useEffect(() => {
+    if (view !== "purchase-templates" || isTemplateUsageCountsLoaded) return;
+
+    let cancelled = false;
+    setIsLoadingTemplateUsageCounts(true);
+    void (async () => {
+      try {
+        const nextCounts = await onLoadTemplateUsageCounts();
+        if (!cancelled) {
+          setUsageCounts(nextCounts);
+          setIsTemplateUsageCountsLoaded(true);
+        }
+      } catch {
+        if (!cancelled) setIsTemplateUsageCountsLoaded(true);
+      } finally {
+        if (!cancelled) setIsLoadingTemplateUsageCounts(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isTemplateUsageCountsLoaded, onLoadTemplateUsageCounts, view]);
 
   const trimmedDraft = nicknameDraft.trim();
   const trimmedDisplay = displayName.trim();
@@ -1052,7 +1082,7 @@ export function SettingsPanel({
                         {preferences.default_purchase_info_template_id === t.id ? <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-500" aria-label="기본 템플릿" /> : null}
                       </span>
                       <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                        입력 {countFilledTemplateFields(t)}개 · 주문 {usageCounts[t.id] ?? 0}건 · {templateUpdatedFormatter.format(new Date(t.updated_at))} 수정
+                        입력 {countFilledTemplateFields(t)}개 · {isTemplateUsageCountsLoaded ? `주문 ${usageCounts[t.id] ?? 0}건` : isLoadingTemplateUsageCounts ? "주문 사용량 조회 중…" : "주문 사용량 —"} · {templateUpdatedFormatter.format(new Date(t.updated_at))} 수정
                       </span>
                     </span>
                     <ChevronRight className="text-muted-foreground h-5 w-5 shrink-0" aria-hidden />

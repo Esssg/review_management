@@ -28,7 +28,7 @@ const navigationResults: SearchResult[] = [
   { key: "dashboard", label: "대시보드", description: "기간별 실적과 분류 통계", href: "/dashboard", icon: LayoutDashboard },
   { key: "new-order", label: "주문 추가", description: "새 주문 등록", href: "/orders/new", icon: SquarePlus },
   { key: "ledger", label: "구매 장부", description: "주문 검색과 상태 관리", href: "/", icon: ShoppingBag },
-  { key: "recommendations", label: "자동 추천", description: "크롤링 주문과 입금 추천", href: "/menu-4", icon: Sparkles },
+  { key: "recommendations", label: "자동 추천", description: "크롤링 주문과 입금 추천", href: "/recommendations", icon: Sparkles },
   { key: "settings", label: "설정", description: "계정·템플릿·기본값 관리", href: "/settings", icon: Settings },
   { key: "settings-defaults", label: "주문 기본값", description: "기본 분류와 저장 후 동작 설정", href: "/settings?view=defaults", icon: Settings },
   { key: "settings-templates", label: "구매 정보 템플릿", description: "템플릿 복제·기본 지정·삭제", href: "/settings?view=purchase-templates", icon: FileText },

@@ -1,17 +1,21 @@
-import { Suspense } from "react";
+import { redirect } from "next/navigation";
 
-import { CrawlOrdersPage } from "@/components/pages/crawl-orders-page";
+type LegacyMenu4PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
-export default function Menu4Page() {
-  return (
-    <Suspense
-      fallback={
-        <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 p-6">
-          <p className="text-muted-foreground text-sm">불러오는 중…</p>
-        </div>
-      }
-    >
-      <CrawlOrdersPage />
-    </Suspense>
-  );
+export default async function Menu4Page({ searchParams }: LegacyMenu4PageProps) {
+  const currentSearchParams = await searchParams;
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(currentSearchParams)) {
+    if (Array.isArray(value)) {
+      value.forEach((item) => query.append(key, item));
+    } else if (value !== undefined) {
+      query.set(key, value);
+    }
+  }
+
+  const queryString = query.toString();
+  redirect(`/recommendations${queryString ? `?${queryString}` : ""}`);
 }

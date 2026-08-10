@@ -7,15 +7,16 @@ import { Download } from "lucide-react";
 import { UserAccountMenu } from "@/components/auth/user-account-menu";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { OrdersDashboard } from "@/components/orders/orders-dashboard";
+import { fetchAllDashboardOrders } from "@/lib/dashboard-data";
 import { exportDashboardExcel } from "@/lib/export-dashboard-excel";
 import { createClient } from "@/lib/supabase/client";
-import type { OrderWithRelations } from "@/types/orders";
+import type { DashboardOrder } from "@/types/orders";
 
 export function DashboardPage() {
   const router = useRouter();
   const [phase, setPhase] = useState<"loading" | "guest" | "ready" | "error">("loading");
   const [email, setEmail] = useState<string | null>(null);
-  const [orders, setOrders] = useState<OrderWithRelations[]>([]);
+  const [orders, setOrders] = useState<DashboardOrder[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -32,20 +33,14 @@ export function DashboardPage() {
         return;
       }
       setEmail(user.email ?? user.id);
-      const { data, error } = await supabase
-        .from("orders")
-        .select(
-          "*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)",
-        )
-        .is("deleted_at", null)
-        .order("purchase_date", { ascending: false });
+      const { data, error } = await fetchAllDashboardOrders(supabase);
       if (cancelled) return;
       if (error) {
         setErrorMessage(error.message);
         setPhase("error");
         return;
       }
-      setOrders((data ?? []) as OrderWithRelations[]);
+      setOrders(data ?? []);
       setPhase("ready");
     })();
     return () => {

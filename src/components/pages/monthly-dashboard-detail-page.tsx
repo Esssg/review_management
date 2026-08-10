@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import type { OrderWithRelations } from "@/types/orders";
+import type { DashboardOrder } from "@/types/orders";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +24,7 @@ import {
   isValidMonthKey,
   shiftMonth,
 } from "@/lib/dashboard-stats";
+import { fetchAllDashboardOrders } from "@/lib/dashboard-data";
 import { getKoreaDateInputValue } from "@/lib/korea-date";
 import { createClient } from "@/lib/supabase/client";
 
@@ -104,8 +105,8 @@ export function MonthlyDashboardDetailPage() {
   const month = isValidMonthKey(requestedMonth) ? requestedMonth : currentMonthKey();
 
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
-  const [orders, setOrders] = useState<OrderWithRelations[]>([]);
-  const [previousOrders, setPreviousOrders] = useState<OrderWithRelations[]>([]);
+  const [orders, setOrders] = useState<DashboardOrder[]>([]);
+  const [previousOrders, setPreviousOrders] = useState<DashboardOrder[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -126,23 +127,12 @@ export function MonthlyDashboardDetailPage() {
         return;
       }
 
-      const selectColumns =
-        "*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)";
       const [currentResult, previousResult] = await Promise.all([
-        supabase
-          .from("orders")
-          .select(selectColumns)
-          .is("deleted_at", null)
-          .gte("purchase_date", from)
-          .lt("purchase_date", to)
-          .order("purchase_date", { ascending: false }),
-        supabase
-          .from("orders")
-          .select(selectColumns)
-          .is("deleted_at", null)
-          .gte("purchase_date", previousRange.from)
-          .lt("purchase_date", previousRange.to)
-          .order("purchase_date", { ascending: false }),
+        fetchAllDashboardOrders(supabase, { from, toExclusive: to }),
+        fetchAllDashboardOrders(supabase, {
+          from: previousRange.from,
+          toExclusive: previousRange.to,
+        }),
       ]);
 
       if (cancelled) return;
@@ -152,8 +142,8 @@ export function MonthlyDashboardDetailPage() {
         return;
       }
 
-      setOrders((currentResult.data ?? []) as OrderWithRelations[]);
-      setPreviousOrders((previousResult.data ?? []) as OrderWithRelations[]);
+      setOrders(currentResult.data ?? []);
+      setPreviousOrders(previousResult.data ?? []);
       setPhase("ready");
     })();
 
@@ -315,7 +305,7 @@ export function MonthlyDashboardDetailPage() {
                 <Link href="/orders/new" className="flex items-center justify-between gap-2 hover:text-primary">
                   새 주문 등록 <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
                 </Link>
-                <Link href="/menu-4" className="flex items-center justify-between gap-2 hover:text-primary">
+                <Link href="/recommendations" className="flex items-center justify-between gap-2 hover:text-primary">
                   자동 추천 확인 <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
                 </Link>
               </div>

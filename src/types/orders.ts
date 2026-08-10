@@ -10,6 +10,63 @@ export type OrderWithRelations = OrderRow & {
   purchase_info_templates?: Database["public"]["Tables"]["purchase_info_templates"]["Row"] | null;
 };
 
+/** 대시보드와 엑셀 내보내기에 필요한 주문 필드만 유지합니다. */
+export type DashboardOrder = Pick<
+  OrderWithRelations,
+  | "id"
+  | "product_name"
+  | "is_processed"
+  | "purchase_date"
+  | "deposit_date"
+  | "purchase_price_krw"
+  | "deposit_amount_krw"
+  | "profit_krw"
+  | "is_item_delivered"
+  | "deposit_memo"
+  | "notes"
+  | "product_url"
+  | "scheduled_purchase_at"
+  | "order_number"
+  | "order_status"
+  | "created_at"
+  | "updated_at"
+  | "title"
+  | "review_photo_count"
+  | "review_char_count"
+  | "ai_review"
+  | "platforms"
+  | "payment_methods"
+  | "buyer_accounts"
+>;
+
+/** 대시보드 조회에서 사용하지 않는 민감·상세 필드는 요청하지 않습니다. */
+export const DASHBOARD_ORDER_SELECT = `
+  id,
+  product_name,
+  is_processed,
+  purchase_date,
+  deposit_date,
+  purchase_price_krw,
+  deposit_amount_krw,
+  profit_krw,
+  is_item_delivered,
+  deposit_memo,
+  notes,
+  product_url,
+  scheduled_purchase_at,
+  order_number,
+  order_status,
+  created_at,
+  updated_at,
+  title,
+  review_photo_count,
+  review_char_count,
+  ai_review,
+  platforms(id, name, color),
+  payment_methods(id, name, color),
+  buyer_accounts(id, label, color)
+` as const;
+
 /** 원장·상세·대시보드가 공유하는 주문 조회 컬럼입니다. */
 export const ORDER_LIST_SELECT = `
   id,

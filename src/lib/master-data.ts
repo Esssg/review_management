@@ -49,11 +49,15 @@ export async function fetchMasterData(
   ]);
 
   const hidden = hiddenResult.data ?? [];
-  const hiddenPlatformIds = hidden.filter((s) => s.item_type === "platform").map((s) => s.target_id);
-  const hiddenMethodIds = hidden.filter((s) => s.item_type === "payment_method").map((s) => s.target_id);
+  const hiddenPlatformIds = new Set<string>();
+  const hiddenMethodIds = new Set<string>();
+  for (const setting of hidden) {
+    if (setting.item_type === "platform") hiddenPlatformIds.add(setting.target_id);
+    if (setting.item_type === "payment_method") hiddenMethodIds.add(setting.target_id);
+  }
 
-  const platforms = (platformsResult.data ?? []).filter((p) => !hiddenPlatformIds.includes(p.id));
-  const paymentMethods = (methodsResult.data ?? []).filter((m) => !hiddenMethodIds.includes(m.id));
+  const platforms = (platformsResult.data ?? []).filter((p) => !hiddenPlatformIds.has(p.id));
+  const paymentMethods = (methodsResult.data ?? []).filter((m) => !hiddenMethodIds.has(m.id));
   const buyerAccounts = accountsResult.data ?? [];
 
   return { platforms, paymentMethods, buyerAccounts };

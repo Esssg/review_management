@@ -64,6 +64,7 @@ import {
   getDefaultOrderCompletionInput,
   getOrderCompletionWarning,
   parseOrderCompletionAmount,
+  type OrderCompletionInput,
 } from "@/lib/order-completion";
 import { matchesPurchaseSchedule, type PurchaseScheduleFilter } from "@/lib/order-workflow";
 import { getOrCreateUserPreferences, type LedgerDensity } from "@/lib/user-preferences";
@@ -160,6 +161,158 @@ function addDaysToDateInput(value: string, days: number) {
 function adjustDepositAmountInput(value: string, fallbackAmount: number | string, delta: number) {
   const current = parseOrderCompletionAmount(value) ?? (Number(fallbackAmount) || 0);
   return String(Math.max(0, current + delta));
+}
+
+type OrderCompletionFormOptions = {
+  row: OrderWithRelations;
+  supabase: ReturnType<typeof createClient>;
+  resetOn: boolean;
+  onPatched: (order: OrderWithRelations) => void;
+  onCompleted?: () => void;
+};
+
+/** 모바일·데스크톱 완료 입력이 같은 기본값·경고·저장 규칙을 사용하도록 관리합니다. */
+function useOrderCompletionForm({
+  row,
+  supabase,
+  resetOn,
+  onPatched,
+  onCompleted,
+}: OrderCompletionFormOptions) {
+  const [input, setInput] = useState<OrderCompletionInput>(() =>
+    resetOn ? getDefaultOrderCompletionInput(row) : { date: "", amount: "", memo: "" },
+  );
+  const pendingSubmitRef = useRef<{ date: string; amount: number } | null>(null);
+  const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!resetOn) return;
+    setInput(getDefaultOrderCompletionInput(row));
+    pendingSubmitRef.current = null;
+    setConfirmMessage(null);
+  }, [resetOn, row]);
+
+  const setDepositDate = useCallback((value: string | ((current: string) => string)) => {
+    setInput((current) => ({
+      ...current,
+      date: typeof value === "function" ? value(current.date) : value,
+    }));
+  }, []);
+
+  const setDepositAmount = useCallback((value: string | ((current: string) => string)) => {
+    setInput((current) => ({
+      ...current,
+      amount: typeof value === "function" ? value(current.amount) : value,
+    }));
+  }, []);
+
+  const setDepositMemo = useCallback((value: string | ((current: string) => string)) => {
+    setInput((current) => ({
+      ...current,
+      memo: typeof value === "function" ? value(current.memo) : value,
+    }));
+  }, []);
+
+  const completeOrder = useCallback(async (date: string, amount: number) => {
+    setBusy(true);
+    try {
+      const { data, error } = await completeLedgerOrder(supabase, row, date, amount, input.memo);
+      if (error) {
+        window.alert(error.message);
+        return;
+      }
+      pendingSubmitRef.current = null;
+      setConfirmMessage(null);
+      onPatched(data as OrderWithRelations);
+      onCompleted?.();
+    } finally {
+      setBusy(false);
+    }
+  }, [input.memo, onCompleted, onPatched, row, supabase]);
+
+  const submit = useCallback(async () => {
+    const depositDate = input.date.trim();
+    if (!depositDate) {
+      window.alert("완료처리를 하려면 입금일자 칸을 입력해야 됩니다.");
+      return;
+    }
+    const depositAmount = parseOrderCompletionAmount(input.amount);
+    if (depositAmount === null) {
+      window.alert("완료처리를 하려면 실입금금액 칸을 입력해야 됩니다.");
+      return;
+    }
+    const warning = getOrderCompletionWarning(row, depositAmount);
+    if (warning) {
+      pendingSubmitRef.current = { date: depositDate, amount: depositAmount };
+      setConfirmMessage(warning);
+      return;
+    }
+    await completeOrder(depositDate, depositAmount);
+  }, [completeOrder, input.amount, input.date, row]);
+
+  const confirmSubmit = useCallback(() => {
+    const pending = pendingSubmitRef.current;
+    if (!pending) return;
+    void completeOrder(pending.date, pending.amount);
+  }, [completeOrder]);
+
+  const cancelConfirm = useCallback(() => {
+    pendingSubmitRef.current = null;
+    setConfirmMessage(null);
+  }, []);
+
+  return {
+    depositDate: input.date,
+    depositAmount: input.amount,
+    depositMemo: input.memo,
+    setDepositDate,
+    setDepositAmount,
+    setDepositMemo,
+    confirmMessage,
+    busy,
+    submit,
+    confirmSubmit,
+    cancelConfirm,
+  };
+}
+
+type UncompleteOrderOptions = {
+  row: OrderWithRelations;
+  supabase: ReturnType<typeof createClient>;
+  onPatched: (order: OrderWithRelations) => void;
+  onCompleted?: () => void;
+};
+
+/** 완료 취소도 모바일·데스크톱에서 같은 확인·오류·대기 상태를 사용하도록 관리합니다. */
+function useUncompleteOrder({
+  row,
+  supabase,
+  onPatched,
+  onCompleted,
+}: UncompleteOrderOptions) {
+  const [busy, setBusy] = useState(false);
+
+  const handleUncomplete = useCallback(async () => {
+    const ok = window.confirm(
+      "이 주문을 미완료로 되돌릴까요? 입금일·입금금액·입금 메모는 비워집니다.",
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const { data, error } = await uncompleteLedgerOrder(supabase, row);
+      if (error) {
+        window.alert(error.message);
+        return;
+      }
+      onPatched(data as OrderWithRelations);
+      onCompleted?.();
+    } finally {
+      setBusy(false);
+    }
+  }, [onCompleted, onPatched, row, supabase]);
+
+  return { busy, handleUncomplete };
 }
 
 /** 완료처리 전 금액과 배송 상태가 어긋나는 경우 운영자가 한 번 더 확인한다. */
@@ -586,27 +739,29 @@ function MobilePendingDepositSwipePanel({
   const panel1Ref = useRef<HTMLDivElement>(null);
   const [activePage, setActivePage] = useState(0);
   const [panelHeights, setPanelHeights] = useState({ h0: 96, h1: 280 });
-  const [depositDate, setDepositDate] = useState(() => getDefaultOrderCompletionInput(row).date);
-  const [depositAmount, setDepositAmount] = useState(() => getDefaultOrderCompletionInput(row).amount);
-  const [depositMemo, setDepositMemo] = useState(() => getDefaultOrderCompletionInput(row).memo);
-  const pendingSubmitRef = useRef<{ date: string; amount: number } | null>(null);
-  const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const defaults = getDefaultOrderCompletionInput(row);
-    setDepositDate(defaults.date);
-    setDepositAmount(defaults.amount);
-    setDepositMemo(defaults.memo);
-    pendingSubmitRef.current = null;
-    setConfirmMessage(null);
-  }, [row]);
+  const {
+    depositDate,
+    depositAmount,
+    depositMemo,
+    setDepositDate,
+    setDepositAmount,
+    setDepositMemo,
+    confirmMessage,
+    busy,
+    submit,
+    confirmSubmit,
+    cancelConfirm,
+  } = useOrderCompletionForm({
+    row,
+    supabase,
+    resetOn: true,
+    onPatched,
+  });
 
   useLayoutEffect(() => {
     const scroll = scrollRef.current;
     if (!scroll) return;
     scroll.scrollLeft = 0;
-    setActivePage(0);
   }, [row.id]);
 
   useLayoutEffect(() => {
@@ -640,48 +795,6 @@ function MobilePendingDepositSwipePanel({
     setActivePage((p) => (p !== next ? next : p));
   };
 
-  const completeOrder = async (date: string, amount: number) => {
-    setBusy(true);
-    try {
-      const { data, error } = await completeLedgerOrder(supabase, row, date, amount, depositMemo);
-      if (error) {
-        window.alert(error.message);
-        return;
-      }
-      pendingSubmitRef.current = null;
-      setConfirmMessage(null);
-      onPatched(data as OrderWithRelations);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const submit = async (skipWarning = false) => {
-    const dd = depositDate.trim();
-    if (!dd) {
-      window.alert("완료처리를 하려면 입금일자 칸을 입력해야 됩니다.");
-      return;
-    }
-    const dep = parseOrderCompletionAmount(depositAmount);
-    if (dep === null) {
-      window.alert("완료처리를 하려면 실입금금액 칸을 입력해야 됩니다.");
-      return;
-    }
-    const warning = skipWarning ? null : getOrderCompletionWarning(row, dep);
-    if (warning) {
-      pendingSubmitRef.current = { date: dd, amount: dep };
-      setConfirmMessage(warning);
-      return;
-    }
-    await completeOrder(dd, dep);
-  };
-
-  const confirmSubmit = () => {
-    const pending = pendingSubmitRef.current;
-    if (!pending) return;
-    void completeOrder(pending.date, pending.amount);
-  };
-
   const memoClass =
     "min-h-[4rem] w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30";
 
@@ -691,10 +804,7 @@ function MobilePendingDepositSwipePanel({
         <DepositMismatchConfirmDialog
           message={confirmMessage}
           busy={busy}
-          onCancel={() => {
-            pendingSubmitRef.current = null;
-            setConfirmMessage(null);
-          }}
+          onCancel={cancelConfirm}
           onConfirm={confirmSubmit}
         />
       ) : null}
@@ -831,22 +941,25 @@ function WebPendingCompleteDropdown({
   onPatched: (o: OrderWithRelations) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
-  const pendingSubmitRef = useRef<{ date: string; amount: number } | null>(null);
-  const [depositDate, setDepositDate] = useState("");
-  const [depositAmount, setDepositAmount] = useState("");
-  const [depositMemo, setDepositMemo] = useState("");
-  const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const defaults = getDefaultOrderCompletionInput(row);
-    setDepositDate(defaults.date);
-    setDepositAmount(defaults.amount);
-    setDepositMemo(defaults.memo);
-    pendingSubmitRef.current = null;
-    setConfirmMessage(null);
-  }, [isOpen, row]);
+  const {
+    depositDate,
+    depositAmount,
+    depositMemo,
+    setDepositDate,
+    setDepositAmount,
+    setDepositMemo,
+    confirmMessage,
+    busy,
+    submit,
+    confirmSubmit,
+    cancelConfirm,
+  } = useOrderCompletionForm({
+    row,
+    supabase,
+    resetOn: isOpen,
+    onPatched,
+    onCompleted: onClose,
+  });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -858,49 +971,6 @@ function WebPendingCompleteDropdown({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [isOpen, onClose]);
 
-  const completeOrder = async (date: string, amount: number) => {
-    setBusy(true);
-    try {
-      const { data, error } = await completeLedgerOrder(supabase, row, date, amount, depositMemo);
-      if (error) {
-        window.alert(error.message);
-        return;
-      }
-      pendingSubmitRef.current = null;
-      setConfirmMessage(null);
-      onPatched(data as OrderWithRelations);
-      onClose();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const submit = async (skipWarning = false) => {
-    const dd = depositDate.trim();
-    if (!dd) {
-      window.alert("완료처리를 하려면 입금일자 칸을 입력해야 됩니다.");
-      return;
-    }
-    const dep = parseOrderCompletionAmount(depositAmount);
-    if (dep === null) {
-      window.alert("완료처리를 하려면 실입금금액 칸을 입력해야 됩니다.");
-      return;
-    }
-    const warning = skipWarning ? null : getOrderCompletionWarning(row, dep);
-    if (warning) {
-      pendingSubmitRef.current = { date: dd, amount: dep };
-      setConfirmMessage(warning);
-      return;
-    }
-    await completeOrder(dd, dep);
-  };
-
-  const confirmSubmit = () => {
-    const pending = pendingSubmitRef.current;
-    if (!pending) return;
-    void completeOrder(pending.date, pending.amount);
-  };
-
   const memoClass =
     "min-h-[4.5rem] w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30";
 
@@ -910,10 +980,7 @@ function WebPendingCompleteDropdown({
         <DepositMismatchConfirmDialog
           message={confirmMessage}
           busy={busy}
-          onCancel={() => {
-            pendingSubmitRef.current = null;
-            setConfirmMessage(null);
-          }}
+          onCancel={cancelConfirm}
           onConfirm={confirmSubmit}
         />
       ) : null}
@@ -1000,7 +1067,12 @@ function WebCompletedActionsDropdown({
   onPatched: (o: OrderWithRelations) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [busy, setBusy] = useState(false);
+  const { busy, handleUncomplete } = useUncompleteOrder({
+    row,
+    supabase,
+    onPatched,
+    onCompleted: onClose,
+  });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1011,25 +1083,6 @@ function WebCompletedActionsDropdown({
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [isOpen, onClose]);
-
-  const handleUncomplete = async () => {
-    const ok = window.confirm(
-      "이 주문을 미완료로 되돌릴까요? 입금일·입금금액·입금 메모는 비워집니다.",
-    );
-    if (!ok) return;
-    setBusy(true);
-    try {
-      const { data, error } = await uncompleteLedgerOrder(supabase, row);
-      if (error) {
-        window.alert(error.message);
-        return;
-      }
-      onPatched(data as OrderWithRelations);
-      onClose();
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <div ref={wrapRef} className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
@@ -1086,25 +1139,11 @@ function OrderExpandPanel({
   supabase: ReturnType<typeof createClient>;
   onPatchOrder: (previous: OrderWithRelations, updated: OrderWithRelations) => void;
 }) {
-  const [uncompleteBusy, setUncompleteBusy] = useState(false);
-
-  const handleUncomplete = async () => {
-    const ok = window.confirm(
-      "이 주문을 미완료로 되돌릴까요? 입금일·입금금액·입금 메모는 비워집니다.",
-    );
-    if (!ok) return;
-    setUncompleteBusy(true);
-    try {
-      const { data, error } = await uncompleteLedgerOrder(supabase, row);
-      if (error) {
-        window.alert(error.message);
-        return;
-      }
-      onPatchOrder(row, data as OrderWithRelations);
-    } finally {
-      setUncompleteBusy(false);
-    }
-  };
+  const { busy: uncompleteBusy, handleUncomplete } = useUncompleteOrder({
+    row,
+    supabase,
+    onPatched: (updated) => onPatchOrder(row, updated),
+  });
 
   return (
     <div className="border-t border-slate-100 bg-slate-50/90 px-3 pb-3 pt-2.5 dark:border-slate-700 dark:bg-slate-900/35">
@@ -1695,17 +1734,20 @@ export function OrdersTable({
     payment: paymentFilter,
     account: accountFilter,
   }), [accountFilter, attentionFilter, fromDate, paymentFilter, platformFilter, search, sort, statusFilter, toDate]);
+  const currentFilterSnapshotRef = useRef(currentFilterSnapshot);
+  currentFilterSnapshotRef.current = currentFilterSnapshot;
 
   const applyFilterSnapshot = useCallback((next: OrderFilterSnapshot) => {
-    setSearch(next.q);
-    setStatusFilter(next.status);
-    setAttentionFilter(next.attention);
-    setFromDate(next.from);
-    setToDate(next.to);
-    setSort(next.sort);
-    setPlatformFilter(next.platform);
-    setPaymentFilter(next.payment);
-    setAccountFilter(next.account);
+    const current = currentFilterSnapshotRef.current;
+    if (current.q !== next.q) setSearch(next.q);
+    if (current.status !== next.status) setStatusFilter(next.status);
+    if (current.attention !== next.attention) setAttentionFilter(next.attention);
+    if (current.from !== next.from) setFromDate(next.from);
+    if (current.to !== next.to) setToDate(next.to);
+    if (current.sort !== next.sort) setSort(next.sort);
+    if (current.platform !== next.platform) setPlatformFilter(next.platform);
+    if (current.payment !== next.payment) setPaymentFilter(next.payment);
+    if (current.account !== next.account) setAccountFilter(next.account);
   }, []);
 
   useEffect(() => {

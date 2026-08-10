@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { SettingsPanel, type SettingsPanelView } from "@/components/settings/settings-panel";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
@@ -55,6 +55,10 @@ export function SettingsPage() {
     requestedView === "trash"
       ? requestedView
       : "home";
+  const loadTemplateUsageCounts = useCallback(
+    () => fetchTemplateUsageCounts(createClient()),
+    [],
+  );
   const [phase, setPhase] = useState<"loading" | "guest" | "ready">("loading");
   const [userId, setUserId] = useState<string | null>(null);
   const [payload, setPayload] = useState<{
@@ -118,7 +122,9 @@ export function SettingsPage() {
           .from("purchase_info_templates")
           .select("*")
           .order("created_at", { ascending: false }),
-        fetchTemplateUsageCounts(supabase),
+        initialSettingsView === "purchase-templates"
+          ? fetchTemplateUsageCounts(supabase)
+          : Promise.resolve<Record<string, number>>({}),
         supabase.from("user_ai_review_profiles").select("*").eq("user_id", user.id).maybeSingle(),
         supabase.from("users").select("name, email").eq("user_id", user.id).maybeSingle(),
         getOrCreateUserPreferences(supabase, user.id),
@@ -162,7 +168,7 @@ export function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [initialSettingsView, router]);
 
   if (phase === "loading" || !userId || !payload) {
     return (
@@ -191,6 +197,8 @@ export function SettingsPage() {
         hiddenSettings={payload.hidden}
         initialPurchaseTemplates={payload.purchaseTemplates}
         templateUsageCounts={payload.templateUsageCounts}
+        initialTemplateUsageCountsLoaded={initialSettingsView === "purchase-templates"}
+        onLoadTemplateUsageCounts={loadTemplateUsageCounts}
         initialTrashCount={payload.trashCount}
         initialPreferences={payload.preferences}
         initialAiReviewProfile={payload.aiReviewProfile}

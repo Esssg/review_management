@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
 
-import type { OrderWithRelations } from "@/types/orders";
+import type { DashboardOrder } from "@/types/orders";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { exportDashboardExcel } from "@/lib/export-dashboard-excel";
@@ -140,7 +140,7 @@ function buildLedgerHref(filters: Record<string, string | undefined>) {
   return query ? `/?${query}` : "/";
 }
 
-export function OrdersDashboard({ orders, userEmail }: { orders: OrderWithRelations[]; userEmail: string }) {
+export function OrdersDashboard({ orders, userEmail }: { orders: DashboardOrder[]; userEmail: string }) {
   const [preset, setPreset] = useState<PeriodPreset>("thisMonth");
   const defaultRange = getPresetRange("thisMonth");
   const [fromDate, setFromDate] = useState(defaultRange.from);
@@ -305,7 +305,7 @@ export function OrdersDashboard({ orders, userEmail }: { orders: OrderWithRelati
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
             <Link href={buildLedgerHref({ status: "pending", from: fromDate, to: toDate })} className="inline-flex min-h-10 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary-active">미완료 주문 확인</Link>
-            <Link href="/menu-4" className="inline-flex min-h-10 items-center justify-center rounded-lg border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-surface-soft">자동추천 열기</Link>
+            <Link href="/recommendations" className="inline-flex min-h-10 items-center justify-center rounded-lg border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-surface-soft">자동추천 열기</Link>
           </div>
         </section>
       </div>
