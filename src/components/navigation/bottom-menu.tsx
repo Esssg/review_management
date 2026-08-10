@@ -12,6 +12,7 @@ const menuItems = [
     label: "대시보드",
     href: "/dashboard",
     icon: LayoutDashboard,
+    onboardingTarget: "dashboard",
     isActive: (pathname: string) => pathname.startsWith("/dashboard"),
   },
   {
@@ -19,6 +20,7 @@ const menuItems = [
     label: "주문추가",
     href: "/orders/new",
     icon: SquarePlus,
+    onboardingTarget: "new-order",
     isActive: (pathname: string) => pathname.startsWith("/orders/new"),
   },
   {
@@ -26,6 +28,7 @@ const menuItems = [
     label: "구매장부",
     href: "/",
     icon: House,
+    onboardingTarget: "ledger",
     isActive: (pathname: string) => pathname === "/",
   },
   {
@@ -33,6 +36,7 @@ const menuItems = [
     label: "자동 추천",
     href: "/menu-4",
     icon: Sparkles,
+    onboardingTarget: "recommendations",
     isActive: (pathname: string) => pathname.startsWith("/menu-4"),
   },
   {
@@ -40,6 +44,7 @@ const menuItems = [
     label: "설정",
     href: "/settings",
     icon: Settings,
+    onboardingTarget: "settings",
     isActive: (pathname: string) => pathname.startsWith("/settings"),
   },
 ] as const;
@@ -63,6 +68,7 @@ export function BottomMenu() {
             <Link
               key={item.id}
               href={item.href}
+              data-onboarding-target={item.onboardingTarget}
               className={cn(
                 "relative flex flex-col items-center justify-center gap-1 transition-colors",
                 active

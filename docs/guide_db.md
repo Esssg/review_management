@@ -1,7 +1,7 @@
 # DB 가이드 (Supabase)
 
 기준 프로젝트: `xhjjoxzwpgqlodflaiix`  
-최종 업데이트: 2026-08-08
+최종 업데이트: 2026-08-10
 
 ## 1) 현재 DB에 있는 테이블
 
@@ -16,7 +16,7 @@
 - `user_preferences` — 주문 작성 기본값·최근값과 화면 동작 설정 (사용자당 0~1행, RLS 활성화)
 - `user_order_drafts` — 기기 간 동기화되는 신규 주문 임시저장 (사용자당 0~1행, RLS 활성화)
 - `saved_order_views` — 사용자가 이름 붙여 저장한 주문 원장 필터 (RLS 활성화)
-- `users` — Auth 사용자와 1:1 사용자 프로필(`user_id`, 표시 `name`, RLS 활성화). `auth.users` INSERT 트리거로 행 생성
+- `users` — Auth 사용자와 1:1 사용자 프로필(`user_id`, 표시 `name`, 온보딩 완료 시각, RLS 활성화). `auth.users` INSERT 트리거로 행 생성
 - `bank_account` — 사용자별 입금 계좌 정보 (RLS 활성화)
 - `bank_account_deposit` — 입금 계좌별 입금 내역 (RLS 활성화)
 
@@ -251,17 +251,19 @@
 
 ### `public.users`
 
-행 수: `auth.users`와 동일(가입·백필 후) | RLS: 활성화 (`auth.uid() = user_id`로 조회·본인 행의 `name`만 수정; `email`은 DB 권한상 클라이언트에서 갱신 불가)
+행 수: `auth.users`와 동일(가입·백필 후) | RLS: 활성화 (`auth.uid() = user_id`로 조회·본인 행의 `name`, `onboarding_completed_at`만 수정; `email`은 DB 권한상 클라이언트에서 갱신 불가)
 
 | 컬럼 | 타입 | Nullable | 의미 |
 |---|---|---|---|
 | `user_id` | uuid | NO | PK, `auth.users.id` FK (삭제 시 CASCADE) |
 | `name` | text | NO | 표시 이름. 신규 가입 시 `raw_user_meta_data`(full_name/name)·이메일 로컬파트 순으로 채움(없으면 빈 문자열) |
 | `email` | text | YES | `auth.users.email` 복제(조회·조인용). 이메일 변경은 Supabase Auth에서 처리 |
+| `onboarding_completed_at` | timestamptz | YES | 첫 로그인 온보딩 튜토리얼을 완료하거나 건너뛴 시각 |
 
 #### 동작
 - 트리거 `on_auth_user_created_sync_public_users`: `auth.users`에 INSERT되면 `public.users`에 `user_id`, `name`, `email`을 넣고 `on conflict do nothing`으로 한 행 추가.
 - 마이그레이션 `20260419200000` 시점에 이미 있던 `auth.users`는 `public.users`로 일괄 INSERT(백필); 이후 `20260419210000`에서 `email` 컬럼 백필.
+- `onboarding_completed_at`이 NULL인 사용자에게 첫 로그인 온보딩을 표시하고, 완료·건너뛰기 시 현재 시각을 저장합니다. 마이그레이션 `20260810100000`에서 추가했습니다.
 
 #### FK 관계
 - `public.users.user_id` → `auth.users.id`

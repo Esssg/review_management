@@ -23,24 +23,28 @@ const primaryItems = [
     label: "대시보드",
     href: "/dashboard",
     icon: LayoutDashboard,
+    onboardingTarget: "dashboard",
     isActive: (pathname: string) => pathname.startsWith("/dashboard"),
   },
   {
     label: "주문 추가",
     href: "/orders/new",
     icon: SquarePlus,
+    onboardingTarget: "new-order",
     isActive: (pathname: string) => pathname.startsWith("/orders/new"),
   },
   {
     label: "구매 장부",
     href: "/",
     icon: House,
+    onboardingTarget: "ledger",
     isActive: (pathname: string) => pathname === "/",
   },
   {
     label: "자동 추천",
     href: "/menu-4",
     icon: Sparkles,
+    onboardingTarget: "recommendations",
     isActive: (pathname: string) => pathname.startsWith("/menu-4"),
   },
 ] as const;
@@ -63,15 +67,18 @@ function NavItem({
   label,
   icon: Icon,
   active,
+  onboardingTarget,
 }: {
   href: string;
   label: string;
   icon: typeof House;
   active: boolean;
+  onboardingTarget: string;
 }) {
   return (
     <Link
       href={href}
+      data-onboarding-target={onboardingTarget}
       className={cn(
         "group relative flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors",
         active
@@ -127,6 +134,7 @@ export function DesktopSidebar() {
             label={item.label}
             icon={item.icon}
             active={item.isActive(pathname)}
+            onboardingTarget={item.onboardingTarget}
           />
         ))}
 
@@ -134,6 +142,7 @@ export function DesktopSidebar() {
           <div className="flex items-center gap-1">
             <Link
               href="/settings"
+              data-onboarding-target="settings"
               className={cn(
                 "group relative flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors",
                 isSettingsRoute

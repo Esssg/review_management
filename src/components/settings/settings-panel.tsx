@@ -7,6 +7,7 @@ import { HexColorInput, HexColorPicker } from "react-colorful";
 import { ArrowLeft, ChevronRight, Copy, Plus, Star, Trash2 } from "lucide-react";
 
 import { OrderTrashPanel } from "@/components/settings/order-trash-panel";
+import { PwaInstallCard } from "@/components/pwa/pwa-install-card";
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
 import { normalizeHexColor } from "@/lib/color";
 import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
@@ -1279,6 +1280,7 @@ export function SettingsPanel({
   return (
     <div className="flex flex-col gap-5">
       {alerts}
+      <PwaInstallCard />
 
       <button
         type="button"

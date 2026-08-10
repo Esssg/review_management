@@ -534,16 +534,19 @@ export type Database = {
         Row: {
           email: string | null;
           name: string;
+          onboarding_completed_at: string | null;
           user_id: string;
         };
         Insert: {
           email?: string | null;
           name?: string;
+          onboarding_completed_at?: string | null;
           user_id: string;
         };
         Update: {
           email?: string | null;
           name?: string;
+          onboarding_completed_at?: string | null;
           user_id?: string;
         };
         Relationships: [];
