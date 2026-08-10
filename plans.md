@@ -43,8 +43,8 @@
 - 완료: `orders-table.tsx`의 완료 주문 헤더·데스크톱 표·모바일 카드 UI를 top-level memoized `CompletedOrdersSection`으로 분리하고, 부모의 조회·필터·가상 스크롤 계산·mutation 책임과 현재 viewport branch만 마운트하는 동작은 유지함
 - 완료: `order-detail-form.tsx`의 추가 정보·완료정보 입력 UI를 top-level memoized 섹션으로 분리하고, 부모의 draft·dirty guard·저장 책임과 기존 입력 동작은 유지함
 - 완료: `crawl-orders-page.tsx`의 선택 주문 검수 레이아웃을 top-level memoized 컴포넌트로 분리하고, 저장·숨김 mutation callback을 안정화해 polling·부모 상태 변경이 검수 폼 전체를 다시 렌더링하지 않도록 함
-- 부분 완료: `settings-panel.tsx`의 주요 설정 view JSX는 이미 top-level 컴포넌트로 분리되어 있음. 부모의 view 라우팅·상태·Supabase mutation 오케스트레이션은 유지했으며, 추가 래퍼는 prop churn 대비 효과가 없어 만들지 않음
-- 부분 완료·보류: 브라우저 Supabase 조회는 기존 SWR 범위를 유지하고, 쿠키 세션·Next.js Proxy와 구매장부·설정·자동추천·주문 상세·신규 주문 초기 server fetch까지 적용함. 입력값에 따라 바뀌는 중복 후보 조회와 draft 자동 저장은 클라이언트에 유지했으며, 설정 부모 오케스트레이션 추가 분리는 prop churn 대비 이득이 확인되지 않아 보류함
+- 완료: `settings-panel.tsx`의 주요 설정 view JSX는 top-level 컴포넌트로 유지하고, 부모의 master data·프로필·주문 기본값/템플릿 상태와 Supabase mutation 오케스트레이션은 도메인 hook으로 분리함. view 라우팅·공통 알림·로그아웃·휴지통 연결은 부모에 유지함
+- 완료: 브라우저 Supabase 조회는 기존 SWR 범위를 유지하고, 쿠키 세션·Next.js Proxy와 구매장부·설정·자동추천·주문 상세·신규 주문 초기 server fetch까지 적용함. 입력값에 따라 바뀌는 중복 후보 조회와 draft 자동 저장은 클라이언트에 유지함
 - 완료: 구매장부·설정·자동추천의 사용자별 브라우저 조회를 SWR key/fetcher로 캐시하고, 자동추천의 입금·복구 조회는 현재 탭 진입 시에만 실행하도록 전환함. 기존 1,000건 페이지네이션과 mutation 후 화면 갱신 동작은 유지함
 
 ## 기준 검증 결과
@@ -81,7 +81,7 @@
 | 완료 | 구매장부의 완료 주문 헤더·표·카드 JSX가 `OrdersTable`의 데이터·mutation 책임과 한 render 범위에 집중됨 | `rerender-memo`, `rerender-no-inline-components` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx) | 중간 |
 | 완료 | 설정 초기 조회의 템플릿별 주문 사용량 count N+1을 제거하고 필요한 view에서만 조회함 | `async-defer-await`, `async-parallel` | [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx) | 중간 |
 | 확인 완료(코드 변경 없음) | Next 16.2.3 문서와 빌드 결과에서 `lucide-react`·`recharts`가 기본 package import 최적화 대상임을 확인함 | `bundle-barrel-imports` | `next.config.ts`, `src/components/**/*.tsx`, `src/components/pages/**/*.tsx` | 낮음 |
-| 부분 완료·보류 | 주문 폼·크롤링·장부·설정의 실제 렌더 경계를 안전 범위에서 분리하고 브라우저 SWR 조회 캐시를 적용함. 구매장부·설정·자동추천·주문 상세·신규 주문 초기 조회의 server fetch까지 적용했으며, 입력 기반 중복 후보·draft 자동 저장은 클라이언트에 유지함 | `rerender-memo`, `rerender-split-combined-hooks`, `rerender-no-inline-components`, `async-defer-await` | [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx), [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx), [`src/components/pages/home-page.tsx`](src/components/pages/home-page.tsx), [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx), [`src/lib/home-data.ts`](src/lib/home-data.ts), [`src/lib/settings-data.ts`](src/lib/settings-data.ts), [`src/lib/recommendations-data.ts`](src/lib/recommendations-data.ts), [`src/lib/order-detail-data.ts`](src/lib/order-detail-data.ts), [`src/lib/new-order-data.ts`](src/lib/new-order-data.ts), [`src/lib/supabase/server.ts`](src/lib/supabase/server.ts), [`src/proxy.ts`](src/proxy.ts) | 중간~높음 |
+| 완료 | 주문 폼·크롤링·장부·설정의 실제 렌더 경계를 안전 범위에서 분리하고 브라우저 SWR 조회 캐시를 적용함. 구매장부·설정·자동추천·주문 상세·신규 주문 초기 조회의 server fetch까지 적용했으며, 설정 부모의 domain별 상태·mutation 책임을 hook으로 분리함. 입력 기반 중복 후보·draft 자동 저장은 클라이언트에 유지함 | `rerender-memo`, `rerender-split-combined-hooks`, `rerender-no-inline-components`, `async-defer-await` | [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx), [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx), [`src/components/pages/home-page.tsx`](src/components/pages/home-page.tsx), [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx), [`src/components/settings/use-settings-catalog.ts`](src/components/settings/use-settings-catalog.ts), [`src/components/settings/use-settings-profile.ts`](src/components/settings/use-settings-profile.ts), [`src/components/settings/use-settings-preferences.ts`](src/components/settings/use-settings-preferences.ts), [`src/lib/home-data.ts`](src/lib/home-data.ts), [`src/lib/settings-data.ts`](src/lib/settings-data.ts), [`src/lib/recommendations-data.ts`](src/lib/recommendations-data.ts), [`src/lib/order-detail-data.ts`](src/lib/order-detail-data.ts), [`src/lib/new-order-data.ts`](src/lib/new-order-data.ts), [`src/lib/supabase/server.ts`](src/lib/supabase/server.ts), [`src/proxy.ts`](src/proxy.ts) | 중간~높음 |
 | 완료 | 모바일/데스크톱 완료처리와 완료 취소 UI에 유사한 상태·mutation 로직이 반복됨 | 저장소 재사용 원칙, `rerender-memo` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/lib/order-completion.ts`](src/lib/order-completion.ts) | 중간~높음 |
 | 완료 | 크롤링 페이지의 입금 추천 로컬 render helper를 `DepositRecommendationList` top-level 컴포넌트로 분리함 | `rerender-no-inline-components`, `rerender-memo`, `js-combine-iterations` | [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx) | 중간 |
 | 완료 | 전역 layout의 온보딩을 별도 dynamic chunk로 지연 로드하고, 기존 컴포넌트의 인증 확인·표시 동작은 유지함 | `bundle-dynamic-imports` | [`src/app/layout.tsx`](src/app/layout.tsx), [`src/components/onboarding/onboarding-tour-loader.tsx`](src/components/onboarding/onboarding-tour-loader.tsx) | 중간 |
@@ -146,7 +146,7 @@
 3. 완료: 자동추천의 기본 주문·마스터·플랫폼 계정 조회와 입금·복구 탭 조회를 SWR로 전환했다. 입금·주문 후보의 1,000건 단위 전체 페이지 조회는 유지했다.
 4. 완료: 기존 브라우저 조회는 SWR 범위로 유지했다. 다음 단계의 server fetch가 초기 데이터와 브라우저 재검증을 함께 사용할 수 있도록 조회 key와 mutation 후 갱신 동작을 보존했다.
 
-### 7단계: 쿠키 기반 server fetch — 부분 완료
+### 7단계: 쿠키 기반 server fetch — 완료
 
 1. 완료: `@supabase/ssr` 브라우저·서버 클라이언트와 Next.js 16 `proxy.ts`를 추가해 인증 쿠키 갱신 경계를 마련했다. 기존 Supabase URL/key와 public 스키마를 그대로 사용했다.
 2. 완료: 구매장부(`/`)의 인증 사용자, 주문 count, 미완료 주문 초기 조회를 서버에서 병렬로 가져오고 클라이언트 SWR의 초기값으로 주입했다. 완료 주문의 지연 조회와 로그아웃 후 게스트 전환은 유지했다.
@@ -154,6 +154,7 @@
 4. 완료: 자동추천 기본 주문 탭의 대기 주문·선택 주문·master data·플랫폼 계정·자동 이동 설정을 서버에서 병렬 preload하고, 대기 주문은 1,000건 단위로 끝까지 읽도록 공통 fetcher를 정리했다. 입금·복구 탭은 기존처럼 탭 진입 시 SWR로 조회한다.
 5. 완료: 주문 상세의 주문·master data·구매 정보 템플릿을 서버에서 병렬 preload하고, 폼에는 optional 초기 템플릿을 주입했다. visibility 시 `ai_review` 최신값 재조회와 저장·dirty guard는 브라우저 동작을 유지한다.
 6. 완료: 신규 주문(`/orders/new`)은 서버에서 master data·복제 주문·구매 정보 템플릿·`user_preferences`·`user_order_drafts`를 병렬 preload하고, 브라우저에서는 현재 세션과 초기 데이터가 일치할 때 해당 핵심 조회를 반복하지 않는다. 템플릿은 1,000건 단위로 끝까지 읽으며, 입력값 기반 중복 후보 조회와 draft 자동 저장은 기존 클라이언트 동작을 유지한다.
+7. 완료: `SettingsPanel`의 master data, 닉네임·AI 프로필, 주문 기본값·구매 템플릿 상태와 mutation을 각각 도메인 hook으로 분리했다. view 라우팅·공통 알림·로그아웃·휴지통 연결과 화면 UI는 부모에 유지했다.
 
 ## 단계별 검증
 
@@ -220,6 +221,11 @@
 - 신규 주문 server fetch 묶음 `npm test`: 2개 파일, 9개 테스트 통과
 - 신규 주문 server fetch 묶음 `npm run build`: Next.js 16.2.3 빌드 통과
 - 신규 주문 server fetch 묶음 Playwright: `/orders/new`와 실제 복제 주문 `/orders/new?copy=...`를 1440px·390px에서 확인함. 서버 preload 뒤 브라우저 핵심 테이블 중복 조회가 없고, 복제 화면에서는 입력값 기반 중복 후보 조회만 발생함. 템플릿·복제 필드·요약이 표시되고 두 viewport의 가로 overflow와 브라우저 error 0건을 확인함
+- 설정 부모 orchestration 묶음 `npm run lint`: 통과
+- 설정 부모 orchestration 묶음 `npx tsc --noEmit`: 통과
+- 설정 부모 orchestration 묶음 `npm test`: 2개 파일, 9개 테스트 통과
+- 설정 부모 orchestration 묶음 `npm run build`: Next.js 16.2.3 빌드 통과
+- 설정 부모 orchestration 묶음 Playwright: 설정 홈·계정·닉네임·주문 기본값·구매 정보 템플릿·AI·플랫폼·결제 수단·구매 계정·휴지통 view를 확인하고, 1440px·390px에서 핵심 UI 표시와 가로 overflow 없음·브라우저 error 0건을 확인함. 저장·삭제 mutation은 실행하지 않음
 
 ## 명시적 제외
 
