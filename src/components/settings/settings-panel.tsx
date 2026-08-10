@@ -558,6 +558,56 @@ function AccountSettingsView({
   );
 }
 
+function NicknameSettingsView({
+  header,
+  alerts,
+  nicknameDraft,
+  nicknameSaveDisabled,
+  isSaving,
+  onNicknameChange,
+  onSave,
+}: {
+  header: ReactNode;
+  alerts: ReactNode;
+  nicknameDraft: string;
+  nicknameSaveDisabled: boolean;
+  isSaving: boolean;
+  onNicknameChange: (value: string) => void;
+  onSave: () => void | Promise<void>;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      {header}
+      {alerts}
+      <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+        <label className="flex flex-col gap-2 text-sm">
+          <span className="font-medium">닉네임</span>
+          <input
+            value={nicknameDraft}
+            onChange={(event) => onNicknameChange(event.target.value)}
+            placeholder="표시 이름"
+            autoComplete="nickname"
+            className="h-11 rounded-[4px] border border-input bg-card px-3 text-base outline-none focus:ring-2 focus:ring-ring"
+          />
+        </label>
+        <button
+          type="button"
+          disabled={nicknameSaveDisabled}
+          onClick={() => void onSave()}
+          className={cn(
+            "mt-4 inline-flex h-11 w-full touch-manipulation items-center justify-center rounded-full px-4 text-sm font-semibold transition-colors",
+            nicknameSaveDisabled
+              ? "cursor-not-allowed bg-muted text-muted-foreground"
+              : "bg-primary text-primary-foreground hover:bg-primary-active",
+          )}
+        >
+          {isSaving ? "저장 중…" : "저장"}
+        </button>
+      </section>
+    </div>
+  );
+}
+
 function SettingsNavRow({
   label,
   description,
@@ -1116,35 +1166,15 @@ export function SettingsPanel({
 
   if (view === "nickname") {
     return (
-      <div className="flex flex-col gap-4">
-        {subHeader}
-        {alerts}
-        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
-          <label className="flex flex-col gap-2 text-sm">
-            <span className="font-medium">닉네임</span>
-            <input
-              value={nicknameDraft}
-              onChange={(e) => setNicknameDraft(e.target.value)}
-              placeholder="표시 이름"
-              autoComplete="nickname"
-              className="h-11 rounded-[4px] border border-input bg-card px-3 text-base outline-none focus:ring-2 focus:ring-ring"
-            />
-          </label>
-          <button
-            type="button"
-            disabled={nicknameSaveDisabled}
-            onClick={() => void handleSaveNickname()}
-            className={cn(
-              "mt-4 inline-flex h-11 w-full touch-manipulation items-center justify-center rounded-full px-4 text-sm font-semibold transition-colors",
-              nicknameSaveDisabled
-                ? "cursor-not-allowed bg-muted text-muted-foreground"
-                : "bg-primary text-primary-foreground hover:bg-primary-active",
-            )}
-          >
-            {isSavingName ? "저장 중…" : "저장"}
-          </button>
-        </section>
-      </div>
+      <NicknameSettingsView
+        header={subHeader}
+        alerts={alerts}
+        nicknameDraft={nicknameDraft}
+        nicknameSaveDisabled={nicknameSaveDisabled}
+        isSaving={isSavingName}
+        onNicknameChange={setNicknameDraft}
+        onSave={handleSaveNickname}
+      />
     );
   }
 
