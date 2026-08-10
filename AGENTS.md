@@ -73,7 +73,7 @@
 
 - 프레임워크: `next@16`, `react@19`, `typescript` — 일반 웹 빌드는 서버 라우트를 포함하며, Docker 빌드에서는 `output: "standalone"`을 사용합니다.
 - UI: `@base-ui/react`, `shadcn`, `lucide-react`, `tailwindcss@4`
-- 데이터/인증: `@supabase/supabase-js`(브라우저 `localStorage` 세션)
+- 데이터/인증: `@supabase/supabase-js`와 `@supabase/ssr` — 브라우저·Next.js 서버가 공유하는 Supabase 쿠키 세션. 브라우저 client는 [`src/lib/supabase/client.ts`](src/lib/supabase/client.ts), 서버 client는 [`src/lib/supabase/server.ts`](src/lib/supabase/server.ts), 토큰 갱신은 [`src/proxy.ts`](src/proxy.ts)에서 담당합니다.
 - 품질 관리: `eslint`, TypeScript 검사, `vitest` — 구매 일정·중복 정규화와 주문 완료 입력·경고·수익 규칙을 단위 테스트합니다.
 
 ## 디자인 시스템 적용 범위
@@ -88,7 +88,7 @@
 - `src/app`: 라우팅 및 페이지 구성(대부분 클라이언트에서 Supabase 조회)
 - `src/components/pages`: 클라이언트 페이지(홈·로그인·대시보드·주문 상세 등)
 - `src/components`: 도메인 UI (`orders`, `auth`, `ui`)
-- `src/lib`: 공통 유틸·`supabase/client.ts`
+- `src/lib`: 공통 유틸·`supabase/client.ts`·`supabase/server.ts`·`supabase/proxy.ts`
 - `src/types`: 타입 정의 및 DB 타입 파일
 - `supabase/migrations`: DB 마이그레이션
 - `supabase/seed_orders_from_ledger.sql`: 주문 시드 데이터 스크립트
