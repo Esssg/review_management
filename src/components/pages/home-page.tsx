@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, Loader2, PackageCheck, Plus, RefreshCw, WalletCards } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import useSWR, { mutate as mutateSWR } from "swr";
 
 import { LandingAuthPanel } from "@/components/auth/landing-auth-panel";
 import { LoginForm } from "@/components/auth/login-form";
@@ -146,6 +147,73 @@ const EMPTY_COUNTS: OrderListCounts = {
   completed: null,
 };
 
+type HomeSWRKey = readonly ["home", "counts" | "pending" | "completed", string];
+
+const homeCountsKey = (userId: string): HomeSWRKey => ["home", "counts", userId];
+const homePendingKey = (userId: string): HomeSWRKey => ["home", "pending", userId];
+const homeCompletedKey = (userId: string): HomeSWRKey => ["home", "completed", userId];
+
+async function fetchHomeOrderCounts(key: HomeSWRKey): Promise<OrderListCounts> {
+  const [, , userId] = key;
+  const supabase = createClient();
+  const [totalResult, pendingResult, completedResult] = await Promise.all([
+    supabase.from("orders").select("id", { count: "exact", head: true }).eq("user_id", userId).is("deleted_at", null),
+    supabase
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .eq("is_processed", false),
+    supabase
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .eq("is_processed", true),
+  ]);
+
+  const error = totalResult.error ?? pendingResult.error ?? completedResult.error;
+  if (error) throw new Error(error.message);
+
+  return {
+    total: totalResult.count ?? 0,
+    pending: pendingResult.count ?? 0,
+    completed: completedResult.count ?? 0,
+  };
+}
+
+async function fetchHomePendingOrders(key: HomeSWRKey): Promise<OrderWithRelations[]> {
+  const [, , userId] = key;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("orders")
+    .select(ORDER_LIST_SELECT)
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .eq("is_processed", false)
+    .order("purchase_date", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as OrderWithRelations[];
+}
+
+async function fetchHomeCompletedOrders(key: HomeSWRKey): Promise<OrderWithRelations[]> {
+  const [, , userId] = key;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("orders")
+    .select(ORDER_LIST_SELECT)
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .eq("is_processed", true)
+    .order("purchase_date", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as OrderWithRelations[];
+}
+
 function sortOrderList(orders: OrderWithRelations[]) {
   return [...orders].sort((a, b) => {
     const d = b.purchase_date.localeCompare(a.purchase_date);
@@ -165,90 +233,42 @@ export function HomePage() {
   const [phase, setPhase] = useState<"loading" | "guest" | "ready" | "error">("loading");
   const [email, setEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  const [pendingOrders, setPendingOrders] = useState<OrderWithRelations[]>([]);
-  const [completedOrders, setCompletedOrders] = useState<OrderWithRelations[] | null>(null);
-  const [orderCounts, setOrderCounts] = useState<OrderListCounts>(EMPTY_COUNTS);
+  const [isCompletedRequested, setIsCompletedRequested] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isCountsLoading, setIsCountsLoading] = useState(false);
-  const [isPendingLoading, setIsPendingLoading] = useState(false);
-  const [isCompletedLoading, setIsCompletedLoading] = useState(false);
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const missingEnv = !url?.trim() || !anonKey?.trim();
 
-  const failWithError = useCallback((message: string, isCancelled?: () => boolean) => {
-    if (isCancelled?.()) return;
-    setErrorMessage(message);
-    setPhase("error");
-  }, []);
+  const {
+    data: orderCountsData,
+    error: orderCountsError,
+    isLoading: isCountsLoading,
+    mutate: mutateOrderCounts,
+  } = useSWR<OrderListCounts>(userId ? homeCountsKey(userId) : null, fetchHomeOrderCounts, {
+    revalidateOnFocus: false,
+  });
+  const {
+    data: pendingOrdersData,
+    error: pendingOrdersError,
+    isLoading: isPendingLoading,
+    mutate: mutatePendingOrders,
+  } = useSWR<OrderWithRelations[]>(userId ? homePendingKey(userId) : null, fetchHomePendingOrders, {
+    revalidateOnFocus: false,
+  });
+  const {
+    data: completedOrdersData,
+    error: completedOrdersError,
+    isLoading: isCompletedLoading,
+    mutate: mutateCompletedOrders,
+  } = useSWR<OrderWithRelations[]>(userId && isCompletedRequested ? homeCompletedKey(userId) : null, fetchHomeCompletedOrders, {
+    revalidateOnFocus: false,
+  });
 
-  const loadOrderCounts = useCallback(async (targetUserId: string, isCancelled?: () => boolean) => {
-    setIsCountsLoading(true);
-    try {
-      const supabase = createClient();
-      const [totalResult, pendingResult, completedResult] = await Promise.all([
-        supabase.from("orders").select("id", { count: "exact", head: true }).eq("user_id", targetUserId).is("deleted_at", null),
-        supabase
-          .from("orders")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", targetUserId)
-          .is("deleted_at", null)
-          .eq("is_processed", false),
-        supabase
-          .from("orders")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", targetUserId)
-          .is("deleted_at", null)
-          .eq("is_processed", true),
-      ]);
-
-      if (isCancelled?.()) return;
-      const error = totalResult.error ?? pendingResult.error ?? completedResult.error;
-      if (error) {
-        failWithError(error.message, isCancelled);
-        return;
-      }
-
-      setOrderCounts({
-        total: totalResult.count ?? 0,
-        pending: pendingResult.count ?? 0,
-        completed: completedResult.count ?? 0,
-      });
-    } catch (e) {
-      failWithError(e instanceof Error ? e.message : String(e), isCancelled);
-    } finally {
-      if (!isCancelled?.()) setIsCountsLoading(false);
-    }
-  }, [failWithError]);
-
-  const loadPendingOrders = useCallback(async (targetUserId: string, isCancelled?: () => boolean) => {
-    setIsPendingLoading(true);
-    try {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("orders")
-        .select(ORDER_LIST_SELECT)
-        .eq("user_id", targetUserId)
-        .is("deleted_at", null)
-        .eq("is_processed", false)
-        .order("purchase_date", { ascending: false })
-        .order("created_at", { ascending: false });
-
-      if (isCancelled?.()) return;
-      if (error) {
-        failWithError(error.message, isCancelled);
-        return;
-      }
-
-      setPendingOrders((data ?? []) as OrderWithRelations[]);
-    } catch (e) {
-      failWithError(e instanceof Error ? e.message : String(e), isCancelled);
-    } finally {
-      if (!isCancelled?.()) setIsPendingLoading(false);
-    }
-  }, [failWithError]);
+  const orderCounts = orderCountsData ?? EMPTY_COUNTS;
+  const pendingOrders = pendingOrdersData ?? [];
+  const completedOrders = isCompletedRequested ? completedOrdersData ?? null : null;
 
   const loadOrders = useCallback(async (opts?: { manual?: boolean; isCancelled?: () => boolean }) => {
     const manual = opts?.manual ?? false;
@@ -268,15 +288,18 @@ export function HomePage() {
       setEmail(user.email ?? user.id);
       setUserId(user.id);
       setErrorMessage(null);
-      setOrderCounts(EMPTY_COUNTS);
-      setPendingOrders([]);
-      setCompletedOrders(null);
-      setIsCompletedLoading(false);
+      const isSameUser = userId === user.id;
+      if (!isSameUser) setIsCompletedRequested(false);
       setPhase("ready");
 
-      const countsPromise = loadOrderCounts(user.id, isCancelled);
-      const pendingPromise = loadPendingOrders(user.id, isCancelled);
-      if (manual) await Promise.all([countsPromise, pendingPromise]);
+      if (manual) {
+        const refreshes: Promise<unknown>[] = [
+          mutateSWR(homeCountsKey(user.id)),
+          mutateSWR(homePendingKey(user.id)),
+        ];
+        if (isSameUser && isCompletedRequested) refreshes.push(mutateSWR(homeCompletedKey(user.id)));
+        await Promise.all(refreshes);
+      }
     } catch (e) {
       if (isCancelled?.()) return;
       setErrorMessage(e instanceof Error ? e.message : String(e));
@@ -284,87 +307,72 @@ export function HomePage() {
     } finally {
       if (manual) setIsRefreshing(false);
     }
-  }, [loadOrderCounts, loadPendingOrders]);
+  }, [isCompletedRequested, userId]);
 
   const loadCompletedOrders = useCallback(async () => {
-    if (!userId || completedOrders !== null || isCompletedLoading) return;
-    setIsCompletedLoading(true);
-    try {
-      const supabase = createClient();
-      const { data, error } = await supabase
-        .from("orders")
-        .select(ORDER_LIST_SELECT)
-        .eq("user_id", userId)
-        .is("deleted_at", null)
-        .eq("is_processed", true)
-        .order("purchase_date", { ascending: false })
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        failWithError(error.message);
-        return;
-      }
-
-      setCompletedOrders((data ?? []) as OrderWithRelations[]);
-    } catch (e) {
-      failWithError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setIsCompletedLoading(false);
-    }
-  }, [completedOrders, failWithError, isCompletedLoading, userId]);
+    if (!userId || isCompletedRequested) return;
+    setIsCompletedRequested(true);
+  }, [isCompletedRequested, userId]);
 
   const handleOrderPatched = useCallback((previous: OrderWithRelations, updated: OrderWithRelations) => {
-    setPendingOrders((current) => {
+    void mutatePendingOrders((current = []) => {
       if (!previous.is_processed && updated.is_processed) return current.filter((item) => item.id !== updated.id);
       if (previous.is_processed && !updated.is_processed) return upsertOrder(current, updated);
       if (!updated.is_processed) return sortOrderList(current.map((item) => (item.id === updated.id ? updated : item)));
       return current;
-    });
+    }, { revalidate: false });
 
-    setCompletedOrders((current) => {
-      if (current === null) return current;
+    void mutateCompletedOrders((current) => {
+      if (!current) return current;
       if (!previous.is_processed && updated.is_processed) return upsertOrder(current, updated);
       if (previous.is_processed && !updated.is_processed) return current.filter((item) => item.id !== updated.id);
       if (updated.is_processed) return sortOrderList(current.map((item) => (item.id === updated.id ? updated : item)));
       return current;
-    });
+    }, { revalidate: false });
 
     if (previous.is_processed !== updated.is_processed) {
-      setOrderCounts((current) => ({
+      void mutateOrderCounts((current = EMPTY_COUNTS) => ({
         total: current.total,
         pending: adjustNullableCount(current.pending, updated.is_processed ? -1 : 1),
         completed: adjustNullableCount(current.completed, updated.is_processed ? 1 : -1),
-      }));
+      }), { revalidate: false });
     }
-  }, []);
+  }, [mutateCompletedOrders, mutateOrderCounts, mutatePendingOrders]);
 
   const handleOrderDeleted = useCallback((deleted: OrderWithRelations) => {
     if (deleted.is_processed) {
-      setCompletedOrders((current) => current?.filter((item) => item.id !== deleted.id) ?? current);
+      void mutateCompletedOrders((current) => current?.filter((item) => item.id !== deleted.id) ?? current, { revalidate: false });
     } else {
-      setPendingOrders((current) => current.filter((item) => item.id !== deleted.id));
+      void mutatePendingOrders((current = []) => current.filter((item) => item.id !== deleted.id), { revalidate: false });
     }
 
-    setOrderCounts((current) => ({
+    void mutateOrderCounts((current = EMPTY_COUNTS) => ({
       total: adjustNullableCount(current.total, -1),
       pending: adjustNullableCount(current.pending, deleted.is_processed ? 0 : -1),
       completed: adjustNullableCount(current.completed, deleted.is_processed ? -1 : 0),
-    }));
-  }, []);
+    }), { revalidate: false });
+  }, [mutateCompletedOrders, mutateOrderCounts, mutatePendingOrders]);
 
   const handleOrderRestored = useCallback((restored: OrderWithRelations) => {
     if (restored.is_processed) {
-      setCompletedOrders((current) => current === null ? current : upsertOrder(current, restored));
+      void mutateCompletedOrders((current) => current ? upsertOrder(current, restored) : current, { revalidate: false });
     } else {
-      setPendingOrders((current) => upsertOrder(current, restored));
+      void mutatePendingOrders((current = []) => upsertOrder(current, restored), { revalidate: false });
     }
 
-    setOrderCounts((current) => ({
+    void mutateOrderCounts((current = EMPTY_COUNTS) => ({
       total: adjustNullableCount(current.total, 1),
       pending: adjustNullableCount(current.pending, restored.is_processed ? 0 : 1),
       completed: adjustNullableCount(current.completed, restored.is_processed ? 1 : 0),
-    }));
-  }, []);
+    }), { revalidate: false });
+  }, [mutateCompletedOrders, mutateOrderCounts, mutatePendingOrders]);
+
+  useEffect(() => {
+    const error = orderCountsError ?? pendingOrdersError ?? completedOrdersError;
+    if (!error) return;
+    setErrorMessage(error instanceof Error ? error.message : String(error));
+    setPhase("error");
+  }, [completedOrdersError, orderCountsError, pendingOrdersError]);
 
   useEffect(() => {
     if (missingEnv) return;
@@ -384,9 +392,14 @@ export function HomePage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
-        setPendingOrders([]);
-        setCompletedOrders(null);
-        setOrderCounts(EMPTY_COUNTS);
+        if (userId) {
+          void Promise.all([
+            mutateSWR(homeCountsKey(userId), undefined, { revalidate: false }),
+            mutateSWR(homePendingKey(userId), undefined, { revalidate: false }),
+            mutateSWR(homeCompletedKey(userId), undefined, { revalidate: false }),
+          ]);
+        }
+        setIsCompletedRequested(false);
         setEmail(null);
         setUserId(null);
         setErrorMessage(null);
@@ -394,7 +407,7 @@ export function HomePage() {
       }
     });
     return () => subscription.unsubscribe();
-  }, [missingEnv]);
+  }, [missingEnv, userId]);
 
   if (missingEnv) {
     return (
