@@ -9,20 +9,24 @@ import { formatKrw } from "@/lib/dashboard-stats";
 import { OrderDetailForm, type OrderFormSummary } from "@/components/orders/order-detail-form";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { buttonVariants } from "@/components/ui/button";
-import { fetchMasterData } from "@/lib/master-data";
+import { fetchOrderDetailData, type OrderDetailInitialData } from "@/lib/order-detail-data";
 import { createClient } from "@/lib/supabase/client";
 import type { OrderWithRelations } from "@/types/orders";
 import { cn } from "@/lib/utils";
 
-export function OrderDetailPage() {
+export function OrderDetailPage({ initialData = null }: { initialData?: OrderDetailInitialData | null }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const id = searchParams.get("id")?.trim() ?? "";
 
-  const [phase, setPhase] = useState<"loading" | "guest" | "ready" | "error">("loading");
-  const [order, setOrder] = useState<OrderWithRelations | null>(null);
-  const [master, setMaster] = useState<Awaited<ReturnType<typeof fetchMasterData>> | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [phase, setPhase] = useState<"loading" | "guest" | "ready" | "error">(
+    initialData ? (initialData.order ? "ready" : "error") : "loading",
+  );
+  const [order, setOrder] = useState<OrderWithRelations | null>(initialData?.order ?? null);
+  const [master, setMaster] = useState(initialData?.master ?? null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(
+    initialData?.order ? null : initialData ? "주문을 찾을 수 없습니다." : null,
+  );
   const [formSummary, setFormSummary] = useState<OrderFormSummary | null>(null);
 
   useEffect(() => {
@@ -40,39 +44,51 @@ export function OrderDetailPage() {
         return;
       }
 
-      const [orderResult, masterData] = await Promise.all([
-        supabase
-          .from("orders")
-          .select(
-            "*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)",
-          )
-          .eq("id", id)
-          .is("deleted_at", null)
-          .maybeSingle(),
-        fetchMasterData(supabase, user.id),
-      ]);
+      if (initialData?.userId === user.id && initialData.orderId === id) {
+        if (initialData.order) {
+          setOrder(initialData.order);
+          setMaster(initialData.master);
+          setErrorMessage(null);
+          setPhase("ready");
+        } else {
+          setOrder(null);
+          setMaster(initialData.master);
+          setErrorMessage("주문을 찾을 수 없습니다.");
+          setPhase("error");
+        }
+        return;
+      }
 
-      if (cancelled) return;
-      if (orderResult.error) {
-        setErrorMessage(orderResult.error.message);
+      setPhase("loading");
+      setOrder(null);
+      setMaster(null);
+
+      let detailData: Awaited<ReturnType<typeof fetchOrderDetailData>>;
+      try {
+        detailData = await fetchOrderDetailData(supabase, user.id, id);
+      } catch (error) {
+        if (cancelled) return;
+        setErrorMessage(error instanceof Error ? error.message : String(error));
         setPhase("error");
         return;
       }
-      if (!orderResult.data) {
+
+      if (cancelled) return;
+      if (!detailData.order) {
         setPhase("error");
         setErrorMessage("주문을 찾을 수 없습니다.");
         return;
       }
 
-      setOrder(orderResult.data as OrderWithRelations);
-      setMaster(masterData);
+      setOrder(detailData.order);
+      setMaster(detailData.master);
       setPhase("ready");
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [id, router]);
+  }, [id, initialData, router]);
 
   useEffect(() => {
     if (!id || phase !== "ready") return;
@@ -146,6 +162,7 @@ export function OrderDetailPage() {
           platforms={master.platforms}
           paymentMethods={master.paymentMethods}
           buyerAccounts={master.buyerAccounts}
+          initialPurchaseTemplates={initialData?.orderId === id ? initialData.purchaseTemplates : undefined}
         />
         {/* 상세 데이터는 별도 조회 없이 현재 주문 상태만 요약해 데스크톱의 보조 영역에 표시합니다. */}
         <aside className="h-fit min-w-0 rounded-xl border bg-card p-4 shadow-xs lg:sticky lg:top-5">

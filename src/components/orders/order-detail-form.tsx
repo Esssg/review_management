@@ -825,6 +825,7 @@ export function OrderDetailForm({
   platforms,
   paymentMethods,
   buyerAccounts,
+  initialPurchaseTemplates,
 }: {
   order?: OrderWithRelations;
   draftOrder?: DraftOrderWithRelations;
@@ -835,6 +836,7 @@ export function OrderDetailForm({
   platforms: Platform[];
   paymentMethods: PaymentMethod[];
   buyerAccounts: BuyerAccount[];
+  initialPurchaseTemplates?: PurchaseTemplateRow[];
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -886,7 +888,7 @@ export function OrderDetailForm({
   const [orderStatus, setOrderStatus] = useState(initialOrder?.order_status ?? "");
   const [toast, setToast] = useState<ToastState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [purchaseTemplates, setPurchaseTemplates] = useState<PurchaseTemplateRow[]>([]);
+  const [purchaseTemplates, setPurchaseTemplates] = useState<PurchaseTemplateRow[]>(initialPurchaseTemplates ?? []);
   const [aiExtraInput, setAiExtraInput] = useState(initialOrder?.ai_review_user_prompt ?? "");
   const [workflowUserId, setWorkflowUserId] = useState(userId ?? "");
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
@@ -1046,6 +1048,11 @@ export function OrderDetailForm({
   }, [toast]);
 
   useEffect(() => {
+    if (initialPurchaseTemplates !== undefined) {
+      setPurchaseTemplates(initialPurchaseTemplates);
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       const supa = createClient();
@@ -1059,7 +1066,7 @@ export function OrderDetailForm({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialPurchaseTemplates]);
 
   const applyNewOrderDraft = useCallback((draft: NewOrderDraft) => {
     setKakaoRoomName(draft.title);
