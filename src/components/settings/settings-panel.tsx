@@ -465,6 +465,63 @@ function PaymentMethodSettingsView({
   );
 }
 
+function BuyerAccountSettingsView({
+  header,
+  alerts,
+  buyerAccounts,
+  deletingId,
+  savingColorId,
+  onDeleteBuyerAccount,
+  onChangeBuyerAccountColor,
+  onAddBuyerAccount,
+}: {
+  header: ReactNode;
+  alerts: ReactNode;
+  buyerAccounts: BuyerAccount[];
+  deletingId: string | null;
+  savingColorId: string | null;
+  onDeleteBuyerAccount: (account: BuyerAccount) => void | Promise<void>;
+  onChangeBuyerAccountColor: (account: BuyerAccount, nextColor: string) => Promise<void>;
+  onAddBuyerAccount: (label: string, color: string) => Promise<void>;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      {header}
+      {alerts}
+      <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+        <SectionHeader title="구매 계정" description="주문 시 선택할 구매자 계정 별칭을 관리합니다." />
+        <div className="flex flex-col gap-2">
+          {buyerAccounts.length === 0 ? (
+            <p className="text-muted-foreground text-sm">등록된 계정이 없습니다.</p>
+          ) : (
+            buyerAccounts.map((account) => (
+              <ItemRow
+                key={account.id}
+                label={account.label}
+                color={account.color}
+                isSystem={false}
+                isHidden={false}
+                canEditColor
+                isDeleting={deletingId === account.id}
+                isSavingColor={savingColorId === account.id}
+                onDelete={() => void onDeleteBuyerAccount(account)}
+                onChangeColor={(next) => onChangeBuyerAccountColor(account, next)}
+              />
+            ))
+          )}
+        </div>
+        <div className="mt-3">
+          <AddItemForm
+            placeholder="새 계정 별칭 (예: 혜미)"
+            defaultColor={DEFAULT_BUYER_ACCOUNT_COLOR}
+            onAdd={onAddBuyerAccount}
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function SettingsNavRow({
   label,
   description,
@@ -1223,40 +1280,16 @@ export function SettingsPanel({
 
   if (view === "buyer-accounts") {
     return (
-      <div className="flex flex-col gap-4">
-        {subHeader}
-        {alerts}
-        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
-          <SectionHeader title="구매 계정" description="주문 시 선택할 구매자 계정 별칭을 관리합니다." />
-          <div className="flex flex-col gap-2">
-            {buyerAccounts.length === 0 ? (
-              <p className="text-muted-foreground text-sm">등록된 계정이 없습니다.</p>
-            ) : (
-              buyerAccounts.map((a) => (
-                <ItemRow
-                  key={a.id}
-                  label={a.label}
-                  color={a.color}
-                  isSystem={false}
-                  isHidden={false}
-                  canEditColor
-                  isDeleting={deletingId === a.id}
-                  isSavingColor={savingColorId === a.id}
-                  onDelete={() => void handleDeleteBuyerAccount(a)}
-                  onChangeColor={(next) => handleBuyerAccountColorChange(a, next)}
-                />
-              ))
-            )}
-          </div>
-          <div className="mt-3">
-            <AddItemForm
-              placeholder="새 계정 별칭 (예: 혜미)"
-              defaultColor={DEFAULT_BUYER_ACCOUNT_COLOR}
-              onAdd={handleAddBuyerAccount}
-            />
-          </div>
-        </section>
-      </div>
+      <BuyerAccountSettingsView
+        header={subHeader}
+        alerts={alerts}
+        buyerAccounts={buyerAccounts}
+        deletingId={deletingId}
+        savingColorId={savingColorId}
+        onDeleteBuyerAccount={handleDeleteBuyerAccount}
+        onChangeBuyerAccountColor={handleBuyerAccountColorChange}
+        onAddBuyerAccount={handleAddBuyerAccount}
+      />
     );
   }
 
