@@ -44,7 +44,7 @@
 - 완료: `order-detail-form.tsx`의 추가 정보·완료정보 입력 UI를 top-level memoized 섹션으로 분리하고, 부모의 draft·dirty guard·저장 책임과 기존 입력 동작은 유지함
 - 완료: `crawl-orders-page.tsx`의 선택 주문 검수 레이아웃을 top-level memoized 컴포넌트로 분리하고, 저장·숨김 mutation callback을 안정화해 polling·부모 상태 변경이 검수 폼 전체를 다시 렌더링하지 않도록 함
 - 부분 완료: `settings-panel.tsx`의 주요 설정 view JSX는 이미 top-level 컴포넌트로 분리되어 있음. 부모의 view 라우팅·상태·Supabase mutation 오케스트레이션은 유지했으며, 추가 래퍼는 prop churn 대비 효과가 없어 만들지 않음
-- 부분 완료·보류: 브라우저 Supabase 조회는 기존 SWR 범위를 유지하고, 쿠키 세션·Next.js Proxy와 구매장부·설정·자동추천 초기 server fetch까지 적용함. 주문 상세·신규 주문 등 입력 중심 화면의 추가 server fetch와 설정 부모 오케스트레이션 분리는 후속 검증이 필요함
+- 부분 완료·보류: 브라우저 Supabase 조회는 기존 SWR 범위를 유지하고, 쿠키 세션·Next.js Proxy와 구매장부·설정·자동추천·주문 상세 초기 server fetch까지 적용함. 신규 주문 등 입력 중심 화면의 추가 server fetch와 설정 부모 오케스트레이션 분리는 후속 검증이 필요함
 - 완료: 구매장부·설정·자동추천의 사용자별 브라우저 조회를 SWR key/fetcher로 캐시하고, 자동추천의 입금·복구 조회는 현재 탭 진입 시에만 실행하도록 전환함. 기존 1,000건 페이지네이션과 mutation 후 화면 갱신 동작은 유지함
 
 ## 기준 검증 결과
@@ -81,7 +81,7 @@
 | 완료 | 구매장부의 완료 주문 헤더·표·카드 JSX가 `OrdersTable`의 데이터·mutation 책임과 한 render 범위에 집중됨 | `rerender-memo`, `rerender-no-inline-components` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx) | 중간 |
 | 완료 | 설정 초기 조회의 템플릿별 주문 사용량 count N+1을 제거하고 필요한 view에서만 조회함 | `async-defer-await`, `async-parallel` | [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx) | 중간 |
 | 확인 완료(코드 변경 없음) | Next 16.2.3 문서와 빌드 결과에서 `lucide-react`·`recharts`가 기본 package import 최적화 대상임을 확인함 | `bundle-barrel-imports` | `next.config.ts`, `src/components/**/*.tsx`, `src/components/pages/**/*.tsx` | 낮음 |
-| 부분 완료·보류 | 주문 폼·크롤링·장부·설정의 실제 렌더 경계를 안전 범위에서 분리하고 브라우저 SWR 조회 캐시를 적용함. 구매장부·설정·자동추천 초기 조회의 server fetch까지 적용했으며 주문 상세·신규 주문 등 입력 중심 화면은 보류함 | `rerender-memo`, `rerender-split-combined-hooks`, `rerender-no-inline-components`, `async-defer-await` | [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx), [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx), [`src/components/pages/home-page.tsx`](src/components/pages/home-page.tsx), [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx), [`src/lib/home-data.ts`](src/lib/home-data.ts), [`src/lib/settings-data.ts`](src/lib/settings-data.ts), [`src/lib/recommendations-data.ts`](src/lib/recommendations-data.ts), [`src/lib/supabase/server.ts`](src/lib/supabase/server.ts), [`src/proxy.ts`](src/proxy.ts) | 중간~높음 |
+| 부분 완료·보류 | 주문 폼·크롤링·장부·설정의 실제 렌더 경계를 안전 범위에서 분리하고 브라우저 SWR 조회 캐시를 적용함. 구매장부·설정·자동추천·주문 상세 초기 조회의 server fetch까지 적용했으며 신규 주문 등 입력 중심 화면은 보류함 | `rerender-memo`, `rerender-split-combined-hooks`, `rerender-no-inline-components`, `async-defer-await` | [`src/components/orders/order-detail-form.tsx`](src/components/orders/order-detail-form.tsx), [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx), [`src/components/pages/home-page.tsx`](src/components/pages/home-page.tsx), [`src/components/pages/settings-page.tsx`](src/components/pages/settings-page.tsx), [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/components/settings/settings-panel.tsx`](src/components/settings/settings-panel.tsx), [`src/lib/home-data.ts`](src/lib/home-data.ts), [`src/lib/settings-data.ts`](src/lib/settings-data.ts), [`src/lib/recommendations-data.ts`](src/lib/recommendations-data.ts), [`src/lib/order-detail-data.ts`](src/lib/order-detail-data.ts), [`src/lib/supabase/server.ts`](src/lib/supabase/server.ts), [`src/proxy.ts`](src/proxy.ts) | 중간~높음 |
 | 완료 | 모바일/데스크톱 완료처리와 완료 취소 UI에 유사한 상태·mutation 로직이 반복됨 | 저장소 재사용 원칙, `rerender-memo` | [`src/components/orders/orders-table.tsx`](src/components/orders/orders-table.tsx), [`src/lib/order-completion.ts`](src/lib/order-completion.ts) | 중간~높음 |
 | 완료 | 크롤링 페이지의 입금 추천 로컬 render helper를 `DepositRecommendationList` top-level 컴포넌트로 분리함 | `rerender-no-inline-components`, `rerender-memo`, `js-combine-iterations` | [`src/components/pages/crawl-orders-page.tsx`](src/components/pages/crawl-orders-page.tsx) | 중간 |
 | 완료 | 전역 layout의 온보딩을 별도 dynamic chunk로 지연 로드하고, 기존 컴포넌트의 인증 확인·표시 동작은 유지함 | `bundle-dynamic-imports` | [`src/app/layout.tsx`](src/app/layout.tsx), [`src/components/onboarding/onboarding-tour-loader.tsx`](src/components/onboarding/onboarding-tour-loader.tsx) | 중간 |
@@ -152,7 +152,8 @@
 2. 완료: 구매장부(`/`)의 인증 사용자, 주문 count, 미완료 주문 초기 조회를 서버에서 병렬로 가져오고 클라이언트 SWR의 초기값으로 주입했다. 완료 주문의 지연 조회와 로그아웃 후 게스트 전환은 유지했다.
 3. 완료: 설정 화면은 계정·공통 master data·사용자 설정·휴지통 count를 서버에서 초기 조회하고, view 진입 시 템플릿 사용량 지연 조회와 mutation 후 SWR 갱신을 유지했다.
 4. 완료: 자동추천 기본 주문 탭의 대기 주문·선택 주문·master data·플랫폼 계정·자동 이동 설정을 서버에서 병렬 preload하고, 대기 주문은 1,000건 단위로 끝까지 읽도록 공통 fetcher를 정리했다. 입금·복구 탭은 기존처럼 탭 진입 시 SWR로 조회한다.
-5. 보류: 주문 상세·신규 주문처럼 입력·draft·중복 조회가 결합된 화면은 server fetch가 입력 초기값과 저장 경계를 흔들 수 있어 별도 위험도 판단 대상으로 남긴다.
+5. 완료: 주문 상세의 주문·master data·구매 정보 템플릿을 서버에서 병렬 preload하고, 폼에는 optional 초기 템플릿을 주입했다. visibility 시 `ai_review` 최신값 재조회와 저장·dirty guard는 브라우저 동작을 유지한다.
+6. 보류: 신규 주문은 `user_preferences`·`user_order_drafts`·템플릿·입력 중 중복 후보 조회가 서로 의존하므로, 초기값 주입과 draft 복원 순서를 별도 설계한 뒤 진행한다.
 
 ## 단계별 검증
 
@@ -213,6 +214,7 @@
 - 쿠키 인증 묶음 Playwright: 테스트 계정으로 로그인 시 인증 쿠키가 생성되고 `/`의 인증 UI와 server 초기 데이터를 확인함. `/` 진입 시 브라우저의 `orders` 목록/count 요청이 발생하지 않았고, 로그아웃 후 게스트 화면·가로 overflow 없음·브라우저 error 0건을 확인함
 - 설정 server fetch 묶음 Playwright: `/settings?view=account`와 `purchase-templates`의 계정·템플릿 목록·사용량을 1440px·390px에서 확인함. 브라우저에는 인증 확인 외 설정 테이블 조회가 없었고 모바일 가로 overflow 없음·브라우저 error 0건을 확인함
 - 자동추천 server fetch 묶음 Playwright: `/recommendations`의 주문 탭은 서버 초기 데이터로 표시되고 브라우저 core 조회가 없음을 확인함. 입금·복구 탭 전환 시 해당 SWR 요청만 발생했으며 1440px·390px 가로 overflow 없음·브라우저 error 0건을 확인함
+- 주문 상세 server fetch 묶음 Playwright: 실제 주문의 `/orders/detail?id=...`에서 주문·master·템플릿이 표시되고 브라우저 `orders`/`purchase_info_templates` 초기 조회가 없음을 확인함. AI 패널·템플릿 선택·데스크톱 요약·390px 모바일 가로 overflow 없음·브라우저 error 0건을 확인함
 
 ## 명시적 제외
 
