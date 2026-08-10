@@ -25,18 +25,25 @@ import {
 } from "@/components/ui/table";
 import { normalizeHexColor } from "@/lib/color";
 import { fetchMasterData, type BuyerAccount, type MasterData, type PaymentMethod, type Platform } from "@/lib/master-data";
+import {
+  fetchRecommendationCrawlOrders,
+  fetchRecommendationPlatformAccounts,
+  fetchSelectedRecommendationCrawlOrder,
+  type CrawlOrderRow,
+  type RecommendationInitialData,
+  type RecommendationPlatformAccountRow,
+} from "@/lib/recommendations-data";
 import { createClient } from "@/lib/supabase/client";
 import { getOrCreateUserPreferences } from "@/lib/user-preferences";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/types/database";
 
-type CrawlOrderRow = Database["public"]["Tables"]["crawl_orders"]["Row"];
 type BankAccountDepositRow = Database["public"]["Tables"]["bank_account_deposit"]["Row"];
 type BankAccountRow = Database["public"]["Tables"]["bank_account"]["Row"];
 type OrderRow = Database["public"]["Tables"]["orders"]["Row"];
 type OrderInsert = Database["public"]["Tables"]["orders"]["Insert"];
-type PlatformAccountRow = Pick<Database["public"]["Tables"]["platform_accounts"]["Row"], "id" | "name" | "status">;
+type PlatformAccountRow = RecommendationPlatformAccountRow;
 type DepositBankAccount = Pick<BankAccountRow, "bank_account_name" | "bank" | "bank_account_number">;
 type DepositBankAccountSummary = Pick<BankAccountRow, "id" | "bank_account_name" | "bank" | "bank_account_number">;
 type DepositWithAccount = BankAccountDepositRow & {
@@ -143,31 +150,12 @@ type RecoveryData = {
 
 async function fetchCrawlOrders(key: CrawlOrdersSWRKey) {
   const [, , userId] = key;
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("crawl_orders")
-    .select("*")
-    .eq("user_id", userId)
-    .eq("crawl_order_status", 0)
-    .order("purchase_date", { ascending: false, nullsFirst: false });
-
-  if (error) throw new Error(error.message);
-  return data ?? [];
+  return fetchRecommendationCrawlOrders(createClient(), userId);
 }
 
 async function fetchSelectedCrawlOrder(key: SelectedCrawlOrderSWRKey) {
   const [, , userId, selectedId] = key;
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("crawl_orders")
-    .select("*")
-    .eq("id", selectedId)
-    .eq("user_id", userId)
-    .eq("crawl_order_status", 0)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-  return data;
+  return fetchSelectedRecommendationCrawlOrder(createClient(), userId, selectedId);
 }
 
 async function fetchCrawlMaster(key: CrawlMasterSWRKey) {
@@ -177,14 +165,7 @@ async function fetchCrawlMaster(key: CrawlMasterSWRKey) {
 
 async function fetchPlatformAccounts(key: PlatformAccountsSWRKey) {
   const [, , userId] = key;
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("platform_accounts")
-    .select("id, name, status")
-    .eq("user_id", userId);
-
-  if (error) throw new Error(error.message);
-  return data ?? [];
+  return fetchRecommendationPlatformAccounts(createClient(), userId);
 }
 
 async function fetchDepositRecommendationData(key: DepositRecommendationSWRKey): Promise<DepositRecommendationData> {
@@ -1670,17 +1651,17 @@ const CrawlOrderReviewPage = memo(function CrawlOrderReviewPage({
   );
 });
 
-export function CrawlOrdersPage() {
+export function CrawlOrdersPage({ initialData = null }: { initialData?: RecommendationInitialData | null }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const selectedId = searchParams.get("id")?.trim() ?? "";
   const sliderTouchStartXRef = useRef<number | null>(null);
 
-  const [phase, setPhase] = useState<PagePhase>("loading");
+  const [phase, setPhase] = useState<PagePhase>(initialData ? "ready" : "loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [email, setEmail] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(initialData?.user.email ?? null);
+  const [userId, setUserId] = useState<string | null>(initialData?.user.id ?? null);
   const [activeAutoRecommendPage, setActiveAutoRecommendPage] = useState(0);
   const [sessionStartPendingCount, setSessionStartPendingCount] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -1691,7 +1672,8 @@ export function CrawlOrdersPage() {
   const [hoveredDepositId, setHoveredDepositId] = useState<number | null>(null);
   const [isStartingCrawl, setIsStartingCrawl] = useState(false);
   const [crawlNotice, setCrawlNotice] = useState<string | null>(null);
-  const [autoAdvanceRecommendations, setAutoAdvanceRecommendations] = useState(true);
+  const [autoAdvanceRecommendations, setAutoAdvanceRecommendations] = useState(initialData?.autoAdvanceRecommendations ?? true);
+  const [isInitialDataActive, setIsInitialDataActive] = useState(Boolean(initialData));
   const [restoringRecoveryKey, setRestoringRecoveryKey] = useState<string | null>(null);
 
   const crawlOrdersKey = useMemo(
@@ -1730,23 +1712,48 @@ export function CrawlOrdersPage() {
     error: ordersError,
     isLoading: isOrdersLoading,
     mutate: mutateOrders,
-  } = useSWR<CrawlOrderRow[]>(crawlOrdersKey, fetchCrawlOrders, { revalidateOnFocus: false });
+  } = useSWR<CrawlOrderRow[]>(crawlOrdersKey, fetchCrawlOrders, {
+    fallbackData: initialData && initialData.user.id === userId ? initialData.crawlOrders : undefined,
+    revalidateOnMount: !isInitialDataActive || !initialData || initialData.user.id !== userId,
+    revalidateOnFocus: false,
+  });
   const {
     data: selectedOrderData,
     error: selectedOrderError,
     isLoading: isSelectedOrderLoading,
-  } = useSWR<CrawlOrderRow | null>(selectedCrawlOrderKey, fetchSelectedCrawlOrder, { revalidateOnFocus: false });
+  } = useSWR<CrawlOrderRow | null>(selectedCrawlOrderKey, fetchSelectedCrawlOrder, {
+    fallbackData:
+      initialData &&
+      initialData.user.id === userId &&
+      initialData.selectedId === selectedId
+        ? initialData.selectedCrawlOrder
+        : undefined,
+    revalidateOnMount:
+      !isInitialDataActive ||
+      !initialData ||
+      initialData.user.id !== userId ||
+      initialData.selectedId !== selectedId,
+    revalidateOnFocus: false,
+  });
   const {
     data: masterData,
     error: masterError,
     isLoading: isMasterLoading,
-  } = useSWR<MasterData>(crawlMasterKey, fetchCrawlMaster, { revalidateOnFocus: false });
+  } = useSWR<MasterData>(crawlMasterKey, fetchCrawlMaster, {
+    fallbackData: initialData && initialData.user.id === userId ? initialData.master : undefined,
+    revalidateOnMount: !isInitialDataActive || !initialData || initialData.user.id !== userId,
+    revalidateOnFocus: false,
+  });
   const {
     data: platformAccountsData,
     error: platformAccountsError,
     isLoading: isPlatformAccountsLoading,
     mutate: mutatePlatformAccounts,
-  } = useSWR<PlatformAccountRow[]>(platformAccountsKey, fetchPlatformAccounts, { revalidateOnFocus: false });
+  } = useSWR<PlatformAccountRow[]>(platformAccountsKey, fetchPlatformAccounts, {
+    fallbackData: initialData && initialData.user.id === userId ? initialData.platformAccounts : undefined,
+    revalidateOnMount: !isInitialDataActive || !initialData || initialData.user.id !== userId,
+    revalidateOnFocus: false,
+  });
   const {
     data: depositRecommendationData,
     error: depositRecommendationError,
@@ -1826,19 +1833,23 @@ export function CrawlOrdersPage() {
     } = await supabase.auth.getUser();
 
     if (!user) {
+      setIsInitialDataActive(false);
       router.replace("/");
       return;
     }
 
-    if (!silent) setPhase("loading");
+    if (!silent && !isInitialDataActive) setPhase("loading");
     setErrorMessage(null);
     setEmail(user.email ?? user.id);
     setUserId(user.id);
-    void getOrCreateUserPreferences(supabase, user.id)
-      .then((value) => setAutoAdvanceRecommendations(value.auto_advance_recommendations))
-      .catch(() => {
-        // 추천 목록 조회는 계속 진행하고 자동 이동만 기본값으로 유지합니다.
-      });
+    if (!initialData || initialData.user.id !== user.id) {
+      void getOrCreateUserPreferences(supabase, user.id)
+        .then((value) => setAutoAdvanceRecommendations(value.auto_advance_recommendations))
+        .catch(() => {
+          // 추천 목록 조회는 계속 진행하고 자동 이동만 기본값으로 유지합니다.
+        });
+    }
+    setIsInitialDataActive(Boolean(initialData && initialData.user.id === user.id));
 
     if (silent) {
       void mutateSWR(["recommendations", "crawl-orders", user.id] satisfies CrawlOrdersSWRKey);
@@ -1847,7 +1858,7 @@ export function CrawlOrdersPage() {
         void mutateSWR(["recommendations", "crawl-order", user.id, selectedId] satisfies SelectedCrawlOrderSWRKey);
       }
     }
-  }, [router, selectedId]);
+  }, [initialData, isInitialDataActive, router, selectedId]);
 
   const refreshRunningCrawlStatus = useCallback(async () => {
     if (!userId) return;

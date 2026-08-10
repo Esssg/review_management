@@ -1,8 +1,31 @@
 import { Suspense } from "react";
 
 import { CrawlOrdersPage } from "@/components/pages/crawl-orders-page";
+import { fetchRecommendationInitialData, type RecommendationInitialData } from "@/lib/recommendations-data";
+import { createClient as createServerClient } from "@/lib/supabase/server";
 
-export default function RecommendationsPage() {
+type RecommendationsPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function RecommendationsPage({ searchParams }: RecommendationsPageProps) {
+  const currentSearchParams = await searchParams;
+  const requestedId = currentSearchParams.id;
+  const selectedId = (Array.isArray(requestedId) ? requestedId[0] : requestedId)?.trim() ?? "";
+  let initialData: RecommendationInitialData | null = null;
+
+  try {
+    const supabase = await createServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      initialData = await fetchRecommendationInitialData(supabase, user, selectedId);
+    }
+  } catch {
+    // 서버 초기 조회가 실패하면 기존 클라이언트 SWR 조회가 화면을 대신 채웁니다.
+  }
+
   return (
     <Suspense
       fallback={
@@ -11,7 +34,7 @@ export default function RecommendationsPage() {
         </div>
       }
     >
-      <CrawlOrdersPage />
+      <CrawlOrdersPage initialData={initialData} />
     </Suspense>
   );
 }
