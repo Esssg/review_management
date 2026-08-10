@@ -30,6 +30,7 @@
 - 완료: 설정 패널의 `purchase-templates` view 렌더링과 템플릿 목록 표시 책임을 `PurchaseTemplatesSettingsView` top-level 컴포넌트로 분리함
 - 완료: 설정 패널의 `ai` view 입력 렌더링 책임을 `AiReviewSettingsView` top-level 컴포넌트로 분리하고, 부모의 상태·Supabase 저장 책임은 유지함
 - 완료: 설정 패널의 `platforms` view 목록·추가 UI를 `PlatformSettingsView` top-level 컴포넌트로 분리하고, 부모의 상태·Supabase mutation 책임은 유지함
+- 완료: 설정 패널의 `payment-methods` view 목록·추가 UI를 `PaymentMethodSettingsView` top-level 컴포넌트로 분리하고, 부모의 상태·Supabase mutation 책임은 유지함
 - 보류: 나머지 대형 화면 컴포넌트 분리와 SWR/server fetch 전환은 동작·인증·데이터 freshness 영향이 커 별도 측정 후 진행
 
 ## 기준 검증 결과
@@ -137,6 +138,7 @@
 - Playwright: `/settings`와 `/settings?view=purchase-templates`를 데스크톱·모바일에서 확인. 템플릿 목록·추가·상세 링크·기본/복제/복사/삭제 버튼이 표시되고 브라우저 오류 0건
 - Playwright: `/settings?view=ai`를 데스크톱·모바일에서 확인. AI 입력 필드·저장 버튼이 표시되고 브라우저 오류 0건
 - Playwright: `/settings?view=platforms`를 데스크톱·모바일에서 확인. 플랫폼 목록·색상/숨김 버튼·추가 입력이 표시되고 입력 시 추가 버튼 활성화 및 브라우저 오류 0건
+- Playwright: `/settings?view=payment-methods`를 데스크톱·모바일에서 확인. 결제 수단 목록·색상/숨김 버튼·추가 입력이 표시되고 입력 시 추가 버튼 활성화 및 브라우저 오류 0건
 
 ## 명시적 제외
 

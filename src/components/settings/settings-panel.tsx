@@ -405,6 +405,66 @@ function PlatformSettingsView({
   );
 }
 
+function PaymentMethodSettingsView({
+  header,
+  alerts,
+  methodsWithMeta,
+  deletingId,
+  savingColorId,
+  onDeletePaymentMethod,
+  onChangePaymentMethodColor,
+  onAddPaymentMethod,
+}: {
+  header: ReactNode;
+  alerts: ReactNode;
+  methodsWithMeta: ItemWithMeta<PaymentMethod>[];
+  deletingId: string | null;
+  savingColorId: string | null;
+  onDeletePaymentMethod: (method: PaymentMethod) => void | Promise<void>;
+  onChangePaymentMethodColor: (method: PaymentMethod, nextColor: string) => Promise<void>;
+  onAddPaymentMethod: (name: string, color: string) => Promise<void>;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      {header}
+      {alerts}
+      <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+        <SectionHeader
+          title="결제 수단"
+          description="기본 항목은 숨기기/보이기 토글, 직접 추가한 항목은 삭제됩니다."
+        />
+        <div className="flex flex-col gap-2">
+          {methodsWithMeta.length === 0 ? (
+            <p className="text-muted-foreground text-sm">등록된 결제 수단이 없습니다.</p>
+          ) : (
+            methodsWithMeta.map((method) => (
+              <ItemRow
+                key={method.id}
+                label={method.name}
+                color={method.color}
+                isSystem={method.isSystem}
+                isHidden={method.isHidden}
+                canEditColor={!method.isSystem}
+                isDeleting={deletingId === method.id}
+                isSavingColor={savingColorId === method.id}
+                onDelete={() => void onDeletePaymentMethod(method)}
+                onChangeColor={(next) => onChangePaymentMethodColor(method, next)}
+              />
+            ))
+          )}
+        </div>
+        <div className="mt-3">
+          <AddItemForm
+            placeholder="새 결제 수단 이름"
+            defaultColor={DEFAULT_PAYMENT_METHOD_COLOR}
+            onAdd={onAddPaymentMethod}
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function SettingsNavRow({
   label,
   description,
@@ -1148,43 +1208,16 @@ export function SettingsPanel({
 
   if (view === "payment-methods") {
     return (
-      <div className="flex flex-col gap-4">
-        {subHeader}
-        {alerts}
-        <section className="rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
-          <SectionHeader
-            title="결제 수단"
-            description="기본 항목은 숨기기/보이기 토글, 직접 추가한 항목은 삭제됩니다."
-          />
-          <div className="flex flex-col gap-2">
-            {methodsWithMeta.length === 0 ? (
-              <p className="text-muted-foreground text-sm">등록된 결제 수단이 없습니다.</p>
-            ) : (
-              methodsWithMeta.map((m) => (
-                <ItemRow
-                  key={m.id}
-                  label={m.name}
-                  color={m.color}
-                  isSystem={m.isSystem}
-                  isHidden={m.isHidden}
-                  canEditColor={!m.isSystem}
-                  isDeleting={deletingId === m.id}
-                  isSavingColor={savingColorId === m.id}
-                  onDelete={() => void handleDeletePaymentMethod(m)}
-                  onChangeColor={(next) => handlePaymentMethodColorChange(m, next)}
-                />
-              ))
-            )}
-          </div>
-          <div className="mt-3">
-            <AddItemForm
-              placeholder="새 결제 수단 이름"
-              defaultColor={DEFAULT_PAYMENT_METHOD_COLOR}
-              onAdd={handleAddPaymentMethod}
-            />
-          </div>
-        </section>
-      </div>
+      <PaymentMethodSettingsView
+        header={subHeader}
+        alerts={alerts}
+        methodsWithMeta={methodsWithMeta}
+        deletingId={deletingId}
+        savingColorId={savingColorId}
+        onDeletePaymentMethod={handleDeletePaymentMethod}
+        onChangePaymentMethodColor={handlePaymentMethodColorChange}
+        onAddPaymentMethod={handleAddPaymentMethod}
+      />
     );
   }
 
