@@ -9,9 +9,17 @@ import { OrderTrashPanel } from "@/components/settings/order-trash-panel";
 import { AiReviewSettingsView } from "@/components/settings/ai-review-settings-view";
 import { PurchaseTemplatesSettingsView } from "@/components/settings/purchase-templates-settings-view";
 import { PwaInstallCard } from "@/components/pwa/pwa-install-card";
-import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
+import {
+  DEFAULT_BUYER_ACCOUNT_COLOR,
+  DEFAULT_PAYMENT_METHOD_COLOR,
+  DEFAULT_PLATFORM_COLOR,
+  type SettingsCatalogItem,
+  useSettingsCatalog,
+} from "@/components/settings/use-settings-catalog";
+import { useSettingsPreferences } from "@/components/settings/use-settings-preferences";
+import { useSettingsProfile } from "@/components/settings/use-settings-profile";
 import { normalizeHexColor } from "@/lib/color";
-import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
+import type { PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import { createClient } from "@/lib/supabase/client";
 import type { OrderSaveAction, UserPreferences } from "@/lib/user-preferences";
 import { cn } from "@/lib/utils";
@@ -32,11 +40,6 @@ export type SettingsPanelView =
   | "buyer-accounts"
   | "trash";
 
-type ItemWithMeta<T> = T & { isSystem: boolean; isHidden: boolean };
-
-const DEFAULT_PLATFORM_COLOR = "#64748b";
-const DEFAULT_PAYMENT_METHOD_COLOR = "#7c3aed";
-const DEFAULT_BUYER_ACCOUNT_COLOR = "#64748b";
 const COLOR_PRESETS = [
   "#f97316",
   "#16a34a",
@@ -357,7 +360,7 @@ function PlatformSettingsView({
 }: {
   header: ReactNode;
   alerts: ReactNode;
-  platformsWithMeta: ItemWithMeta<Platform>[];
+  platformsWithMeta: SettingsCatalogItem<Platform>[];
   deletingId: string | null;
   savingColorId: string | null;
   onDeletePlatform: (platform: Platform) => void | Promise<void>;
@@ -417,7 +420,7 @@ function PaymentMethodSettingsView({
 }: {
   header: ReactNode;
   alerts: ReactNode;
-  methodsWithMeta: ItemWithMeta<PaymentMethod>[];
+  methodsWithMeta: SettingsCatalogItem<PaymentMethod>[];
   deletingId: string | null;
   savingColorId: string | null;
   onDeletePaymentMethod: (method: PaymentMethod) => void | Promise<void>;
@@ -849,61 +852,97 @@ export function SettingsPanel({
   const supabase = useMemo(() => createClient(), []);
 
   const [view, setView] = useState<SettingsPanelView>(initialView);
-  const [displayName, setDisplayName] = useState(initialDisplayName);
   const [accountEmail] = useState(initialEmail);
-
-  const [nicknameDraft, setNicknameDraft] = useState(initialDisplayName);
-  const [isSavingName, setIsSavingName] = useState(false);
-
-  const [platforms, setPlatforms] = useState<Platform[]>(initialPlatforms);
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(initialPaymentMethods);
-  const [buyerAccounts, setBuyerAccounts] = useState<BuyerAccount[]>(initialBuyerAccounts);
-  const [purchaseTemplates, setPurchaseTemplates] = useState<PurchaseTemplateRow[]>(initialPurchaseTemplates);
-  const [preferences, setPreferences] = useState(initialPreferences);
-  const [usageCounts, setUsageCounts] = useState(templateUsageCounts);
-  const [isTemplateUsageCountsLoaded, setIsTemplateUsageCountsLoaded] = useState(initialTemplateUsageCountsLoaded);
-  const [isLoadingTemplateUsageCounts, setIsLoadingTemplateUsageCounts] = useState(false);
   const [trashCount, setTrashCount] = useState(initialTrashCount);
-  const [hidden, setHidden] = useState<UserItemSetting[]>(hiddenSettings);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [savingColorId, setSavingColorId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  const [aiGender, setAiGender] = useState(initialAiReviewProfile?.gender ?? "");
-  const [aiAgeRange, setAiAgeRange] = useState(initialAiReviewProfile?.age_range ?? "");
-  const [aiRegion, setAiRegion] = useState(initialAiReviewProfile?.region ?? "");
-  const [aiOccupation, setAiOccupation] = useState(initialAiReviewProfile?.occupation ?? "");
-  const [aiExtraContext, setAiExtraContext] = useState(initialAiReviewProfile?.extra_context ?? "");
-  const [isSavingAiProfile, setIsSavingAiProfile] = useState(false);
 
-  useEffect(() => {
-    if (view !== "purchase-templates" || isTemplateUsageCountsLoaded) return;
+  const showSuccessMessage = useCallback((message: string) => {
+    setSuccessMessage(message);
+    window.setTimeout(() => setSuccessMessage(""), 3500);
+  }, []);
 
-    let cancelled = false;
-    setIsLoadingTemplateUsageCounts(true);
-    void (async () => {
-      try {
-        const nextCounts = await onLoadTemplateUsageCounts();
-        if (!cancelled) {
-          setUsageCounts(nextCounts);
-          setIsTemplateUsageCountsLoaded(true);
-        }
-      } catch {
-        if (!cancelled) setIsTemplateUsageCountsLoaded(true);
-      } finally {
-        if (!cancelled) setIsLoadingTemplateUsageCounts(false);
-      }
-    })();
+  const {
+    displayName,
+    nicknameDraft,
+    isSavingName,
+    nicknameSaveDisabled,
+    aiGender,
+    aiAgeRange,
+    aiRegion,
+    aiOccupation,
+    aiExtraContext,
+    isSavingAiProfile,
+    setNicknameDraft,
+    setAiGender,
+    setAiAgeRange,
+    setAiRegion,
+    setAiOccupation,
+    setAiExtraContext,
+    handleSaveNickname: saveNickname,
+    handleSaveAiReviewProfile,
+  } = useSettingsProfile({
+    userId,
+    initialDisplayName,
+    initialAiReviewProfile,
+    supabase,
+    onError: setErrorMessage,
+    onSuccess: showSuccessMessage,
+  });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [isTemplateUsageCountsLoaded, onLoadTemplateUsageCounts, view]);
+  const catalog = useSettingsCatalog({
+    userId,
+    supabase,
+    initialPlatforms,
+    initialPaymentMethods,
+    initialBuyerAccounts,
+    hiddenSettings,
+    onError: setErrorMessage,
+  });
 
-  const trimmedDraft = nicknameDraft.trim();
-  const trimmedDisplay = displayName.trim();
-  const nicknameDirty = trimmedDraft !== trimmedDisplay;
-  const nicknameSaveDisabled = !nicknameDirty || trimmedDraft === "" || isSavingName;
+  const {
+    platforms,
+    paymentMethods,
+    buyerAccounts,
+    isHidden,
+    platformsWithMeta,
+    methodsWithMeta,
+    deletingId,
+    savingColorId,
+    handleDeletePlatform,
+    handleDeletePaymentMethod,
+    handleDeleteBuyerAccount,
+    handleAddPlatform,
+    handleAddPaymentMethod,
+    handleAddBuyerAccount,
+    handlePlatformColorChange,
+    handlePaymentMethodColorChange,
+    handleBuyerAccountColorChange,
+  } = catalog;
+
+  const {
+    purchaseTemplates,
+    preferences,
+    usageCounts,
+    isTemplateUsageCountsLoaded,
+    isLoadingTemplateUsageCounts,
+    updatePreferences,
+    handleCopyPurchaseTemplate,
+    clonePurchaseTemplate,
+    setDefaultPurchaseTemplate,
+    deletePurchaseTemplate,
+  } = useSettingsPreferences({
+    userId,
+    view,
+    initialPurchaseTemplates,
+    templateUsageCounts,
+    initialTemplateUsageCountsLoaded,
+    onLoadTemplateUsageCounts,
+    initialPreferences,
+    supabase,
+    onError: setErrorMessage,
+    onSuccess: showSuccessMessage,
+  });
 
   const goBack = useCallback(() => {
     setErrorMessage("");
@@ -912,381 +951,22 @@ export function SettingsPanel({
       setNicknameDraft(displayName);
       setView("account");
     } else if (view !== "home") setView("home");
-  }, [view, displayName]);
+  }, [displayName, setNicknameDraft, view]);
 
   const openNicknameEdit = () => {
     setNicknameDraft(displayName);
     setView("nickname");
   };
 
-  const handleSaveNickname = async () => {
-    if (nicknameSaveDisabled) return;
-    setErrorMessage("");
-    setIsSavingName(true);
-    try {
-      const { error } = await supabase.from("users").update({ name: trimmedDraft }).eq("user_id", userId);
-      if (error) {
-        setErrorMessage(error.message);
-        return;
-      }
-      setDisplayName(trimmedDraft);
-      setSuccessMessage("닉네임을 저장했습니다.");
-      window.setTimeout(() => setSuccessMessage(""), 3500);
-      setView("account");
-    } finally {
-      setIsSavingName(false);
-    }
-  };
+  const handleSaveNickname = useCallback(async () => {
+    const saved = await saveNickname();
+    if (saved) setView("account");
+  }, [saveNickname]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.replace("/");
     router.refresh();
-  };
-
-  const hiddenItemKeys = useMemo(
-    () => new Set(hidden.filter((item) => item.is_hidden).map((item) => `${item.item_type}:${item.target_id}`)),
-    [hidden],
-  );
-  const isHidden = useCallback(
-    (targetId: string, itemType: string) => hiddenItemKeys.has(`${itemType}:${targetId}`),
-    [hiddenItemKeys],
-  );
-
-  const handleDeletePlatform = async (platform: Platform) => {
-    setDeletingId(platform.id);
-    setErrorMessage("");
-    try {
-      if (platform.user_id === null) {
-        const alreadyHidden = isHidden(platform.id, "platform");
-        if (alreadyHidden) {
-          const { error } = await supabase
-            .from("user_item_settings")
-            .delete()
-            .eq("user_id", userId)
-            .eq("target_id", platform.id)
-            .eq("item_type", "platform");
-          if (error) {
-            setErrorMessage(error.message);
-            return;
-          }
-          setHidden((prev) => prev.filter((s) => !(s.target_id === platform.id && s.item_type === "platform")));
-        } else {
-          const { error } = await supabase
-            .from("user_item_settings")
-            .upsert({ user_id: userId, target_id: platform.id, item_type: "platform", is_hidden: true });
-          if (error) {
-            setErrorMessage(error.message);
-            return;
-          }
-          setHidden((prev) => [...prev, { user_id: userId, target_id: platform.id, item_type: "platform", is_hidden: true }]);
-        }
-      } else {
-        const confirmed = window.confirm(`"${platform.name}" 플랫폼을 삭제할까요?`);
-        if (!confirmed) return;
-        const { error } = await supabase.from("platforms").delete().eq("id", platform.id);
-        if (error) {
-          setErrorMessage(error.message);
-          return;
-        }
-        setPlatforms((prev) => prev.filter((p) => p.id !== platform.id));
-      }
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const handleDeletePaymentMethod = async (method: PaymentMethod) => {
-    setDeletingId(method.id);
-    setErrorMessage("");
-    try {
-      if (method.user_id === null) {
-        const alreadyHidden = isHidden(method.id, "payment_method");
-        if (alreadyHidden) {
-          const { error } = await supabase
-            .from("user_item_settings")
-            .delete()
-            .eq("user_id", userId)
-            .eq("target_id", method.id)
-            .eq("item_type", "payment_method");
-          if (error) {
-            setErrorMessage(error.message);
-            return;
-          }
-          setHidden((prev) => prev.filter((s) => !(s.target_id === method.id && s.item_type === "payment_method")));
-        } else {
-          const { error } = await supabase
-            .from("user_item_settings")
-            .upsert({ user_id: userId, target_id: method.id, item_type: "payment_method", is_hidden: true });
-          if (error) {
-            setErrorMessage(error.message);
-            return;
-          }
-          setHidden((prev) => [
-            ...prev,
-            { user_id: userId, target_id: method.id, item_type: "payment_method", is_hidden: true },
-          ]);
-        }
-      } else {
-        const confirmed = window.confirm(`"${method.name}" 결제 수단을 삭제할까요?`);
-        if (!confirmed) return;
-        const { error } = await supabase.from("payment_methods").delete().eq("id", method.id);
-        if (error) {
-          setErrorMessage(error.message);
-          return;
-        }
-        setPaymentMethods((prev) => prev.filter((m) => m.id !== method.id));
-      }
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const handleDeleteBuyerAccount = async (account: BuyerAccount) => {
-    const confirmed = window.confirm(`"${account.label}" 계정을 삭제할까요?`);
-    if (!confirmed) return;
-    setDeletingId(account.id);
-    setErrorMessage("");
-    try {
-      const { error } = await supabase.from("buyer_accounts").delete().eq("id", account.id);
-      if (error) {
-        setErrorMessage(error.message);
-        return;
-      }
-      setBuyerAccounts((prev) => prev.filter((a) => a.id !== account.id));
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const handleAddPlatform = async (name: string, color: string) => {
-    const { data, error } = await supabase
-      .from("platforms")
-      .insert({ name, user_id: userId, color: normalizeHexColor(color, DEFAULT_PLATFORM_COLOR) })
-      .select("id, name, user_id, color")
-      .single();
-    if (error) {
-      setErrorMessage(error.message);
-      return;
-    }
-    setPlatforms((prev) => [...prev, data]);
-  };
-
-  const handleAddPaymentMethod = async (name: string, color: string) => {
-    const { data, error } = await supabase
-      .from("payment_methods")
-      .insert({ name, user_id: userId, color: normalizeHexColor(color, DEFAULT_PAYMENT_METHOD_COLOR) })
-      .select("id, name, user_id, color")
-      .single();
-    if (error) {
-      setErrorMessage(error.message);
-      return;
-    }
-    setPaymentMethods((prev) => [...prev, data]);
-  };
-
-  const handleAddBuyerAccount = async (label: string, color: string) => {
-    const { data, error } = await supabase
-      .from("buyer_accounts")
-      .insert({ label, user_id: userId, color: normalizeHexColor(color, DEFAULT_BUYER_ACCOUNT_COLOR) })
-      .select("id, label, color")
-      .single();
-    if (error) {
-      setErrorMessage(error.message);
-      return;
-    }
-    setBuyerAccounts((prev) => [...prev, data]);
-  };
-
-  const platformsWithMeta = useMemo<ItemWithMeta<Platform>[]>(() => platforms.map((p) => ({
-    ...p,
-    isSystem: p.user_id === null,
-    isHidden: isHidden(p.id, "platform"),
-  })).sort((a, b) => {
-    if (a.isSystem !== b.isSystem) return a.isSystem ? 1 : -1;
-    return a.name.localeCompare(b.name, "ko");
-  }), [isHidden, platforms]);
-
-  const methodsWithMeta = useMemo<ItemWithMeta<PaymentMethod>[]>(() => paymentMethods.map((m) => ({
-    ...m,
-    isSystem: m.user_id === null,
-    isHidden: isHidden(m.id, "payment_method"),
-  })).sort((a, b) => {
-    if (a.isSystem !== b.isSystem) return a.isSystem ? 1 : -1;
-    return a.name.localeCompare(b.name, "ko");
-  }), [isHidden, paymentMethods]);
-
-  const handlePlatformColorChange = async (platform: Platform, nextColor: string) => {
-    if (platform.user_id === null) return;
-    const color = normalizeHexColor(nextColor, DEFAULT_PLATFORM_COLOR);
-    if (normalizeHexColor(platform.color, DEFAULT_PLATFORM_COLOR) === color) return;
-    setSavingColorId(platform.id);
-    setErrorMessage("");
-    try {
-      const { error } = await supabase.from("platforms").update({ color }).eq("id", platform.id);
-      if (error) {
-        setErrorMessage(error.message);
-        return;
-      }
-      setPlatforms((prev) => prev.map((item) => (item.id === platform.id ? { ...item, color } : item)));
-    } finally {
-      setSavingColorId(null);
-    }
-  };
-
-  const handlePaymentMethodColorChange = async (method: PaymentMethod, nextColor: string) => {
-    if (method.user_id === null) return;
-    const color = normalizeHexColor(nextColor, DEFAULT_PAYMENT_METHOD_COLOR);
-    if (normalizeHexColor(method.color, DEFAULT_PAYMENT_METHOD_COLOR) === color) return;
-    setSavingColorId(method.id);
-    setErrorMessage("");
-    try {
-      const { error } = await supabase.from("payment_methods").update({ color }).eq("id", method.id);
-      if (error) {
-        setErrorMessage(error.message);
-        return;
-      }
-      setPaymentMethods((prev) => prev.map((item) => (item.id === method.id ? { ...item, color } : item)));
-    } finally {
-      setSavingColorId(null);
-    }
-  };
-
-  const handleBuyerAccountColorChange = async (account: BuyerAccount, nextColor: string) => {
-    const color = normalizeHexColor(nextColor, DEFAULT_BUYER_ACCOUNT_COLOR);
-    if (normalizeHexColor(account.color, DEFAULT_BUYER_ACCOUNT_COLOR) === color) return;
-    setSavingColorId(account.id);
-    setErrorMessage("");
-    try {
-      const { error } = await supabase.from("buyer_accounts").update({ color }).eq("id", account.id);
-      if (error) {
-        setErrorMessage(error.message);
-        return;
-      }
-      setBuyerAccounts((prev) => prev.map((item) => (item.id === account.id ? { ...item, color } : item)));
-    } finally {
-      setSavingColorId(null);
-    }
-  };
-
-  const handleSaveAiReviewProfile = async () => {
-    setErrorMessage("");
-    setSuccessMessage("");
-    setIsSavingAiProfile(true);
-    try {
-      const { error } = await supabase.from("user_ai_review_profiles").upsert(
-        {
-          user_id: userId,
-          gender: aiGender.trim() || null,
-          age_range: aiAgeRange.trim() || null,
-          region: aiRegion.trim() || null,
-          occupation: aiOccupation.trim() || null,
-          extra_context: aiExtraContext.trim() || null,
-        },
-        { onConflict: "user_id" },
-      );
-      if (error) {
-        setErrorMessage(error.message);
-        return;
-      }
-      setSuccessMessage("AI 리뷰 기본 정보를 저장했습니다.");
-      window.setTimeout(() => setSuccessMessage(""), 3500);
-    } finally {
-      setIsSavingAiProfile(false);
-    }
-  };
-
-  const handleCopyPurchaseTemplate = async (t: PurchaseTemplateRow) => {
-    setErrorMessage("");
-    setSuccessMessage("");
-    const line = buildKakaoPasteLine(t, "", "");
-    try {
-      await copyTextToClipboard(line);
-      setSuccessMessage("클립보드에 복사했습니다. (주문번호·금액 칸은 비워 두었습니다.)");
-      window.setTimeout(() => setSuccessMessage(""), 3500);
-    } catch {
-      setErrorMessage("복사에 실패했습니다. 브라우저의 클립보드 권한을 확인한 뒤 다시 시도해 주세요.");
-    }
-  };
-
-  const updatePreferences = async (
-    patch: Database["public"]["Tables"]["user_preferences"]["Update"],
-    successMessageText?: string,
-  ) => {
-    setErrorMessage("");
-    const { error } = await supabase.from("user_preferences").upsert(
-      { user_id: userId, ...patch },
-      { onConflict: "user_id" },
-    );
-    if (error) {
-      setErrorMessage(error.message);
-      return false;
-    }
-    setPreferences((current) => ({ ...current, ...patch }));
-    if (successMessageText) {
-      setSuccessMessage(successMessageText);
-      window.setTimeout(() => setSuccessMessage(""), 3500);
-    }
-    return true;
-  };
-
-  const clonePurchaseTemplate = async (template: PurchaseTemplateRow) => {
-    setErrorMessage("");
-    const { data, error } = await supabase
-      .from("purchase_info_templates")
-      .insert({
-        user_id: userId,
-        title: `${template.title} 복사본`,
-        buyer_name: template.buyer_name,
-        recipient_name: template.recipient_name,
-        login_id: template.login_id,
-        phone: template.phone,
-        address: template.address,
-        bank_account_number: template.bank_account_number,
-        account_holder: template.account_holder,
-      })
-      .select("*")
-      .single();
-    if (error) {
-      setErrorMessage(error.message);
-      return;
-    }
-    setPurchaseTemplates((current) => [data, ...current]);
-    setUsageCounts((current) => ({ ...current, [data.id]: 0 }));
-    setSuccessMessage("템플릿 복사본을 만들었습니다.");
-    window.setTimeout(() => setSuccessMessage(""), 3500);
-  };
-
-  const setDefaultPurchaseTemplate = async (templateId: string | null) => {
-    await updatePreferences(
-      { default_purchase_info_template_id: templateId },
-      templateId ? "기본 구매 정보 템플릿을 변경했습니다." : "기본 템플릿 지정을 해제했습니다.",
-    );
-  };
-
-  const deletePurchaseTemplate = async (template: PurchaseTemplateRow) => {
-    const count = usageCounts[template.id] ?? 0;
-    const confirmed = window.confirm(
-      count > 0
-        ? `"${template.title}" 템플릿은 주문 ${count}건에서 사용 중입니다. 삭제하면 주문과의 템플릿 연결이 해제됩니다. 삭제할까요?`
-        : `"${template.title}" 템플릿을 삭제할까요?`,
-    );
-    if (!confirmed) return;
-
-    const { error } = await supabase.from("purchase_info_templates").delete().eq("id", template.id);
-    if (error) {
-      setErrorMessage(error.message);
-      return;
-    }
-    setPurchaseTemplates((current) => current.filter((item) => item.id !== template.id));
-    setUsageCounts((current) => {
-      const next = { ...current };
-      delete next[template.id];
-      return next;
-    });
-    if (preferences.default_purchase_info_template_id === template.id) {
-      setPreferences((current) => ({ ...current, default_purchase_info_template_id: null }));
-    }
   };
 
   const subHeader =
