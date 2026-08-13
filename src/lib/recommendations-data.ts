@@ -6,10 +6,6 @@ import type { Database } from "@/types/database";
 
 export type RecommendationAuthUser = Pick<User, "id" | "email" | "user_metadata">;
 export type CrawlOrderRow = Database["public"]["Tables"]["crawl_orders"]["Row"];
-export type RecommendationPlatformAccountRow = Pick<
-  Database["public"]["Tables"]["platform_accounts"]["Row"],
-  "id" | "name" | "status"
->;
 
 export type RecommendationInitialData = {
   user: RecommendationAuthUser;
@@ -17,7 +13,6 @@ export type RecommendationInitialData = {
   crawlOrders: CrawlOrderRow[];
   selectedCrawlOrder: CrawlOrderRow | null;
   master: MasterData;
-  platformAccounts: RecommendationPlatformAccountRow[];
   autoAdvanceRecommendations: boolean;
 };
 
@@ -65,29 +60,15 @@ export async function fetchSelectedRecommendationCrawlOrder(
   return data;
 }
 
-export async function fetchRecommendationPlatformAccounts(
-  supabase: SupabaseClient<Database>,
-  userId: string,
-) {
-  const { data, error } = await supabase
-    .from("platform_accounts")
-    .select("id, name, status")
-    .eq("user_id", userId);
-
-  if (error) throw new Error(error.message);
-  return data ?? [];
-}
-
 export async function fetchRecommendationInitialData(
   supabase: SupabaseClient<Database>,
   user: RecommendationAuthUser,
   selectedId: string,
 ): Promise<RecommendationInitialData> {
-  const [crawlOrders, selectedCrawlOrder, master, platformAccounts, preferences] = await Promise.all([
+  const [crawlOrders, selectedCrawlOrder, master, preferences] = await Promise.all([
     fetchRecommendationCrawlOrders(supabase, user.id),
     fetchSelectedRecommendationCrawlOrder(supabase, user.id, selectedId),
     fetchMasterData(supabase, user.id),
-    fetchRecommendationPlatformAccounts(supabase, user.id),
     getOrCreateUserPreferences(supabase, user.id),
   ]);
 
@@ -101,7 +82,6 @@ export async function fetchRecommendationInitialData(
     crawlOrders,
     selectedCrawlOrder,
     master,
-    platformAccounts,
     autoAdvanceRecommendations: preferences.auto_advance_recommendations,
   };
 }

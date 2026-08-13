@@ -27,11 +27,9 @@ import { normalizeHexColor } from "@/lib/color";
 import { fetchMasterData, type BuyerAccount, type MasterData, type PaymentMethod, type Platform } from "@/lib/master-data";
 import {
   fetchRecommendationCrawlOrders,
-  fetchRecommendationPlatformAccounts,
   fetchSelectedRecommendationCrawlOrder,
   type CrawlOrderRow,
   type RecommendationInitialData,
-  type RecommendationPlatformAccountRow,
 } from "@/lib/recommendations-data";
 import { createClient } from "@/lib/supabase/client";
 import { getOrCreateUserPreferences } from "@/lib/user-preferences";
@@ -43,7 +41,6 @@ type BankAccountDepositRow = Database["public"]["Tables"]["bank_account_deposit"
 type BankAccountRow = Database["public"]["Tables"]["bank_account"]["Row"];
 type OrderRow = Database["public"]["Tables"]["orders"]["Row"];
 type OrderInsert = Database["public"]["Tables"]["orders"]["Insert"];
-type PlatformAccountRow = RecommendationPlatformAccountRow;
 type DepositBankAccount = Pick<BankAccountRow, "bank_account_name" | "bank" | "bank_account_number">;
 type DepositBankAccountSummary = Pick<BankAccountRow, "id" | "bank_account_name" | "bank" | "bank_account_number">;
 type DepositWithAccount = BankAccountDepositRow & {
@@ -88,10 +85,6 @@ type DepositRecommendationCacheEntry = {
 type PagePhase = "loading" | "ready" | "error";
 
 const crawlListHref = "/recommendations";
-// 웹에서 CORS가 허용된 HTTPS 크롤링 API를 직접 호출합니다.
-const crawlApiUrl =
-  process.env.NEXT_PUBLIC_CRAWL_API_BASE_URL?.trim() ||
-  "https://review-manager-api.jinitlab.com/crawl/coupang";
 const DEFAULT_PLATFORM_COLOR = "#64748b";
 const DEFAULT_PAYMENT_METHOD_COLOR = "#7c3aed";
 const DEFAULT_BUYER_ACCOUNT_COLOR = "#64748b";
@@ -133,7 +126,6 @@ async function fetchAllRecommendationPages<T>(
 type CrawlOrdersSWRKey = readonly ["recommendations", "crawl-orders", string];
 type SelectedCrawlOrderSWRKey = readonly ["recommendations", "crawl-order", string, string];
 type CrawlMasterSWRKey = readonly ["recommendations", "master", string];
-type PlatformAccountsSWRKey = readonly ["recommendations", "platform-accounts", string];
 type DepositRecommendationSWRKey = readonly ["recommendations", "deposit-data", string];
 type RecoverySWRKey = readonly ["recommendations", "recovery", string];
 
@@ -161,11 +153,6 @@ async function fetchSelectedCrawlOrder(key: SelectedCrawlOrderSWRKey) {
 async function fetchCrawlMaster(key: CrawlMasterSWRKey) {
   const [, , userId] = key;
   return fetchMasterData(createClient(), userId);
-}
-
-async function fetchPlatformAccounts(key: PlatformAccountsSWRKey) {
-  const [, , userId] = key;
-  return fetchRecommendationPlatformAccounts(createClient(), userId);
 }
 
 async function fetchDepositRecommendationData(key: DepositRecommendationSWRKey): Promise<DepositRecommendationData> {
@@ -352,10 +339,6 @@ function findBuyerAccount(accounts: BuyerAccount[], row: CrawlOrderRow) {
 
 function relationById<T extends { id: string }>(items: T[], id: string) {
   return id ? items.find((item) => item.id === id) ?? null : null;
-}
-
-function displayPlatformAccountName(account: PlatformAccountRow) {
-  return account.name.trim() || "이름 없는";
 }
 
 function displayPrimary(row: CrawlOrderRow) {
@@ -1670,8 +1653,6 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
   const [completingDepositId, setCompletingDepositId] = useState<number | null>(null);
   const [deletingDepositId, setDeletingDepositId] = useState<number | null>(null);
   const [hoveredDepositId, setHoveredDepositId] = useState<number | null>(null);
-  const [isStartingCrawl, setIsStartingCrawl] = useState(false);
-  const [crawlNotice, setCrawlNotice] = useState<string | null>(null);
   const [autoAdvanceRecommendations, setAutoAdvanceRecommendations] = useState(initialData?.autoAdvanceRecommendations ?? true);
   const [isInitialDataActive, setIsInitialDataActive] = useState(Boolean(initialData));
   const [restoringRecoveryKey, setRestoringRecoveryKey] = useState<string | null>(null);
@@ -1688,10 +1669,6 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
   );
   const crawlMasterKey = useMemo(
     () => userId ? (["recommendations", "master", userId] satisfies CrawlMasterSWRKey) : null,
-    [userId],
-  );
-  const platformAccountsKey = useMemo(
-    () => userId ? (["recommendations", "platform-accounts", userId] satisfies PlatformAccountsSWRKey) : null,
     [userId],
   );
   const depositRecommendationKey = useMemo(
@@ -1745,16 +1722,6 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
     revalidateOnFocus: false,
   });
   const {
-    data: platformAccountsData,
-    error: platformAccountsError,
-    isLoading: isPlatformAccountsLoading,
-    mutate: mutatePlatformAccounts,
-  } = useSWR<PlatformAccountRow[]>(platformAccountsKey, fetchPlatformAccounts, {
-    fallbackData: initialData && initialData.user.id === userId ? initialData.platformAccounts : undefined,
-    revalidateOnMount: !isInitialDataActive || !initialData || initialData.user.id !== userId,
-    revalidateOnFocus: false,
-  });
-  const {
     data: depositRecommendationData,
     error: depositRecommendationError,
     isLoading: isDepositRecommendationLoading,
@@ -1772,7 +1739,6 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
   const orders = useMemo(() => ordersData ?? [], [ordersData]);
   const selectedOrder = selectedOrderData ?? null;
   const master = masterData ?? null;
-  const platformAccounts = useMemo(() => platformAccountsData ?? [], [platformAccountsData]);
   const bankAccounts = depositRecommendationData?.bankAccounts ?? [];
   const deposits = depositRecommendationData?.deposits ?? [];
   const depositRecommendationOrders = useMemo(
@@ -1790,7 +1756,7 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
   useEffect(() => {
     if (!userId) return;
 
-    const baseError = ordersError ?? selectedOrderError ?? masterError ?? platformAccountsError;
+    const baseError = ordersError ?? selectedOrderError ?? masterError;
     if (baseError) {
       setErrorMessage(baseError.message);
       setPhase("error");
@@ -1798,7 +1764,7 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
     }
 
     const selectedOrderLoaded = !selectedId || selectedOrderData !== undefined;
-    if (isOrdersLoading || isSelectedOrderLoading || isMasterLoading || isPlatformAccountsLoading || !selectedOrderLoaded) return;
+    if (isOrdersLoading || isSelectedOrderLoading || isMasterLoading || !selectedOrderLoaded) return;
 
     if (selectedId && !selectedOrderData) {
       setErrorMessage("처리 대기 중인 크롤링 주문을 찾을 수 없습니다.");
@@ -1810,11 +1776,9 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
   }, [
     isMasterLoading,
     isOrdersLoading,
-    isPlatformAccountsLoading,
     isSelectedOrderLoading,
     masterError,
     ordersError,
-    platformAccountsError,
     selectedId,
     selectedOrderData,
     selectedOrderError,
@@ -1853,28 +1817,11 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
 
     if (silent) {
       void mutateSWR(["recommendations", "crawl-orders", user.id] satisfies CrawlOrdersSWRKey);
-      void mutateSWR(["recommendations", "platform-accounts", user.id] satisfies PlatformAccountsSWRKey);
       if (selectedId) {
         void mutateSWR(["recommendations", "crawl-order", user.id, selectedId] satisfies SelectedCrawlOrderSWRKey);
       }
     }
   }, [initialData, isInitialDataActive, router, selectedId]);
-
-  const refreshRunningCrawlStatus = useCallback(async () => {
-    if (!userId) return;
-
-    try {
-      const nextAccounts = (await mutatePlatformAccounts()) ?? platformAccounts;
-      if (!nextAccounts.some((account) => account.status === true)) {
-        void mutateSWR(["recommendations", "crawl-orders", userId] satisfies CrawlOrdersSWRKey);
-        if (selectedId) {
-          void mutateSWR(["recommendations", "crawl-order", userId, selectedId] satisfies SelectedCrawlOrderSWRKey);
-        }
-      }
-    } catch (error) {
-      console.error("[crawl] status polling failed", error);
-    }
-  }, [mutatePlatformAccounts, platformAccounts, selectedId, userId]);
 
   const loadDepositRecommendationData = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
     if (!userId || selectedId || activeAutoRecommendPage !== 1 || !force) return;
@@ -2050,106 +1997,6 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
     () => new Map((master?.buyerAccounts ?? []).map((item) => [item.id, item])),
     [master?.buyerAccounts],
   );
-
-  const hasRunningCrawl = platformAccounts.some((account) => account.status === true);
-  const isCrawlButtonDisabled = hasRunningCrawl || isStartingCrawl;
-  const runningCrawlNotice =
-    platformAccounts
-      .filter((account) => account.status === true)
-      .map((account) => `${displayPlatformAccountName(account)}계정 크롤링 중`)
-      .join("\n") || "크롤링 실행중…";
-  const visibleCrawlNotice = crawlNotice ?? (hasRunningCrawl ? runningCrawlNotice : null);
-  const isCrawlNoticeSpinning = isStartingCrawl || (visibleCrawlNotice?.includes("크롤링 중") ?? false);
-
-  useEffect(() => {
-    if (!hasRunningCrawl) return;
-
-    const timer = window.setInterval(() => void refreshRunningCrawlStatus(), 5000);
-    return () => window.clearInterval(timer);
-  }, [hasRunningCrawl, refreshRunningCrawlStatus]);
-
-  const startCrawl = () => {
-    if (hasRunningCrawl) {
-      setCrawlNotice(runningCrawlNotice);
-      return;
-    }
-
-    if (platformAccounts.length === 0) {
-      setCrawlNotice("연결된 플랫폼 계정이 없습니다.");
-      return;
-    }
-
-    setIsStartingCrawl(true);
-    setCrawlNotice(platformAccounts.map((account) => `${displayPlatformAccountName(account)}계정 크롤링 중`).join("\n"));
-
-    const updateAccountNotice = (account: PlatformAccountRow, message: string) => {
-      // 여러 계정을 동시에 요청하므로 응답이 돌아온 계정 줄만 교체합니다.
-      const accountName = displayPlatformAccountName(account);
-      setCrawlNotice((current) => {
-        const before = current?.split("\n").filter(Boolean) ?? [];
-        const runningMessage = `${accountName}계정 크롤링 중`;
-        const next = before.length > 0 ? before : [runningMessage];
-        const index = next.findIndex((item) => item === runningMessage || item.startsWith(`${accountName}계정 크롤링 `));
-
-        if (index === -1) return [...next, message].join("\n");
-
-        next[index] = message;
-        return next.join("\n");
-      });
-    };
-
-    const requests = platformAccounts.map((account) => {
-      // 계정별 크롤링 범위를 쿼리스트링에 담아 HTTPS API로 직접 요청합니다.
-      const params = new URLSearchParams({
-        platform_account_id: account.id,
-        max_pages: "5",
-      });
-      const requestUrl = `${crawlApiUrl}?${params.toString()}`;
-
-      // 응답 본문은 사용하지 않고, HTTP 성공 범위(2xx)로 계정별 요청 결과를 표시합니다.
-      return fetch(requestUrl, {
-        method: "GET",
-        cache: "no-store",
-      }).then((response) => {
-        const accountName = displayPlatformAccountName(account);
-
-        console.info("[crawl] response", {
-          accountId: account.id,
-          accountName,
-          ok: response.ok,
-          status: response.status,
-          statusText: response.statusText,
-          url: response.url,
-        });
-
-        if (response.ok) {
-          updateAccountNotice(account, `${accountName}계정 크롤링 완료`);
-          return;
-        }
-
-        const statusLabel = response.statusText
-          ? `${response.status} ${response.statusText}`
-          : String(response.status);
-        updateAccountNotice(account, `${accountName}계정 크롤링 실패 (HTTP ${statusLabel})`);
-      }).catch((error: unknown) => {
-        const accountName = displayPlatformAccountName(account);
-        const errorMessage = error instanceof Error ? error.message : "알 수 없는 네트워크 오류";
-
-        console.error("[crawl] request failed", {
-          accountId: account.id,
-          accountName,
-          error,
-          requestUrl,
-        });
-        updateAccountNotice(account, `${accountName}계정 크롤링 실패 (${errorMessage})`);
-      });
-    });
-
-    void Promise.allSettled(requests).finally(() => {
-      setIsStartingCrawl(false);
-      window.setTimeout(() => void loadPage({ silent: true }), 1000);
-    });
-  };
 
   const deleteFromList = useCallback(async (row: CrawlOrderRow) => {
     if (!userId) return;
@@ -2471,39 +2318,14 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
         <div className="flex shrink-0 items-center gap-2">
           <GlobalSearchTrigger />
           {activeAutoRecommendPage === 0 ? (
-            <>
-              <label className="hidden min-h-10 cursor-pointer items-center gap-2 rounded-xl border bg-card px-3 text-xs font-medium sm:flex">
-                <input type="checkbox" checked={autoAdvanceRecommendations} onChange={toggleAutoAdvance} className="h-4 w-4 accent-primary" />
-                연속 처리
-              </label>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-10 w-10"
-                disabled={isCrawlButtonDisabled}
-                aria-label={isCrawlButtonDisabled ? "크롤링 실행중" : "크롤링 실행"}
-                title={isCrawlButtonDisabled ? "크롤링 실행중…" : "크롤링 실행"}
-                onClick={startCrawl}
-              >
-                <RefreshCw className={cn("h-4 w-4", isCrawlButtonDisabled ? "animate-spin" : null)} aria-hidden />
-                <span className="sr-only">{isCrawlButtonDisabled ? "크롤링 실행중" : "크롤링 실행"}</span>
-              </Button>
-            </>
+            <label className="hidden min-h-10 cursor-pointer items-center gap-2 rounded-xl border bg-card px-3 text-xs font-medium sm:flex">
+              <input type="checkbox" checked={autoAdvanceRecommendations} onChange={toggleAutoAdvance} className="h-4 w-4 accent-primary" />
+              연속 처리
+            </label>
           ) : null}
           <UserAccountMenu email={email ?? "?"} />
         </div>
       </div>
-
-      {visibleCrawlNotice && activeAutoRecommendPage === 0 ? (
-        <div
-          role="status"
-          className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800 shadow-sm dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-200"
-        >
-          <RefreshCw className={cn("h-4 w-4 shrink-0", isCrawlNoticeSpinning ? "animate-spin" : null)} aria-hidden />
-          <span className="whitespace-pre-line">{visibleCrawlNotice}</span>
-        </div>
-      ) : null}
 
       {/* 데스크톱은 세 업무 탭을 바로 전환하고, 모바일은 같은 순서로 스와이프합니다. */}
       <div className="hidden grid-cols-3 gap-1 rounded-xl bg-muted p-1 lg:grid">
