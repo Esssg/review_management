@@ -4,7 +4,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 // 익스텐션 프로젝트의 dist 배포본과 자동추천 페이지의 다운로드 링크를 같은 버전으로 맞춥니다.
-const extensionVersion = "0.1.0";
+const extensionVersion = "0.1.1";
 const extensionDownloadHref = `/downloads/review-manager-chrome-extension-v${extensionVersion}.zip`;
 
 const installSteps = [
