@@ -1,11 +1,28 @@
+"use client";
+
+import { useState } from "react";
 import { ChevronDown, Download, Puzzle } from "lucide-react";
 
-import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-// 익스텐션 프로젝트의 dist 배포본과 자동추천 페이지의 다운로드 링크를 같은 버전으로 맞춥니다.
-const extensionVersion = "0.1.1";
-const extensionDownloadHref = `/downloads/review-manager-chrome-extension-v${extensionVersion}.zip`;
+// 배포한 ZIP 파일을 최신 버전부터 표시합니다. 새 ZIP을 추가하면 이 목록에도 함께 등록합니다.
+const extensionDownloads = [
+  {
+    version: "0.1.1",
+    filename: "review-manager-chrome-extension-v0.1.1.zip",
+    href: "/downloads/review-manager-chrome-extension-v0.1.1.zip",
+    isLatest: true,
+  },
+  {
+    version: "0.1.0",
+    filename: "review-manager-chrome-extension-v0.1.0.zip",
+    href: "/downloads/review-manager-chrome-extension-v0.1.0.zip",
+    isLatest: false,
+  },
+] as const;
+
+const latestExtensionVersion = extensionDownloads[0].version;
 
 const installSteps = [
   {
@@ -35,12 +52,55 @@ const installSteps = [
 ] as const;
 
 export function ChromeExtensionInstallGuide() {
+  const [selectedVersions, setSelectedVersions] = useState<Set<string>>(
+    () => new Set([latestExtensionVersion]),
+  );
+  const [downloadMessage, setDownloadMessage] = useState("");
+  const selectedExtensions = extensionDownloads.filter(({ version }) => selectedVersions.has(version));
+  const allVersionsSelected = selectedVersions.size === extensionDownloads.length;
+
+  function toggleVersion(version: string) {
+    setSelectedVersions((currentVersions) => {
+      const nextVersions = new Set(currentVersions);
+      if (nextVersions.has(version)) {
+        nextVersions.delete(version);
+      } else {
+        nextVersions.add(version);
+      }
+      return nextVersions;
+    });
+    setDownloadMessage("");
+  }
+
+  function toggleAllVersions() {
+    setSelectedVersions(
+      allVersionsSelected ? new Set() : new Set(extensionDownloads.map(({ version }) => version)),
+    );
+    setDownloadMessage("");
+  }
+
+  function downloadSelectedExtensions() {
+    if (selectedExtensions.length === 0) return;
+
+    // 브라우저가 여러 파일 다운로드를 한 번에 처리하도록 선택된 링크를 순서대로 실행합니다.
+    selectedExtensions.forEach(({ href, filename }) => {
+      const downloadLink = document.createElement("a");
+      downloadLink.href = href;
+      downloadLink.download = filename;
+      document.body.append(downloadLink);
+      downloadLink.click();
+      downloadLink.remove();
+    });
+
+    setDownloadMessage(`${selectedExtensions.length}개 버전의 다운로드를 시작했습니다.`);
+  }
+
   return (
     <section
       aria-labelledby="chrome-extension-install-guide-title"
       className="overflow-hidden rounded-2xl border border-sky-200 bg-sky-50/80 shadow-sm dark:border-sky-900/60 dark:bg-sky-950/30"
     >
-      <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
+      <div className="flex flex-col gap-4 p-4 sm:p-5">
         <div className="flex min-w-0 gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-900/60 dark:text-sky-200">
             <Puzzle className="h-5 w-5" aria-hidden />
@@ -51,7 +111,7 @@ export function ChromeExtensionInstallGuide() {
                 쿠팡 구매내역 크롬 익스텐션
               </h2>
               <span className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200 dark:bg-sky-950/50 dark:text-sky-200 dark:ring-sky-800">
-                v{extensionVersion}
+                최신 v{latestExtensionVersion}
               </span>
             </div>
             <p className="mt-1 text-sm leading-relaxed text-sky-900/80 dark:text-sky-100/80">
@@ -59,14 +119,85 @@ export function ChromeExtensionInstallGuide() {
             </p>
           </div>
         </div>
-        <a
-          href={extensionDownloadHref}
-          download={`review-manager-chrome-extension-v${extensionVersion}.zip`}
-          className={cn(buttonVariants({ size: "default" }), "w-full bg-primary text-primary-foreground shadow-sm hover:bg-primary-active sm:w-auto")}
-        >
-          <Download className="h-4 w-4" aria-hidden />
-          익스텐션 다운로드
-        </a>
+        <div className="rounded-xl border border-sky-200/80 bg-white/60 p-3 dark:border-sky-900/60 dark:bg-slate-900/20 sm:p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold text-sky-950 dark:text-sky-100">다운로드할 버전 선택</p>
+              <p className="mt-0.5 text-xs text-sky-900/70 dark:text-sky-100/70">필요한 버전을 하나 이상 선택하세요.</p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-pressed={allVersionsSelected}
+              onClick={toggleAllVersions}
+              className="h-8 text-sky-700 hover:bg-sky-100 hover:text-sky-900 dark:text-sky-200 dark:hover:bg-sky-900/50 dark:hover:text-sky-100"
+            >
+              {allVersionsSelected ? "전체 선택 해제" : "전체 선택"}
+            </Button>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2" role="group" aria-label="익스텐션 버전 선택">
+            {extensionDownloads.map(({ version, filename, isLatest }) => {
+              const isSelected = selectedVersions.has(version);
+
+              return (
+                <label
+                  key={version}
+                  className={cn(
+                    "flex min-w-0 cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors",
+                    isSelected
+                      ? "border-primary/50 bg-white shadow-sm ring-1 ring-primary/20 dark:border-sky-700/80 dark:bg-slate-900/50"
+                      : "border-sky-200/70 bg-white/50 hover:border-sky-300 dark:border-sky-800/70 dark:bg-slate-900/20 dark:hover:border-sky-700",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    value={version}
+                    checked={isSelected}
+                    onChange={() => toggleVersion(version)}
+                    aria-label={`v${version} 다운로드 선택`}
+                    className="h-5 w-5 shrink-0 accent-primary"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-sky-950 dark:text-sky-100">v{version}</span>
+                      {isLatest ? (
+                        <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/60 dark:text-sky-200">
+                          최신
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="mt-0.5 block truncate text-xs text-sky-900/65 dark:text-sky-100/65">{filename}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+
+          <div className="mt-3 flex flex-col gap-2">
+            <p className="text-xs text-sky-900/75 dark:text-sky-100/75">
+              {selectedExtensions.length === 0
+                ? "다운로드할 버전을 하나 이상 선택하세요."
+                : `${selectedExtensions.length}개 버전이 선택되었습니다.`}
+            </p>
+            <Button
+              type="button"
+              disabled={selectedExtensions.length === 0}
+              onClick={downloadSelectedExtensions}
+              className="w-full bg-primary text-primary-foreground shadow-sm hover:bg-primary-active"
+            >
+              <Download className="h-4 w-4" aria-hidden />
+              {selectedExtensions.length > 0 ? `선택한 ${selectedExtensions.length}개 다운로드` : "버전 선택 후 다운로드"}
+            </Button>
+            <p className="text-[11px] leading-relaxed text-sky-900/65 dark:text-sky-100/65">
+              여러 파일을 선택하면 Chrome에서 여러 다운로드 허용을 확인할 수 있습니다.
+            </p>
+            <p aria-live="polite" className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+              {downloadMessage}
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="border-t border-sky-200/80 bg-white/60 px-4 py-3 dark:border-sky-900/60 dark:bg-slate-900/20 sm:px-5">
