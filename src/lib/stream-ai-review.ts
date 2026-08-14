@@ -1,9 +1,4 @@
-import {
-  type SupabaseClient,
-  FunctionsFetchError,
-  FunctionsHttpError,
-  FunctionsRelayError,
-} from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/types/database";
 
@@ -36,24 +31,7 @@ function explainFetchFailure(err: unknown): string {
   return msg;
 }
 
-function applyNdjsonText(text: string, onDelta: (chunk: string) => void): { ok: true } | { ok: false; error: string } {
-  for (const line of text.split("\n")) {
-    const t = line.trim();
-    if (!t) continue;
-    let row: { d?: string; done?: boolean; error?: string };
-    try {
-      row = JSON.parse(t) as { d?: string; done?: boolean; error?: string };
-    } catch {
-      continue;
-    }
-    if (row.error) return { ok: false, error: row.error };
-    if (typeof row.d === "string" && row.d) onDelta(row.d);
-  }
-  return { ok: true };
-}
-
-async function readHttpErrorMessage(error: FunctionsHttpError): Promise<string> {
-  const res = error.context as Response;
+async function readHttpErrorMessage(res: Response): Promise<string> {
   let msg = res.statusText;
   try {
     const j = (await res.clone().json()) as { error?: string; message?: string };
@@ -61,7 +39,7 @@ async function readHttpErrorMessage(error: FunctionsHttpError): Promise<string> 
     else if (j.message) msg = j.message;
   } catch {
     try {
-      msg = await res.text();
+      msg = (await res.text()).slice(0, 2000);
     } catch {
       /* ignore */
     }
@@ -69,10 +47,63 @@ async function readHttpErrorMessage(error: FunctionsHttpError): Promise<string> 
   return msg || `HTTP ${res.status}`;
 }
 
+async function readNdjsonStream(
+  response: Response,
+  onDelta: (chunk: string) => void,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!response.body) return { ok: false, error: "Edge Function 응답 스트림이 없습니다." };
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let streamDone = false;
+
+  const processLine = (line: string): { ok: true } | { ok: false; error: string } => {
+    const t = line.trim();
+    if (!t) return { ok: true };
+
+    let row: { d?: string; done?: boolean; error?: string };
+    try {
+      row = JSON.parse(t) as { d?: string; done?: boolean; error?: string };
+    } catch {
+      return { ok: true };
+    }
+    if (row.error) return { ok: false, error: row.error };
+    if (typeof row.d === "string" && row.d) onDelta(row.d);
+    if (row.done === true) streamDone = true;
+    return { ok: true };
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      buffer += decoder.decode();
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    buffer = buffer.replace(/\r/g, "");
+
+    let newline: number;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      const result = processLine(line);
+      if (!result.ok) {
+        await reader.cancel().catch(() => undefined);
+        return result;
+      }
+    }
+  }
+
+  const trailing = processLine(buffer);
+  if (!trailing.ok) return trailing;
+  if (!streamDone) return { ok: false, error: "AI 리뷰 스트림이 정상적으로 끝나지 않았습니다." };
+  return { ok: true };
+}
+
 /**
- * Edge Function `generate-ai-review` 호출.
- * `supabase.functions.invoke` + 내부 fetch 경로를 사용해 인증·URL을 DB와 동일하게 맞춥니다.
- * (invoke는 응답이 끝난 뒤 본문을 한 번에 받으므로, NDJSON 델타는 순서대로 onDelta에 전달합니다.)
+ * Edge Function `generate-ai-review`를 직접 호출해 NDJSON을 도착 즉시 읽습니다.
+ * Supabase client에서 확인한 세션 토큰과 public anon key만 브라우저 요청 헤더에 사용합니다.
  */
 export async function streamAiReviewFromEdge(
   supabase: SupabaseClient<Database>,
@@ -86,38 +117,35 @@ export async function streamAiReviewFromEdge(
       return { ok: false, error: "로그인이 필요합니다." };
     }
 
-    const { data, error } = await supabase.functions.invoke<string>("generate-ai-review", {
-      body: {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(/\/+$/, "");
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+    if (!supabaseUrl || !anonKey) {
+      return { ok: false, error: "Supabase 환경변수가 설정되지 않았습니다." };
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/generate-ai-review`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        apikey: anonKey,
+        "Content-Type": "application/json",
+        "x-client-info": "review-manager-ai-review",
+      },
+      body: JSON.stringify({
         order_id: options.orderId,
         user_prompt: options.userPrompt,
         review_char_count: options.reviewCharCount ?? null,
-      },
+      }),
+      cache: "no-store",
       signal: options.signal,
     });
 
-    if (error) {
-      if (error instanceof FunctionsHttpError) {
-        const msg = await readHttpErrorMessage(error);
-        return { ok: false, error: msg };
-      }
-      if (error instanceof FunctionsRelayError) {
-        return { ok: false, error: error.message || "Edge 릴레이 오류가 발생했습니다." };
-      }
-      if (error instanceof FunctionsFetchError) {
-        return { ok: false, error: explainFetchFailure(error.context) };
-      }
-      return { ok: false, error: explainFetchFailure(error) };
-    }
-
-    if (typeof data !== "string") {
-      return { ok: false, error: "Edge Function 응답 형식이 올바르지 않습니다." };
-    }
-
-    const parsed = applyNdjsonText(data, options.onDelta);
-    if (!parsed.ok) return parsed;
-
-    return { ok: true };
+    if (!response.ok) return { ok: false, error: await readHttpErrorMessage(response) };
+    return await readNdjsonStream(response, options.onDelta);
   } catch (e) {
+    if (options.signal?.aborted || (e instanceof DOMException && e.name === "AbortError")) {
+      return { ok: false, error: "AI 리뷰 생성이 취소되었습니다." };
+    }
     return { ok: false, error: explainFetchFailure(e) };
   }
 }

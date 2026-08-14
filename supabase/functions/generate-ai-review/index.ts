@@ -14,25 +14,8 @@ const corsHeaders: Record<string, string> = {
   "Access-Control-Max-Age": "86400",
 };
 
-/** 무료 티에서 RPM 여유가 상대적으로 큰 편인 Flash-Lite를 기본값으로 둡니다. */
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite";
-
-/**
- * REST 경로는 `.../v1beta/models/{모델id}:streamGenerateContent` 형태라 id만 필요합니다.
- * `models/` 접두어는 URL에 이미 있으므로 제거합니다.
- * Developer API에서 1.5 계열은 404가 나는 경우가 많아 무료 티에 맞는 2.5 Lite로 돌립니다.
- */
-function normalizeGeminiModelId(raw: string): string {
-  let s = raw.trim();
-  if (!s) return DEFAULT_GEMINI_MODEL;
-  if (s.startsWith("models/")) s = s.slice("models/".length).trim();
-  if (!s) return DEFAULT_GEMINI_MODEL;
-  if (/^gemini-1\.5-flash/i.test(s) || s === "gemini-1.5-flash-latest") {
-    return DEFAULT_GEMINI_MODEL;
-  }
-  if (/^gemini-1\.5-pro/i.test(s)) return DEFAULT_GEMINI_MODEL;
-  return s;
-}
+const OPENAI_MODEL = "gpt-5.6-luna";
+const OPENAI_REASONING_EFFORT = "medium";
 
 function buildPrompt(
   productName: string,
@@ -79,61 +62,114 @@ function profileToLine(row: {
   return parts.join(", ");
 }
 
-/** async generator 대신 일반 async 함수(Edge 번들에서 Illegal return 이슈 회피) */
-async function pumpGeminiSseChunks(
+type OpenAiStreamEvent = {
+  type?: string;
+  delta?: string;
+  error?: { message?: string } | null;
+  response?: {
+    error?: { message?: string } | null;
+    incomplete_details?: { reason?: string } | null;
+  } | null;
+};
+
+function getOpenAiStreamError(event: OpenAiStreamEvent): string | null {
+  if (event.error?.message) return event.error.message;
+  if (event.response?.error?.message) return event.response.error.message;
+  if (event.type === "response.incomplete") {
+    return event.response?.incomplete_details?.reason
+      ? `OpenAI 응답이 완료되지 않았습니다: ${event.response.incomplete_details.reason}`
+      : "OpenAI 응답이 완료되지 않았습니다.";
+  }
+  if (event.type === "response.failed") return "OpenAI 리뷰 생성에 실패했습니다.";
+  return null;
+}
+
+async function readOpenAiErrorMessage(response: Response): Promise<string> {
+  const raw = await response.text();
+  try {
+    const body = JSON.parse(raw) as { error?: { message?: string } | string; message?: string };
+    if (typeof body.error === "string" && body.error.trim()) return body.error.trim();
+    if (body.error && typeof body.error.message === "string" && body.error.message.trim()) {
+      return body.error.message.trim();
+    }
+    if (typeof body.message === "string" && body.message.trim()) return body.message.trim();
+  } catch {
+    /* JSON이 아닌 오류 본문은 원문을 아래에서 사용합니다. */
+  }
+  return raw.trim().slice(0, 2000) || `OpenAI HTTP ${response.status}`;
+}
+
+/** OpenAI SSE를 읽고 리뷰 텍스트 델타만 전달합니다. */
+async function pumpOpenAiSseChunks(
   apiKey: string,
-  model: string,
   prompt: string,
   onChunk: (piece: string) => Promise<void>,
 ): Promise<void> {
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent` +
-    `?alt=sse&key=${encodeURIComponent(apiKey)}`;
-  const res = await fetch(url, {
+  const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      model: OPENAI_MODEL,
+      reasoning: { effort: OPENAI_REASONING_EFFORT },
+      store: false,
+      stream: true,
+      input: prompt,
     }),
   });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(t || `Gemini HTTP ${res.status}`);
-  }
-  if (!res.body) throw new Error("Gemini 응답 본문이 없습니다.");
+  if (!response.ok) throw new Error(await readOpenAiErrorMessage(response));
+  if (!response.body) throw new Error("OpenAI 응답 본문이 없습니다.");
 
-  const reader = res.body.getReader();
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let completed = false;
+
+  const processEvent = async (rawEvent: string) => {
+    const data = rawEvent
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n")
+      .trim();
+    if (!data || data === "[DONE]") return;
+
+    let event: OpenAiStreamEvent;
+    try {
+      event = JSON.parse(data) as OpenAiStreamEvent;
+    } catch {
+      throw new Error("OpenAI 스트리밍 응답을 해석하지 못했습니다.");
+    }
+
+    const streamError = getOpenAiStreamError(event);
+    if (streamError) throw new Error(streamError);
+
+    if (event.type === "response.output_text.delta" && typeof event.delta === "string" && event.delta) {
+      await onChunk(event.delta);
+    }
+    if (event.type === "response.completed") completed = true;
+  };
+
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      buffer += decoder.decode();
+      break;
+    }
     buffer += decoder.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, nl).trim();
-      buffer = buffer.slice(nl + 1);
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice(5).trim();
-      if (!payload || payload === "[DONE]") continue;
-      let obj: Record<string, unknown>;
-      try {
-        obj = JSON.parse(payload) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-      const err = obj.error as { message?: string } | undefined;
-      if (err?.message) throw new Error(err.message);
-      const candidates = obj.candidates as Array<{
-        content?: { parts?: Array<{ text?: string }> };
-      }> | undefined;
-      const parts = candidates?.[0]?.content?.parts;
-      if (!parts?.length) continue;
-      for (const p of parts) {
-        if (typeof p.text === "string" && p.text.length > 0) await onChunk(p.text);
-      }
+    buffer = buffer.replace(/\r/g, "");
+    let separator: number;
+    while ((separator = buffer.indexOf("\n\n")) >= 0) {
+      const rawEvent = buffer.slice(0, separator);
+      buffer = buffer.slice(separator + 2);
+      await processEvent(rawEvent);
     }
   }
+
+  if (buffer.trim()) await processEvent(buffer);
+  if (!completed) throw new Error("OpenAI 스트림이 완료 이벤트 없이 종료되었습니다.");
 }
 
 Deno.serve(async (req) => {
@@ -150,11 +186,10 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-  const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
-  const geminiModel = normalizeGeminiModelId(Deno.env.get("GEMINI_MODEL") ?? DEFAULT_GEMINI_MODEL);
+  const openAiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
 
-  if (!geminiKey) {
-    return new Response(JSON.stringify({ error: "GEMINI_API_KEY 가 설정되지 않았습니다." }), {
+  if (!openAiKey) {
+    return new Response(JSON.stringify({ error: "OPENAI_API_KEY 가 설정되지 않았습니다." }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -239,7 +274,7 @@ Deno.serve(async (req) => {
     (async () => {
       let accumulated = "";
       try {
-        await pumpGeminiSseChunks(geminiKey, geminiModel, prompt, async (piece) => {
+        await pumpOpenAiSseChunks(openAiKey, prompt, async (piece) => {
           accumulated += piece;
           try {
             await writer.write(encoder.encode(`${JSON.stringify({ d: piece })}\n`));
@@ -247,6 +282,7 @@ Deno.serve(async (req) => {
             /* 클라이언트가 스트림을 닫은 경우 */
           }
         });
+        if (!accumulated.trim()) throw new Error("OpenAI 응답에 리뷰 내용이 없습니다.");
         try {
           await writer.write(encoder.encode(`${JSON.stringify({ done: true })}\n`));
         } catch {
@@ -283,6 +319,7 @@ Deno.serve(async (req) => {
       ...corsHeaders,
       "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-store",
+      Connection: "keep-alive",
     },
   });
 });

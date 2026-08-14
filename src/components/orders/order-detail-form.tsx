@@ -581,7 +581,7 @@ const AiReviewPanel = memo(function AiReviewPanel({
           <div className="min-w-0 space-y-1">
             <CardTitle className="text-base">AI 리뷰</CardTitle>
             <CardDescription className="text-xs leading-relaxed">
-              Gemini로 초안을 만들고 이 주문에 자동 저장합니다. 생성 중에 다른 화면으로 이동해도 서버에서 끝까지 처리된 뒤 여기에 반영됩니다(다시 들어오면 최신 내용이 보입니다).
+              OpenAI로 초안을 만들고 이 주문에 자동 저장합니다. 생성되는 문장은 바로 표시되며, 다른 화면으로 이동해도 서버에서 끝까지 처리된 뒤 저장됩니다.
             </CardDescription>
           </div>
           <span className="ml-auto shrink-0 text-xs font-medium text-muted-foreground group-open:hidden">펼치기</span>

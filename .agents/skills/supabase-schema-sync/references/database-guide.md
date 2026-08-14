@@ -78,7 +78,7 @@ Supabase/PostgREST의 기본 반환 제한(현재 1,000건)은 최종 데이터 
 | `order_status` | text | YES | 주문 상태 텍스트 |
 | `review_photo_count` | integer | YES | 리뷰에 첨부한 사진 개수(선택) |
 | `review_char_count` | integer | YES | 리뷰 본문 글자 수(선택) |
-| `ai_review` | text | YES | Gemini 등으로 생성·저장한 AI 리뷰 초안 본문 |
+| `ai_review` | text | YES | OpenAI 등으로 생성·저장한 AI 리뷰 초안 본문 |
 | `ai_review_user_prompt` | text | YES | AI 리뷰 생성 시 모델에 함께 넘기는 추가 안내 문구(주문별) |
 | `deleted_at` | timestamptz | YES | 삭제한 시각. NULL이면 활성 주문이며 값이 있으면 휴지통에 보관된 주문 |
 | `created_at` | timestamptz | NO | 생성 시각 |
@@ -362,4 +362,4 @@ supabase
 - `user_preferences`, `user_order_drafts`, `saved_order_views`는 `anon` 테이블 권한을 제거했고, 로그인한 `authenticated` 역할만 RLS 소유자 정책 안에서 조회·추가·수정·삭제할 수 있습니다.
 - `platforms` / `payment_methods`는 시스템 기본 행(`user_id` IS NULL)을 모든 인증 사용자가 조회할 수 있습니다. INSERT·DELETE는 `user_id = auth.uid()`인 행만 가능하고, UPDATE(색상)는 시스템/본인 행 모두 허용됩니다.
 - 쓰기 시 FK 컬럼(`platform_id`, `payment_method_id`, `buyer_account_id`)을 사용합니다.
-- AI 리뷰 생성은 Supabase Edge Function `generate-ai-review`에서 Gemini를 호출하고, 완료 시 `orders.ai_review`를 갱신합니다. 배포 후 프로젝트 시크릿에 `GEMINI_API_KEY`를 설정하고 `supabase functions deploy generate-ai-review`로 배포해야 합니다. 선택 환경 변수: `GEMINI_MODEL`(기본 `gemini-2.5-flash-lite`, 무료 티 권장). 값은 **모델 id만**(`gemini-2.5-flash`, `gemini-2.0-flash` 등). `models/` 접두어는 Edge에서 제거합니다. `gemini-1.5-flash` 등 1.5 계열은 404가 나는 경우가 많아 `gemini-2.5-flash-lite`로 치환합니다. 신규 프로젝트 JWT(ES256)와의 호환을 위해 `supabase/config.toml`에서 이 함수는 `verify_jwt=false`이며, 함수 코드에서 `auth.getUser()`로 사용자를 검증합니다.
+- AI 리뷰 생성은 Supabase Edge Function `generate-ai-review`에서 OpenAI Responses API(`gpt-5.6-luna`)를 호출하고, 완료 시 `orders.ai_review`를 갱신합니다. 운영 self-hosted 배포에서는 `/opt/supabase/docker/.env.functions`에 `OPENAI_API_KEY`를 설정하고 functions 서비스를 재생성합니다. 요청은 `reasoning.effort=medium`, `store=false`, `stream=true`를 사용하며, 함수 코드에서 `auth.getUser()`로 사용자를 검증합니다. 신규 프로젝트 JWT(ES256)와의 호환을 위해 `supabase/config.toml`에서 이 함수는 `verify_jwt=false`입니다.
