@@ -2,13 +2,13 @@ import type { Database } from "@/types/database";
 
 export type PurchaseTemplateRow = Database["public"]["Tables"]["purchase_info_templates"]["Row"];
 
-/** 카톡 한 줄 붙여넣기용 금액 (구매가격 입력값 기준) */
+/** 카톡 한 줄 붙여넣기용 금액을 숫자만 남겨 만듭니다. */
 export function formatKakaoPasteAmount(purchasePriceRaw: string) {
   const trimmed = String(purchasePriceRaw ?? "").trim();
   if (!trimmed) return "";
-  const n = Number(trimmed);
+  const n = Number(trimmed.replace(/,/g, ""));
   if (!Number.isFinite(n)) return trimmed;
-  return `${n.toLocaleString("ko-KR")}원`;
+  return String(n);
 }
 
 /**
