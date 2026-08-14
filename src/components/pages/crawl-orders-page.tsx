@@ -873,7 +873,7 @@ const OrderAutoRecommendPage = memo(function OrderAutoRecommendPage({
         </div>
       </div>
 
-      {/* 익스텐션 안내는 모바일에서는 목록 위 전체 폭, 데스크톱에서는 오른쪽 보조 패널로 배치합니다. */}
+      {/* 익스텐션은 Chrome을 사용할 수 있는 데스크톱에서만 안내합니다. */}
       <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
         <div className="order-2 min-w-0 lg:order-1">
           <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
@@ -1065,7 +1065,7 @@ const OrderAutoRecommendPage = memo(function OrderAutoRecommendPage({
             </p>
           ) : null}
         </div>
-        <aside className="order-1 min-w-0 h-fit lg:order-2 lg:sticky lg:top-5">
+        <aside className="order-1 hidden min-w-0 h-fit lg:order-2 lg:sticky lg:top-5 lg:block">
           <ChromeExtensionInstallGuide />
         </aside>
       </div>

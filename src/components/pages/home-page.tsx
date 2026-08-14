@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, Loader2, PackageCheck, Plus, RefreshCw, WalletCards } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Bell, CalendarClock, CheckCircle2, Loader2, PackageCheck, Plus, RefreshCw, WalletCards, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR, { mutate as mutateSWR } from "swr";
 
@@ -16,6 +16,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { getKoreaDateInputValue } from "@/lib/korea-date";
 import { createClient } from "@/lib/supabase/client";
+import { useMediaQuery } from "@/lib/use-media-query";
+import { cn } from "@/lib/utils";
 import { ORDER_LIST_SELECT, type OrderWithRelations } from "@/types/orders";
 import type { HomeInitialData } from "@/types/home";
 
@@ -25,17 +27,25 @@ const homeKrwFormatter = new Intl.NumberFormat("ko-KR", {
   maximumFractionDigits: 0,
 });
 
-function HomeOperationsSummary({
-  pendingOrders,
-  completedOrders,
-  counts,
-  isCompletedLoading,
-}: {
+type HomeOperationsProps = {
   pendingOrders: OrderWithRelations[];
   completedOrders: OrderWithRelations[] | null;
   counts: OrderListCounts;
   isCompletedLoading: boolean;
-}) {
+  id?: string;
+  className?: string;
+  onClose?: () => void;
+};
+
+function HomeOperationsQueue({
+  pendingOrders,
+  completedOrders,
+  counts,
+  isCompletedLoading,
+  id,
+  className,
+  onClose,
+}: HomeOperationsProps) {
   const today = getKoreaDateInputValue();
   const pendingPrincipal = useMemo(
     () => pendingOrders.reduce((sum, order) => sum + Number(order.purchase_price_krw || 0), 0),
@@ -58,16 +68,34 @@ function HomeOperationsSummary({
     : null;
 
   return (
-    <aside className="min-w-0 space-y-4 xl:sticky xl:top-5 xl:self-start">
-      <section className="rounded-xl border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5">
+      <section
+        id={id}
+        aria-label="오늘 확인할 일"
+        className={cn(
+          "rounded-xl border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5",
+          className,
+        )}
+      >
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold tracking-[0.08em] text-primary">TODAY&apos;S QUEUE</p>
             <h2 className="mt-1 text-lg font-semibold">오늘 확인할 일</h2>
           </div>
-          <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">
-            {pendingOrders.length + undeliveredCount}건
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">
+              {pendingOrders.length + undeliveredCount}건
+            </span>
+            {onClose ? (
+              <button
+                type="button"
+                aria-label="오늘 확인할 일 닫기"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-soft hover:text-foreground"
+                onClick={onClose}
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="mt-4 grid gap-2">
@@ -117,27 +145,57 @@ function HomeOperationsSummary({
           </div>
         </div>
       </section>
+  );
+}
 
-      <section className="rounded-xl border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5">
+function HomeQuickActions({ className, onClose }: { className?: string; onClose?: () => void }) {
+  return (
+    <section
+      aria-label="빠른 작업"
+      className={cn(
+        "rounded-xl border border-hairline bg-card p-4 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)] sm:p-5",
+        className,
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4 text-primary" aria-hidden />
           <h2 className="text-base font-semibold">빠른 작업</h2>
         </div>
-        <div className="mt-3 grid gap-2">
-          <Link href="/orders/new" className="flex min-h-10 items-center justify-between rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary-active">
-            주문 추가
-            <ArrowUpRight className="h-4 w-4" aria-hidden />
-          </Link>
-          <Link href="/recommendations" className="flex min-h-10 items-center justify-between rounded-lg border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-surface-soft">
-            자동추천 확인
-            <ArrowUpRight className="h-4 w-4" aria-hidden />
-          </Link>
-          <Link href="/dashboard" className="flex min-h-10 items-center justify-between rounded-lg border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-surface-soft">
-            재무 흐름 보기
-            <ArrowUpRight className="h-4 w-4" aria-hidden />
-          </Link>
-        </div>
-      </section>
+        {onClose ? (
+          <button
+            type="button"
+            aria-label="빠른 작업 닫기"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-soft hover:text-foreground"
+            onClick={onClose}
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-3 grid gap-2">
+        <Link href="/orders/new" className="flex min-h-10 items-center justify-between rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary-active">
+          주문 추가
+          <ArrowUpRight className="h-4 w-4" aria-hidden />
+        </Link>
+        <Link href="/recommendations" className="flex min-h-10 items-center justify-between rounded-lg border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-surface-soft">
+          자동추천 확인
+          <ArrowUpRight className="h-4 w-4" aria-hidden />
+        </Link>
+        <Link href="/dashboard" className="flex min-h-10 items-center justify-between rounded-lg border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-surface-soft">
+          재무 흐름 보기
+          <ArrowUpRight className="h-4 w-4" aria-hidden />
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function HomeOperationsSummary(props: Omit<HomeOperationsProps, "className" | "onClose">) {
+  return (
+    <aside className="min-w-0 space-y-4 xl:sticky xl:top-5 xl:self-start">
+      <HomeOperationsQueue {...props} />
+      <HomeQuickActions />
     </aside>
   );
 }
@@ -238,6 +296,9 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
   const [isCompletedRequested, setIsCompletedRequested] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isOperationsOpen, setIsOperationsOpen] = useState(false);
+  const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
+  const isMobile = useMediaQuery("(max-width: 1023px)");
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -275,6 +336,25 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
   const orderCounts = orderCountsData ?? EMPTY_COUNTS;
   const pendingOrders = pendingOrdersData ?? [];
   const completedOrders = isCompletedRequested ? completedOrdersData ?? null : null;
+
+  useEffect(() => {
+    if (isMobile || (!isOperationsOpen && !isQuickActionsOpen)) return;
+    setIsOperationsOpen(false);
+    setIsQuickActionsOpen(false);
+  }, [isMobile, isOperationsOpen, isQuickActionsOpen]);
+
+  useEffect(() => {
+    if (!isOperationsOpen && !isQuickActionsOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setIsOperationsOpen(false);
+      setIsQuickActionsOpen(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOperationsOpen, isQuickActionsOpen]);
 
   const loadOrders = useCallback(async (opts?: { manual?: boolean; isCancelled?: () => boolean }) => {
     const manual = opts?.manual ?? false;
@@ -484,6 +564,20 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
           <GlobalSearchTrigger />
           <button
             type="button"
+            aria-label="오늘 확인할 일 열기"
+            aria-expanded={isOperationsOpen}
+            aria-controls="mobile-operations-queue"
+            title="오늘 확인할 일"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-hairline bg-card text-ink-muted shadow-sm transition-colors hover:bg-accent hover:text-primary lg:hidden"
+            onClick={() => {
+              setIsQuickActionsOpen(false);
+              setIsOperationsOpen((current) => !current);
+            }}
+          >
+            <Bell className="h-4 w-4" aria-hidden />
+          </button>
+          <button
+            type="button"
             aria-label="주문 목록 새로고침"
             title="목록 다시 불러오기"
             disabled={isRefreshing}
@@ -499,6 +593,26 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
           <UserAccountMenu email={email ?? "?"} />
         </div>
       </div>
+
+      {isMobile && isOperationsOpen ? (
+        <>
+          <button
+            type="button"
+            aria-label="오늘 확인할 일 닫기"
+            className="fixed inset-0 z-[45] bg-transparent lg:hidden"
+            onClick={() => setIsOperationsOpen(false)}
+          />
+          <HomeOperationsQueue
+            id="mobile-operations-queue"
+            pendingOrders={pendingOrders}
+            completedOrders={completedOrders}
+            counts={orderCounts}
+            isCompletedLoading={isCompletedLoading}
+            onClose={() => setIsOperationsOpen(false)}
+            className="fixed right-4 top-[4.5rem] z-50 max-h-[calc(100dvh-7rem)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-150 lg:hidden"
+          />
+        </>
+      ) : null}
 
       <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,24rem)]">
         <div className="order-2 min-w-0 xl:order-1">
@@ -517,7 +631,7 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
             onOrderRestored={handleOrderRestored}
           />
         </div>
-        <div className="order-1 min-w-0 xl:order-2">
+        <div className="order-1 hidden min-w-0 lg:block xl:order-2">
           <HomeOperationsSummary
             pendingOrders={pendingOrders}
             completedOrders={completedOrders}
@@ -527,10 +641,32 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
         </div>
       </div>
 
+      {isMobile && isQuickActionsOpen ? (
+        <>
+          <button
+            type="button"
+            aria-label="빠른 작업 닫기"
+            className="fixed inset-0 z-[45] bg-transparent lg:hidden"
+            onClick={() => setIsQuickActionsOpen(false)}
+          />
+          <HomeQuickActions
+            onClose={() => setIsQuickActionsOpen(false)}
+            className="fixed right-4 bottom-[calc(10rem+env(safe-area-inset-bottom))] z-50 w-[min(20rem,calc(100vw-2rem))] motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:duration-150 lg:hidden"
+          />
+        </>
+      ) : null}
+
       <Link
         href="/orders/new"
-        aria-label="주문 추가"
-        title="주문 추가"
+        aria-label={isMobile ? "빠른 작업 열기" : "주문 추가"}
+        aria-expanded={isMobile ? isQuickActionsOpen : undefined}
+        title={isMobile ? "빠른 작업" : "주문 추가"}
+        onClick={(event) => {
+          if (!isMobile) return;
+          event.preventDefault();
+          setIsOperationsOpen(false);
+          setIsQuickActionsOpen((current) => !current);
+        }}
         className="fixed right-4 bottom-24 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/25 ring-2 ring-white/70 transition-[transform,colors] hover:bg-primary-active active:scale-95"
       >
         <Plus className="h-7 w-7" strokeWidth={2.5} aria-hidden />

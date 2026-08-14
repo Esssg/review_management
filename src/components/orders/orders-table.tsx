@@ -2172,6 +2172,8 @@ export function OrdersTable({
   const [paymentFilter, setPaymentFilter] = useState(() => searchParams.get("payment") ?? "");
   const [accountFilter, setAccountFilter] = useState(() => searchParams.get("account") ?? "");
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const quickFilterScrollRef = useRef<HTMLDivElement>(null);
+  const [hasMoreQuickFilters, setHasMoreQuickFilters] = useState(false);
   const [savedViews, setSavedViews] = useState<SavedOrderView[]>([]);
   const [density, setDensity] = useState<LedgerDensity>("compact");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -2190,6 +2192,13 @@ export function OrdersTable({
   const [undoOrder, setUndoOrder] = useState<OrderWithRelations | null>(null);
   const [isUndoing, setIsUndoing] = useState(false);
   const undoTimerRef = useRef<number | null>(null);
+
+  const updateQuickFilterScrollState = useCallback(() => {
+    const element = quickFilterScrollRef.current;
+    if (!element) return;
+    const remainingScroll = element.scrollWidth - element.clientWidth - element.scrollLeft;
+    setHasMoreQuickFilters(remainingScroll > 4);
+  }, []);
 
   const deferredSearch = useDeferredValue(search);
 
@@ -2338,6 +2347,23 @@ export function OrdersTable({
       cancelled = true;
     };
   }, [supabase, userId]);
+
+  useLayoutEffect(() => {
+    const element = quickFilterScrollRef.current;
+    if (!element) return;
+
+    updateQuickFilterScrollState();
+    element.addEventListener("scroll", updateQuickFilterScrollState, { passive: true });
+    window.addEventListener("resize", updateQuickFilterScrollState);
+    const resizeObserver = new ResizeObserver(updateQuickFilterScrollState);
+    resizeObserver.observe(element);
+
+    return () => {
+      element.removeEventListener("scroll", updateQuickFilterScrollState);
+      window.removeEventListener("resize", updateQuickFilterScrollState);
+      resizeObserver.disconnect();
+    };
+  }, [updateQuickFilterScrollState]);
 
   useEffect(() => {
     if (statusFilter !== "completed" && attentionFilter !== "missingDeposit") return;
@@ -2782,22 +2808,22 @@ export function OrdersTable({
               className="h-10 rounded-xl pl-9"
             />
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+          <div className="flex min-w-0 gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:shrink-0">
             <Button
               type="button"
               variant={showAdvancedFilter ? "default" : "outline"}
               size="sm"
-              className="h-10 gap-1.5"
+              className="h-10 shrink-0 gap-1.5 whitespace-nowrap"
               onClick={() => setShowAdvancedFilter((current) => !current)}
             >
               <Filter className="h-4 w-4" aria-hidden />
               상세
             </Button>
-            <Button type="button" variant="outline" size="sm" className="h-10 gap-1.5" onClick={toggleDensity}>
+            <Button type="button" variant="outline" size="sm" className="h-10 shrink-0 gap-1.5 whitespace-nowrap" onClick={toggleDensity}>
               <Rows3 className="h-4 w-4" aria-hidden />
               {density === "compact" ? "촘촘하게" : "편안하게"}
             </Button>
-            <Button type="button" variant="outline" size="sm" className="h-10 gap-1.5" onClick={() => void saveCurrentView()}>
+            <Button type="button" variant="outline" size="sm" className="h-10 shrink-0 gap-1.5 whitespace-nowrap" onClick={() => void saveCurrentView()}>
               <Save className="h-4 w-4" aria-hidden />
               보기 저장
             </Button>
@@ -2805,7 +2831,7 @@ export function OrdersTable({
               type="button"
               variant={selectionMode ? "default" : "outline"}
               size="sm"
-              className="h-10 gap-1.5"
+              className="h-10 shrink-0 gap-1.5 whitespace-nowrap"
               onClick={selectionMode ? closeSelectionMode : enableSelectionMode}
             >
               <ListChecks className="h-4 w-4" aria-hidden />
@@ -2814,32 +2840,45 @@ export function OrdersTable({
           </div>
         </div>
 
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
-          {([
-            ["all", "전체"],
-            ["pending", "미완료"],
-            ["undelivered", "미배송"],
-            ["scheduleToday", "오늘 구매"],
-            ["overdue", "예약 지남"],
-            ["scheduleUpcoming", "7일 내 예정"],
-            ["missingDeposit", "입금정보 누락"],
-            ["missingAi", "AI 리뷰 없음"],
-            ["missingTemplate", "템플릿 없음"],
-          ] as const).map(([key, label]) => (
+        <div className="relative mt-3">
+          <div ref={quickFilterScrollRef} className="flex gap-2 overflow-x-auto pb-1 pr-8 [scrollbar-width:none]">
+            {([
+              ["all", "전체"],
+              ["pending", "미완료"],
+              ["undelivered", "미배송"],
+              ["scheduleToday", "오늘 구매"],
+              ["overdue", "예약 지남"],
+              ["scheduleUpcoming", "7일 내 예정"],
+              ["missingDeposit", "입금정보 누락"],
+              ["missingAi", "AI 리뷰 없음"],
+              ["missingTemplate", "템플릿 없음"],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setQuickFilter(key)}
+                className={cn(
+                  "h-8 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors",
+                  activeQuickFilter === key
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {hasMoreQuickFilters ? (
             <button
-              key={key}
               type="button"
-              onClick={() => setQuickFilter(key)}
-              className={cn(
-                "h-8 shrink-0 rounded-full border px-3 text-xs font-medium transition-colors",
-                activeQuickFilter === key
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-              )}
+              aria-label="오른쪽 필터 더 보기"
+              title="오른쪽 필터 더 보기"
+              className="absolute inset-y-0 right-0 flex w-10 items-center justify-end bg-gradient-to-l from-background via-background/95 to-transparent pl-3 text-muted-foreground lg:hidden"
+              onClick={() => quickFilterScrollRef.current?.scrollBy({ left: 180, behavior: "smooth" })}
             >
-              {label}
+              <ChevronRight className="h-4 w-4" aria-hidden />
             </button>
-          ))}
+          ) : null}
         </div>
 
         {savedViews.length > 0 ? (
