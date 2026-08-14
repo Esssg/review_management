@@ -159,6 +159,66 @@
   }
 }
 
+@keyframes review-manager-frame-10 {
+  0%,
+  9.99% {
+    opacity: 1;
+  }
+
+  10%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes review-manager-splash-exit {
+  0%,
+  84% {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+.review-manager-splash {
+  animation-name: review-manager-splash-exit;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+.review-frame-sequence {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.review-frame-sequence__frame {
+  opacity: 0;
+  animation-timing-function: steps(1, end);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  will-change: opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-manager-splash {
+    animation-duration: 1ms !important;
+  }
+
+  .review-frame-sequence__frame {
+    animation: none !important;
+    opacity: 0;
+  }
+
+  .review-frame-sequence__frame:first-child {
+    opacity: 1;
+  }
+}
+
 @layer components {
   /* 패널 그림자는 경계선을 보조할 정도로만 사용해 표와 숫자를 우선합니다. */
   [data-slot="card"] {

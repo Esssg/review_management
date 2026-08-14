@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { BottomMenu } from "@/components/navigation/bottom-menu";
 import { DesktopSidebar } from "@/components/navigation/desktop-sidebar";
 import { GlobalCommandPalette } from "@/components/navigation/global-command-palette";
+import { SplashScreen } from "@/components/loading/splash-screen";
 import { OnboardingTourLoader } from "@/components/onboarding/onboarding-tour-loader";
 import "./globals.css";
 
@@ -38,6 +39,7 @@ export default function RootLayout({
       className="h-full antialiased"
     >
       <body className="min-h-full flex flex-col">
+        <SplashScreen />
         <Suspense fallback={null}>
           <DesktopSidebar />
           <GlobalCommandPalette />
