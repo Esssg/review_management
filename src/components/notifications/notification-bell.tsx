@@ -92,7 +92,7 @@ export function NotificationBell({ className }: { className?: string }) {
           <section
             role="dialog"
             aria-label="미확인 알림"
-            className="absolute right-0 top-11 z-[110] w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-hairline bg-card shadow-2xl"
+            className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+4.5rem)] z-[110] flex max-h-[calc(100dvh-env(safe-area-inset-top)-6rem)] flex-col overflow-hidden rounded-2xl border border-hairline bg-card shadow-2xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-11 sm:max-h-none sm:w-[min(23rem,calc(100vw-2rem))]"
           >
             <header className="flex items-center justify-between gap-3 border-b border-hairline px-4 py-3">
               <div>
@@ -103,7 +103,7 @@ export function NotificationBell({ className }: { className?: string }) {
               </div>
               <Bell className="h-4 w-4 text-primary" aria-hidden />
             </header>
-            <div className="max-h-[min(28rem,70vh)] overflow-y-auto p-2">
+            <div className="min-h-0 flex-1 overflow-y-auto p-2 sm:max-h-[min(28rem,70vh)] sm:flex-none">
               {isLoading && notificationGroups.length === 0 ? (
                 <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
