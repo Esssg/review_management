@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { PurchaseInfoTemplateForm } from "@/components/purchase-templates/purchase-info-template-form";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { buttonVariants } from "@/components/ui/button";
 import type { PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import { createClient } from "@/lib/supabase/client";
@@ -103,6 +104,7 @@ export function PurchaseTemplateDetailPage() {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <GlobalSearchTrigger />
+          <NotificationBell />
           <Link href="/settings" className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit shrink-0")}>
             설정으로
           </Link>

@@ -7,3 +7,7 @@ policy = "per_worker"
 # 인증은 함수 안에서 supabase.auth.getUser()로 수행합니다.
 [functions.generate-ai-review]
 verify_jwt = false
+
+# 예약 작업은 함수 내부의 별도 비밀 헤더로 인증합니다.
+[functions.process-purchase-notifications]
+verify_jwt = false

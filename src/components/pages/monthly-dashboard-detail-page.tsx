@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { DashboardOrder } from "@/types/orders";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -210,6 +211,7 @@ export function MonthlyDashboardDetailPage() {
           </Button>
         </div>
         <GlobalSearchTrigger />
+        <NotificationBell />
       </div>
 
       {phase === "loading" ? (

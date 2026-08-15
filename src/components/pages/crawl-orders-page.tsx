@@ -14,6 +14,7 @@ import { UserAccountMenu } from "@/components/auth/user-account-menu";
 import { ChromeExtensionInstallGuide } from "@/components/pages/chrome-extension-install-guide";
 import { OrderDetailForm } from "@/components/orders/order-detail-form";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Table,
@@ -1585,6 +1586,7 @@ const CrawlOrderReviewPage = memo(function CrawlOrderReviewPage({
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
           <GlobalSearchTrigger />
+          <NotificationBell />
           <label className="flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border bg-card px-3 text-xs font-medium">
             <input type="checkbox" checked={autoAdvanceRecommendations} onChange={onToggleAutoAdvance} className="h-4 w-4 accent-primary" />
             처리 후 다음 항목
@@ -2317,6 +2319,7 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <GlobalSearchTrigger />
+          <NotificationBell />
           {activeAutoRecommendPage === 0 ? (
             <label className="hidden min-h-10 cursor-pointer items-center gap-2 rounded-xl border bg-card px-3 text-xs font-medium sm:flex">
               <input type="checkbox" checked={autoAdvanceRecommendations} onChange={toggleAutoAdvance} className="h-4 w-4 accent-primary" />

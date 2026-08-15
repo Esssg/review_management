@@ -7,6 +7,7 @@ import { AlertTriangle, CheckCircle2, Copy, WalletCards } from "lucide-react";
 
 import { UserAccountMenu } from "@/components/auth/user-account-menu";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { OrderDetailForm, type OrderFormSummary } from "@/components/orders/order-detail-form";
 import { fetchMasterData } from "@/lib/master-data";
 import { getKoreaDateInputValue } from "@/lib/korea-date";
@@ -94,6 +95,7 @@ export function NewOrderPage({ initialData = null }: { initialData?: NewOrderIni
         </div>
         <div className="flex shrink-0 items-center gap-2 self-start">
           <GlobalSearchTrigger />
+          <NotificationBell />
           <UserAccountMenu email={email ?? "?"} />
         </div>
       </div>

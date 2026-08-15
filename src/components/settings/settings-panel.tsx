@@ -9,6 +9,7 @@ import { OrderTrashPanel } from "@/components/settings/order-trash-panel";
 import { AiReviewSettingsView } from "@/components/settings/ai-review-settings-view";
 import { PurchaseTemplatesSettingsView } from "@/components/settings/purchase-templates-settings-view";
 import { PwaInstallCard } from "@/components/pwa/pwa-install-card";
+import { NotificationPermissionCard } from "@/components/notifications/notification-permission-card";
 import {
   DEFAULT_BUYER_ACCOUNT_COLOR,
   DEFAULT_PAYMENT_METHOD_COLOR,
@@ -727,6 +728,7 @@ function SettingsHomeView({
     <div className="flex flex-col gap-5">
       {alerts}
       <PwaInstallCard />
+      <NotificationPermissionCard />
 
       <button
         type="button"

@@ -6,6 +6,7 @@ import useSWR from "swr";
 
 import { SettingsPanel, type SettingsPanelView } from "@/components/settings/settings-panel";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import {
   fetchSettingsPayload,
   fetchTemplateUsageCounts,
@@ -113,7 +114,10 @@ export function SettingsPage({ initialData = null }: { initialData?: SettingsPay
     <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight">설정</h1>
-        <GlobalSearchTrigger />
+        <div className="flex items-center gap-2">
+          <GlobalSearchTrigger />
+          <NotificationBell />
+        </div>
       </div>
 
       <SettingsPanel

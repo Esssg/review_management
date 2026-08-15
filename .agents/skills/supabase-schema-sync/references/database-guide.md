@@ -1,7 +1,7 @@
 # DB 가이드 (Supabase)
 
 기준 프로젝트: `xhjjoxzwpgqlodflaiix`  
-최종 업데이트: 2026-08-10
+최종 업데이트: 2026-08-15
 
 ## 0) 공개 스키마 경계 (필수)
 
@@ -9,7 +9,7 @@
 
 - `RLS`가 활성화된 테이블은 이 프로젝트 소유로 판단합니다.
 - `RLS`가 비활성화된 테이블은 다른 프로젝트 소유로 판단합니다. 다른 프로젝트 테이블은 조회·수정·삭제·DDL·마이그레이션·시드·타입 계약 변경의 대상이 아닙니다.
-- 이 저장소가 실제로 사용하는 작업 허용 목록은 `users`, `platforms`, `payment_methods`, `buyer_accounts`, `purchase_info_templates`, `user_ai_review_profiles`, `user_item_settings`, `user_preferences`, `user_order_drafts`, `saved_order_views`, `orders`, `bank_account`, `bank_account_deposit`, `platform_accounts`, `crawl_orders`입니다.
+- 이 저장소가 실제로 사용하는 작업 허용 목록은 `users`, `platforms`, `payment_methods`, `buyer_accounts`, `purchase_info_templates`, `user_ai_review_profiles`, `user_item_settings`, `user_preferences`, `user_order_drafts`, `saved_order_views`, `orders`, `bank_account`, `bank_account_deposit`, `platform_accounts`, `crawl_orders`, `push_subscriptions`, `app_notifications`입니다.
 - `RLS`가 활성화된 `coupang_payment_method_mappings`도 현재 저장소 코드와 마이그레이션에서 사용하지 않으므로, 명시적인 사용자 요청 없이는 건드리지 않습니다.
 - 작업 전에는 `public` 테이블의 RLS 상태를 메타데이터로 읽기 전용 확인하고, 대상이 위 허용 목록에 없거나 RLS 상태가 불명확하면 작업을 중단합니다.
 
@@ -41,6 +41,8 @@ Supabase/PostgREST의 기본 반환 제한(현재 1,000건)은 최종 데이터 
 - `bank_account_deposit` — 입금 계좌별 입금 내역 (RLS 활성화)
 - `platform_accounts` — 사용자별 플랫폼 로그인·크롤링 계정 정보 (RLS 활성화)
 - `crawl_orders` — 크롤링으로 수집한 주문 대기·처리 내역 (RLS 활성화)
+- `push_subscriptions` — 사용자 기기별 Web Push 구독 정보 (RLS 활성화)
+- `app_notifications` — 구매 예정 알림 발송·읽음 내역 (RLS 활성화)
 
 ---
 
@@ -94,6 +96,61 @@ Supabase/PostgREST의 기본 반환 제한(현재 1,000건)은 최종 데이터 
 #### 휴지통 조회 인덱스
 - `orders_user_active_processed_purchase_date_idx`: 사용자별 활성 주문(`deleted_at IS NULL`)을 처리 상태와 구매일 순으로 조회합니다.
 - `orders_user_deleted_at_idx`: 사용자별 휴지통 주문(`deleted_at IS NOT NULL`)을 최근 삭제 순으로 조회합니다.
+
+### `public.push_subscriptions`
+
+사용자가 사용하는 브라우저·PWA 기기별 Web Push 구독을 저장합니다. `endpoint`는 사용자별로 유일하며, 사용자가 직접 자신의 행을 추가·갱신·비활성화·삭제할 수 있습니다.
+
+| 컬럼 | 타입 | Nullable | 의미 |
+|---|---|---|---|
+| `id` | uuid | NO | 구독 레코드 고유 ID (PK) |
+| `user_id` | uuid | NO | 구독 소유 사용자 (`auth.users.id` FK) |
+| `endpoint` | text | NO | 브라우저 Push endpoint |
+| `p256dh` | text | NO | Push 공개 키 |
+| `auth` | text | NO | Push 인증 값 |
+| `device_label` | text | YES | 기기 표시명(선택) |
+| `user_agent` | text | YES | 등록 당시 브라우저 정보(선택) |
+| `enabled` | boolean | NO | 발송 대상 활성 여부 |
+| `created_at` | timestamptz | NO | 최초 등록 시각 |
+| `updated_at` | timestamptz | NO | 최근 갱신 시각 |
+| `last_seen_at` | timestamptz | NO | 최근 앱 사용·구독 확인 시각 |
+
+- unique: `(user_id, endpoint)`
+- 인덱스: `push_subscriptions_user_enabled_idx` (`user_id`, `enabled`)
+- RLS: `auth.uid() = user_id`인 인증 사용자만 자신의 행을 조회·추가·수정·삭제할 수 있습니다.
+
+### `public.app_notifications`
+
+서버가 생성하는 구매 예정 알림의 주문별 내역입니다. 같은 `group_id`를 가진 행은 한 번의 묶음 알림으로 표시합니다. 브라우저는 자신의 행을 조회하고 `read_at`만 변경할 수 있으며, 생성·발송 상태 변경은 서비스 역할의 예약 함수가 담당합니다.
+
+| 컬럼 | 타입 | Nullable | 의미 |
+|---|---|---|---|
+| `id` | uuid | NO | 알림 레코드 고유 ID (PK) |
+| `user_id` | uuid | NO | 알림 소유 사용자 (`auth.users.id` FK) |
+| `order_id` | uuid | NO | 대상 주문 (`orders.id` FK) |
+| `group_id` | uuid | NO | 같은 예정 시각·알림 종류의 묶음 ID |
+| `notification_type` | text | NO | `purchase_10m` 또는 `purchase_due` |
+| `title` | text | NO | OS 알림 제목 |
+| `body` | text | NO | OS 알림 본문 |
+| `target_href` | text | NO | 알림 클릭 시 이동 기준 경로 |
+| `scheduled_for` | timestamptz | NO | 알림 기준 구매 예정 시각 |
+| `sent_at` | timestamptz | YES | Push 발송 성공 시각 |
+| `read_at` | timestamptz | YES | 사용자가 알림을 확인한 시각 |
+| `cancelled_at` | timestamptz | YES | 일정 변경·주문 완료·삭제 등으로 무효화한 시각 |
+| `delivery_attempts` | integer | NO | 발송 시도 횟수 |
+| `last_attempt_at` | timestamptz | YES | 마지막 발송 시각 |
+| `created_at` | timestamptz | NO | 알림 내역 생성 시각 |
+
+- unique: `(order_id, scheduled_for, notification_type)`로 같은 주문 알림 중복 생성을 방지합니다.
+- 인덱스: 사용자·미확인 목록, 묶음 조회, 주문별 미확인 조회용 partial index를 사용합니다.
+- RLS: 인증 사용자는 자신의 알림만 조회할 수 있고 `read_at`만 수정할 수 있습니다. INSERT/DELETE와 발송 상태 수정은 서비스 역할에서만 수행합니다.
+
+#### 구매 예정 알림 발송 운영 경로
+
+- Edge Function: `process-purchase-notifications`
+- 함수는 `scheduled_purchase_at`의 10분 전·정각 구간을 매분 조회하고, 사용자·예정 시각·알림 종류별로 묶어 `app_notifications`를 idempotent하게 생성합니다.
+- 정각 Push 발송 성공 후 같은 주문의 미확인 `purchase_10m` 행에 `read_at`을 기록합니다. 일정 변경·완료·삭제 주문의 미발송 행은 `cancelled_at`으로 무효화합니다.
+- 현재 기준 DB에는 `pg_cron` 스키마가 없으므로 `vm-app-01`의 `/opt/supabase/docker/scripts/process-purchase-notifications.sh` 사용자 cron이 `http://127.0.0.1:8000/functions/v1/process-purchase-notifications`를 매분 호출합니다. 호출 비밀값은 저장소에 두지 않고 `/opt/supabase/docker/.env.functions`에 보관합니다.
 
 ---
 
@@ -358,7 +415,7 @@ supabase
 ---
 
 ## 4) 참고
-- `public.orders`, `public.purchase_info_templates`, `public.buyer_accounts`, `public.platforms`, `public.payment_methods`, `public.user_ai_review_profiles`, `public.user_item_settings`, `public.user_preferences`, `public.user_order_drafts`, `public.saved_order_views`, `public.users`, `public.bank_account`, `public.bank_account_deposit`는 RLS가 활성화되어 있습니다.
+- `public.orders`, `public.purchase_info_templates`, `public.buyer_accounts`, `public.platforms`, `public.payment_methods`, `public.user_ai_review_profiles`, `public.user_item_settings`, `public.user_preferences`, `public.user_order_drafts`, `public.saved_order_views`, `public.users`, `public.bank_account`, `public.bank_account_deposit`, `public.push_subscriptions`, `public.app_notifications`는 RLS가 활성화되어 있습니다.
 - `user_preferences`, `user_order_drafts`, `saved_order_views`는 `anon` 테이블 권한을 제거했고, 로그인한 `authenticated` 역할만 RLS 소유자 정책 안에서 조회·추가·수정·삭제할 수 있습니다.
 - `platforms` / `payment_methods`는 시스템 기본 행(`user_id` IS NULL)을 모든 인증 사용자가 조회할 수 있습니다. INSERT·DELETE는 `user_id = auth.uid()`인 행만 가능하고, UPDATE(색상)는 시스템/본인 행 모두 허용됩니다.
 - 쓰기 시 FK 컬럼(`platform_id`, `payment_method_id`, `buyer_account_id`)을 사용합니다.

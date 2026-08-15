@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ArrowUpRight, Bell, CalendarClock, CheckCircle2, Loader2, PackageCheck, Plus, RefreshCw, WalletCards, X } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, ClipboardList, Loader2, PackageCheck, Plus, RefreshCw, WalletCards, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR, { mutate as mutateSWR } from "swr";
 
@@ -14,6 +14,7 @@ import {
 } from "@/components/orders/orders-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { getKoreaDateInputValue } from "@/lib/korea-date";
 import { createClient } from "@/lib/supabase/client";
 import { useMediaQuery } from "@/lib/use-media-query";
@@ -562,6 +563,7 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
         </div>
         <div className="flex items-center gap-2">
           <GlobalSearchTrigger />
+          <NotificationBell />
           <button
             type="button"
             aria-label="오늘 확인할 일 열기"
@@ -574,7 +576,7 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
               setIsOperationsOpen((current) => !current);
             }}
           >
-            <Bell className="h-4 w-4" aria-hidden />
+            <ClipboardList className="h-4 w-4" aria-hidden />
           </button>
           <button
             type="button"

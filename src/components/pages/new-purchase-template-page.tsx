@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { PurchaseInfoTemplateForm } from "@/components/purchase-templates/purchase-info-template-form";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { buttonVariants } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,7 @@ export function NewPurchaseTemplatePage() {
         </div>
         <div className="flex items-center gap-2">
           <GlobalSearchTrigger />
+          <NotificationBell />
           <Link href="/settings" className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit")}>
             설정으로
           </Link>

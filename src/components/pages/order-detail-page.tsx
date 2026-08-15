@@ -8,6 +8,7 @@ import { formatKrw } from "@/lib/dashboard-stats";
 
 import { OrderDetailForm, type OrderFormSummary } from "@/components/orders/order-detail-form";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { buttonVariants } from "@/components/ui/button";
 import { fetchOrderDetailData, type OrderDetailInitialData } from "@/lib/order-detail-data";
 import { createClient } from "@/lib/supabase/client";
@@ -145,6 +146,7 @@ export function OrderDetailPage({ initialData = null }: { initialData?: OrderDet
     <div className="text-foreground mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-5 px-4 pb-6 pt-5 sm:px-6 lg:px-8">
       <div className="flex flex-wrap items-center justify-end gap-2">
         <GlobalSearchTrigger />
+        <NotificationBell />
         <Link href={`/orders/new?copy=${order.id}`} className={cn(buttonVariants({ variant: "outline", size: "default" }), "w-fit shrink-0") }>
           <Copy className="h-4 w-4" aria-hidden />
           복제

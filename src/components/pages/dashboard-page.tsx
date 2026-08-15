@@ -6,6 +6,7 @@ import { Download } from "lucide-react";
 
 import { UserAccountMenu } from "@/components/auth/user-account-menu";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { OrdersDashboard } from "@/components/orders/orders-dashboard";
 import { fetchAllDashboardOrders } from "@/lib/dashboard-data";
 import { exportDashboardExcel } from "@/lib/export-dashboard-excel";
@@ -76,6 +77,7 @@ export function DashboardPage() {
         </div>
         <div className="flex shrink-0 items-center gap-2 self-start">
           <GlobalSearchTrigger />
+          <NotificationBell />
           <button
             type="button"
             aria-label="엑셀로 내보내기"

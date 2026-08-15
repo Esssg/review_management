@@ -254,6 +254,68 @@ export type Database = {
           },
         ];
       };
+      app_notifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          order_id: string;
+          group_id: string;
+          notification_type: "purchase_10m" | "purchase_due";
+          title: string;
+          body: string;
+          target_href: string;
+          scheduled_for: string;
+          sent_at: string | null;
+          read_at: string | null;
+          cancelled_at: string | null;
+          delivery_attempts: number;
+          last_attempt_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          order_id: string;
+          group_id: string;
+          notification_type: "purchase_10m" | "purchase_due";
+          title: string;
+          body: string;
+          target_href: string;
+          scheduled_for: string;
+          sent_at?: string | null;
+          read_at?: string | null;
+          cancelled_at?: string | null;
+          delivery_attempts?: number;
+          last_attempt_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          order_id?: string;
+          group_id?: string;
+          notification_type?: "purchase_10m" | "purchase_due";
+          title?: string;
+          body?: string;
+          target_href?: string;
+          scheduled_for?: string;
+          sent_at?: string | null;
+          read_at?: string | null;
+          cancelled_at?: string | null;
+          delivery_attempts?: number;
+          last_attempt_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "app_notifications_order_id_fkey";
+            columns: ["order_id"];
+            isOneToOne: false;
+            referencedRelation: "orders";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       payment_methods: {
         Row: {
           color: string;
@@ -275,6 +337,48 @@ export type Database = {
           is_active?: boolean;
           name?: string;
           user_id?: string | null;
+        };
+        Relationships: [];
+      };
+      push_subscriptions: {
+        Row: {
+          id: string;
+          user_id: string;
+          endpoint: string;
+          p256dh: string;
+          auth: string;
+          device_label: string | null;
+          user_agent: string | null;
+          enabled: boolean;
+          created_at: string;
+          updated_at: string;
+          last_seen_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          endpoint: string;
+          p256dh: string;
+          auth: string;
+          device_label?: string | null;
+          user_agent?: string | null;
+          enabled?: boolean;
+          created_at?: string;
+          updated_at?: string;
+          last_seen_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          endpoint?: string;
+          p256dh?: string;
+          auth?: string;
+          device_label?: string | null;
+          user_agent?: string | null;
+          enabled?: boolean;
+          created_at?: string;
+          updated_at?: string;
+          last_seen_at?: string;
         };
         Relationships: [];
       };
