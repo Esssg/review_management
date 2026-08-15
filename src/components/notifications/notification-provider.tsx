@@ -13,6 +13,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { NotificationGroupModal, type NotificationGroupModalData } from "@/components/notifications/notification-group-modal";
+import { NotificationPermissionPrompt } from "@/components/notifications/notification-permission-prompt";
 import { createClient } from "@/lib/supabase/client";
 import {
   arrayBufferToBase64Url,
@@ -29,6 +30,8 @@ import {
 } from "@/lib/notifications";
 
 type PermissionState = NotificationPermission | "unsupported";
+
+const NOTIFICATION_PERMISSION_PROMPT_STORAGE_KEY = "review-manager:notification-permission-prompt:v1";
 
 export type NotificationGroupPreview = {
   groupId: string;
@@ -99,7 +102,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const [isPanelOpen, setPanelOpen] = useState(false);
   const [permission, setPermission] = useState<PermissionState>("unsupported");
   const [isPushSubscribed, setIsPushSubscribed] = useState(false);
+  const [isPushStateReady, setIsPushStateReady] = useState(false);
   const [isSubscribing, setIsSubscribing] = useState(false);
+  const [isPermissionPromptOpen, setIsPermissionPromptOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<NotificationGroupModalData | null>(null);
 
   useEffect(() => {
@@ -152,6 +157,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     setPermission(currentPermission);
     if (!isPushSupported()) {
       setIsPushSubscribed(false);
+      setIsPushStateReady(true);
       return;
     }
     try {
@@ -160,6 +166,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       setIsPushSubscribed(Boolean(subscription));
     } catch {
       setIsPushSubscribed(false);
+    } finally {
+      setIsPushStateReady(true);
     }
   }, []);
 
@@ -220,6 +228,45 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       setIsSubscribing(false);
     }
   }, [supabase, userId]);
+
+  const closePermissionPrompt = useCallback(() => {
+    setIsPermissionPromptOpen(false);
+  }, []);
+
+  const dismissPermissionPromptForever = useCallback(() => {
+    if (userId) {
+      try {
+        window.localStorage.setItem(`${NOTIFICATION_PERMISSION_PROMPT_STORAGE_KEY}:${userId}`, "1");
+      } catch {
+        // 브라우저가 저장을 막아도 현재 안내창은 닫을 수 있습니다.
+      }
+    }
+    setIsPermissionPromptOpen(false);
+  }, [userId]);
+
+  const allowPushFromPrompt = useCallback(async () => {
+    await subscribeToPush();
+    setIsPermissionPromptOpen(false);
+  }, [subscribeToPush]);
+
+  useEffect(() => {
+    if (!userId || !isPushStateReady || permission === "unsupported" || isPushSubscribed) {
+      setIsPermissionPromptOpen(false);
+      return;
+    }
+    if (permission !== "default") return;
+
+    let dismissed = false;
+    try {
+      dismissed = window.localStorage.getItem(`${NOTIFICATION_PERMISSION_PROMPT_STORAGE_KEY}:${userId}`) === "1";
+    } catch {
+      dismissed = false;
+    }
+    if (dismissed) return;
+
+    const timeoutId = window.setTimeout(() => setIsPermissionPromptOpen(true), 700);
+    return () => window.clearTimeout(timeoutId);
+  }, [isPushStateReady, isPushSubscribed, permission, userId]);
 
   const disablePush = useCallback(async () => {
     if (!userId || !isPushSupported()) return;
@@ -340,6 +387,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   return (
     <NotificationContext.Provider value={value}>
       {children}
+      {isPermissionPromptOpen ? (
+        <NotificationPermissionPrompt
+          permission={permission}
+          isSubscribing={isSubscribing}
+          onAllow={allowPushFromPrompt}
+          onClose={closePermissionPrompt}
+          onDismissForever={dismissPermissionPromptForever}
+        />
+      ) : null}
       <NotificationGroupModal group={selectedGroup} onClose={() => setSelectedGroup(null)} />
     </NotificationContext.Provider>
   );
