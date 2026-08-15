@@ -250,11 +250,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [subscribeToPush]);
 
   useEffect(() => {
-    if (!userId || !isPushStateReady || permission === "unsupported" || isPushSubscribed) {
+    if (!userId || !isPushStateReady || isPushSubscribed) {
       setIsPermissionPromptOpen(false);
       return;
     }
-    if (permission !== "default") return;
 
     let dismissed = false;
     try {

@@ -26,6 +26,8 @@ export function NotificationPermissionPrompt({
 }: NotificationPermissionPromptProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const isBlocked = permission === "denied";
+  const isUnsupported = permission === "unsupported";
+  const canRequestPermission = !isBlocked && !isUnsupported;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -34,8 +36,6 @@ export function NotificationPermissionPrompt({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
-
-  if (permission === "unsupported") return null;
 
   const handleAllow = async () => {
     setErrorMessage(null);
@@ -62,8 +62,8 @@ export function NotificationPermissionPrompt({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
-          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm ${isBlocked ? "bg-amber-600" : "bg-primary"}`}>
-            {isBlocked ? <BellOff className="h-5 w-5" aria-hidden /> : <Bell className="h-5 w-5" aria-hidden />}
+          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm ${!canRequestPermission ? "bg-amber-600" : "bg-primary"}`}>
+            {!canRequestPermission ? <BellOff className="h-5 w-5" aria-hidden /> : <Bell className="h-5 w-5" aria-hidden />}
           </span>
           <button
             type="button"
@@ -78,14 +78,23 @@ export function NotificationPermissionPrompt({
         <div className="mt-5">
           <p className="text-xs font-semibold tracking-wide text-primary">앱 알림</p>
           <h2 id="notification-permission-prompt-title" className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">
-            구매 예정 알림을 켜주세요
+            {isUnsupported ? "이 브라우저에서는 앱 알림을 사용할 수 없어요" : "구매 예정 알림을 켜주세요"}
           </h2>
           <p className="mt-3 text-sm leading-relaxed text-ink-muted">
-            구매 예정 시각 10분 전과 예정 시각에 알림을 보내드립니다. 주문을 놓치지 않도록 이 기기의 앱 알림을 허용해 주세요.
+            {isUnsupported
+              ? "HTTPS 환경의 최신 Chrome·Edge 또는 홈 화면에 설치한 Safari PWA에서 다시 이용해 주세요."
+              : "구매 예정 시각 10분 전과 예정 시각에 알림을 보내드립니다. 주문을 놓치지 않도록 이 기기의 앱 알림을 허용해 주세요."}
           </p>
         </div>
 
-        {isBlocked ? (
+        {isUnsupported ? (
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
+            <p className="font-semibold">현재 환경에서는 Push 알림을 지원하지 않습니다.</p>
+            <p className="mt-1 text-xs text-amber-800">
+              앱으로 사용하려면 지원되는 브라우저에서 사이트를 열고 홈 화면에 설치해 주세요.
+            </p>
+          </div>
+        ) : isBlocked ? (
           <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900">
             <p className="font-semibold">알림 권한이 차단되어 있습니다.</p>
             <p className="mt-1 text-xs text-amber-800">
@@ -98,12 +107,12 @@ export function NotificationPermissionPrompt({
           </p>
         )}
 
-        {errorMessage && !isBlocked ? (
+        {errorMessage && canRequestPermission ? (
           <p className="mt-3 text-xs leading-relaxed text-destructive">{errorMessage}</p>
         ) : null}
 
         <div className="mt-6 flex flex-col gap-2 sm:flex-row-reverse">
-          {isBlocked ? (
+          {!canRequestPermission ? (
             <button
               type="button"
               onClick={onClose}
@@ -122,7 +131,7 @@ export function NotificationPermissionPrompt({
               {isSubscribing ? "권한 설정 중…" : "앱 알림 허용하기"}
             </button>
           )}
-          {!isBlocked ? (
+          {canRequestPermission ? (
             <button
               type="button"
               onClick={onClose}
@@ -133,15 +142,13 @@ export function NotificationPermissionPrompt({
           ) : null}
         </div>
 
-        {!isBlocked ? (
-          <button
-            type="button"
-            onClick={onDismissForever}
-            className="mx-auto mt-4 block min-h-9 px-2 text-xs text-ink-faint underline decoration-ink-faint/50 underline-offset-4 transition-colors hover:text-ink-muted"
-          >
-            다시 보지 않기
-          </button>
-        ) : null}
+        <button
+          type="button"
+          onClick={onDismissForever}
+          className="mx-auto mt-4 block min-h-9 px-2 text-xs text-ink-faint underline decoration-ink-faint/50 underline-offset-4 transition-colors hover:text-ink-muted"
+        >
+          다시 보지 않기
+        </button>
       </section>
     </div>
   );
