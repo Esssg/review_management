@@ -53,7 +53,7 @@ const TOUR_STEPS = [
     kind: "menu",
     target: "ledger",
     title: "구매 장부",
-    description: "등록한 주문을 한곳에서 찾고, 배송·입금·완료 상태를 관리하는 기본 화면입니다.",
+    description: "등록한 주문을 한곳에서 찾고, 배송 여부·입금·완료 상태를 관리하는 기본 화면입니다.",
     hint: "오늘 처리할 주문과 완료된 주문을 나눠서 확인할 수 있어요.",
     icon: ClipboardList,
   },

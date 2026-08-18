@@ -388,7 +388,7 @@ function OrderSummaryHero({ order }: { order: OrderWithRelations }) {
                 : "bg-white/10 text-white/75 ring-white/15",
             )}
           >
-            {order.is_item_delivered ? "배송" : "미배송"}
+            {order.is_item_delivered ? "배송 있음" : "배송 없음"}
           </span>
         </div>
       </div>

@@ -48,7 +48,7 @@ export async function exportDashboardExcel(orders: DashboardOrder[], userEmail: 
   // Monthly stats
   const monthMap = new Map<
     string,
-    { purchaseAmount: number; profitKrw: number; total: number; completed: number; undelivered: number }
+    { purchaseAmount: number; profitKrw: number; total: number; completed: number; noDelivery: number }
   >();
   orders.forEach((o) => {
     const month = o.purchase_date.slice(0, 7);
@@ -57,21 +57,21 @@ export async function exportDashboardExcel(orders: DashboardOrder[], userEmail: 
       profitKrw: 0,
       total: 0,
       completed: 0,
-      undelivered: 0,
+      noDelivery: 0,
     };
     prev.purchaseAmount += toNum(o.purchase_price_krw);
     prev.profitKrw += toNum(o.profit_krw);
     prev.total += 1;
     if (o.is_processed) prev.completed += 1;
-    if (!o.is_item_delivered) prev.undelivered += 1;
+    if (!o.is_item_delivered) prev.noDelivery += 1;
     monthMap.set(month, prev);
   });
   const monthlyStats = [...monthMap.entries()].sort((a, b) => b[0].localeCompare(a[0]));
 
   d.push(["■ 월별 요약 통계"]);
-  d.push(["월", "구매금액 (원)", "수익 (원)", "전체 건수", "완료 건수", "미배송 건수"]);
+  d.push(["월", "구매금액 (원)", "수익 (원)", "전체 건수", "완료 건수", "배송 없음 건수"]);
   monthlyStats.forEach(([month, stat]) => {
-    d.push([month, stat.purchaseAmount, stat.profitKrw, stat.total, stat.completed, stat.undelivered]);
+    d.push([month, stat.purchaseAmount, stat.profitKrw, stat.total, stat.completed, stat.noDelivery]);
   });
   d.push([]);
 
@@ -128,7 +128,7 @@ export async function exportDashboardExcel(orders: DashboardOrder[], userEmail: 
     "입금금액(원)",
     "수익(원)",
     "완료여부",
-    "배송완료",
+    "실 배송 여부",
     "주문상태",
     "제목",
     "입금일",
@@ -183,7 +183,7 @@ export async function exportDashboardExcel(orders: DashboardOrder[], userEmail: 
     { wch: 14 }, // 입금금액
     { wch: 12 }, // 수익
     { wch: 10 }, // 완료여부
-    { wch: 10 }, // 배송완료
+    { wch: 12 }, // 실 배송 여부
     { wch: 12 }, // 주문상태
     { wch: 20 }, // 제목
     { wch: 12 }, // 입금일

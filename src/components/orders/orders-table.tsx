@@ -316,7 +316,7 @@ function useUncompleteOrder({
   return { busy, handleUncomplete };
 }
 
-/** 완료처리 전 금액과 배송 상태가 어긋나는 경우 운영자가 한 번 더 확인한다. */
+/** 완료처리 전 금액과 배송 여부가 어긋나는 경우 운영자가 한 번 더 확인한다. */
 function DepositMismatchConfirmDialog({
   message,
   busy,
@@ -647,13 +647,13 @@ function OrderDetailChips({
         preferWrapLabels && "gap-1.5",
       )}
     >
-      <span className={chipClassMaybeWrap} title="실 배송">
+      <span className={chipClassMaybeWrap} title="실 배송 여부">
         {row.is_item_delivered ? (
           <PackageCheck className={cn(iconClass, "text-blue-600 dark:text-blue-400")} aria-hidden />
         ) : (
           <Package className={cn(iconClass, "text-slate-400 dark:text-slate-500")} aria-hidden />
         )}
-        <span className={cn(chipText)}>{row.is_item_delivered ? "배송" : "미배송"}</span>
+        <span className={cn(chipText)}>{row.is_item_delivered ? "배송 있음" : "배송 없음"}</span>
       </span>
       {payDisplay && PayIcon ? (
         <span className={chipClassMaybeWrap} title="결제 방식">
@@ -1357,13 +1357,14 @@ type SearchableOrder = {
 type OrderStatusFilter = "all" | "pending" | "completed";
 type OrderAttentionFilter =
   | "all"
-  | "undelivered"
   | "scheduleToday"
   | "overdue"
   | "scheduleUpcoming"
   | "missingDeposit"
   | "missingAi"
   | "missingTemplate";
+type OrderDeliveryFilter = "all" | "yes" | "no";
+type OrderQuickFilter = "all" | "pending" | "deliveryYes" | "deliveryNo" | Exclude<OrderAttentionFilter, "all">;
 type OrderSort = "newest" | "oldest" | "amountDesc" | "amountAsc";
 type SavedOrderView = Database["public"]["Tables"]["saved_order_views"]["Row"];
 
@@ -1371,6 +1372,7 @@ type OrderFilterSnapshot = {
   q: string;
   status: OrderStatusFilter;
   attention: OrderAttentionFilter;
+  delivery: OrderDeliveryFilter;
   from: string;
   to: string;
   sort: OrderSort;
@@ -1382,7 +1384,6 @@ type OrderFilterSnapshot = {
 const orderStatusFilters: OrderStatusFilter[] = ["all", "pending", "completed"];
 const orderAttentionFilters: OrderAttentionFilter[] = [
   "all",
-  "undelivered",
   "scheduleToday",
   "overdue",
   "scheduleUpcoming",
@@ -1390,21 +1391,27 @@ const orderAttentionFilters: OrderAttentionFilter[] = [
   "missingAi",
   "missingTemplate",
 ];
+const orderDeliveryFilters: OrderDeliveryFilter[] = ["all", "yes", "no"];
 const orderSorts: OrderSort[] = ["newest", "oldest", "amountDesc", "amountAsc"];
 
 function readSavedFilterSnapshot(value: Json): OrderFilterSnapshot | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const readText = (key: keyof OrderFilterSnapshot) => typeof value[key] === "string" ? value[key] : "";
+  const rawAttention = readText("attention");
+  const isLegacyUndelivered = rawAttention === "undelivered";
   const status = readText("status") as OrderStatusFilter;
-  const attention = readText("attention") as OrderAttentionFilter;
+  const attention = (isLegacyUndelivered ? "all" : rawAttention) as OrderAttentionFilter;
+  const rawDelivery = readText("delivery");
+  const delivery = (rawDelivery || (isLegacyUndelivered ? "no" : "all")) as OrderDeliveryFilter;
   const sort = readText("sort") as OrderSort;
-  if (!orderStatusFilters.includes(status) || !orderAttentionFilters.includes(attention) || !orderSorts.includes(sort)) {
+  if (!orderStatusFilters.includes(status) || !orderAttentionFilters.includes(attention) || !orderDeliveryFilters.includes(delivery) || !orderSorts.includes(sort)) {
     return null;
   }
   return {
     q: readText("q"),
     status,
     attention,
+    delivery,
     from: readText("from"),
     to: readText("to"),
     sort,
@@ -1445,7 +1452,8 @@ function filterSearchableOrders(
       if (filters.payment && order.payment_methods?.name !== filters.payment) return false;
       if (filters.account && order.buyer_accounts?.label !== filters.account) return false;
 
-      if (filters.attention === "undelivered" && order.is_item_delivered) return false;
+      if (filters.delivery === "yes" && !order.is_item_delivered) return false;
+      if (filters.delivery === "no" && order.is_item_delivered) return false;
       if (["scheduleToday", "overdue", "scheduleUpcoming"].includes(filters.attention)) {
         if (!matchesPurchaseSchedule(
           order.scheduled_purchase_at,
@@ -2153,6 +2161,7 @@ export function OrdersTable({
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const legacyUndeliveredFromUrl = searchParams.get("attention") === "undelivered";
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [statusFilter, setStatusFilter] = useState<OrderStatusFilter>(() => {
     const value = searchParams.get("status") as OrderStatusFilter;
@@ -2160,7 +2169,11 @@ export function OrdersTable({
   });
   const [attentionFilter, setAttentionFilter] = useState<OrderAttentionFilter>(() => {
     const value = searchParams.get("attention") as OrderAttentionFilter;
-    return orderAttentionFilters.includes(value) ? value : "all";
+    return legacyUndeliveredFromUrl ? "all" : orderAttentionFilters.includes(value) ? value : "all";
+  });
+  const [deliveryFilter, setDeliveryFilter] = useState<OrderDeliveryFilter>(() => {
+    const value = searchParams.get("delivery") as OrderDeliveryFilter;
+    return orderDeliveryFilters.includes(value) ? value : legacyUndeliveredFromUrl ? "no" : "all";
   });
   const [fromDate, setFromDate] = useState(() => searchParams.get("from") ?? "");
   const [toDate, setToDate] = useState(() => searchParams.get("to") ?? "");
@@ -2179,7 +2192,7 @@ export function OrdersTable({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [swipedRowId, setSwipedRowId] = useState<string | null>(null);
   const [showCompletedOrders, setShowCompletedOrders] = useState(
-    statusFilter === "completed" || attentionFilter === "missingDeposit",
+    statusFilter === "completed" || attentionFilter === "missingDeposit" || deliveryFilter !== "all",
   );
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [pendingCompleteMenuId, setPendingCompleteMenuId] = useState<string | null>(null);
@@ -2206,6 +2219,7 @@ export function OrdersTable({
     q: deferredSearch,
     status: statusFilter,
     attention: attentionFilter,
+    delivery: deliveryFilter,
     from: fromDate,
     to: toDate,
     sort,
@@ -2215,6 +2229,7 @@ export function OrdersTable({
   }), [
     accountFilter,
     attentionFilter,
+    deliveryFilter,
     deferredSearch,
     fromDate,
     paymentFilter,
@@ -2276,13 +2291,14 @@ export function OrdersTable({
     q: search,
     status: statusFilter,
     attention: attentionFilter,
+    delivery: deliveryFilter,
     from: fromDate,
     to: toDate,
     sort,
     platform: platformFilter,
     payment: paymentFilter,
     account: accountFilter,
-  }), [accountFilter, attentionFilter, fromDate, paymentFilter, platformFilter, search, sort, statusFilter, toDate]);
+  }), [accountFilter, attentionFilter, deliveryFilter, fromDate, paymentFilter, platformFilter, search, sort, statusFilter, toDate]);
   const currentFilterSnapshotRef = useRef(currentFilterSnapshot);
   currentFilterSnapshotRef.current = currentFilterSnapshot;
 
@@ -2291,6 +2307,7 @@ export function OrdersTable({
     if (current.q !== next.q) setSearch(next.q);
     if (current.status !== next.status) setStatusFilter(next.status);
     if (current.attention !== next.attention) setAttentionFilter(next.attention);
+    if (current.delivery !== next.delivery) setDeliveryFilter(next.delivery);
     if (current.from !== next.from) setFromDate(next.from);
     if (current.to !== next.to) setToDate(next.to);
     if (current.sort !== next.sort) setSort(next.sort);
@@ -2301,12 +2318,16 @@ export function OrdersTable({
 
   useEffect(() => {
     const nextStatus = searchParams.get("status") as OrderStatusFilter;
-    const nextAttention = searchParams.get("attention") as OrderAttentionFilter;
+    const rawAttention = searchParams.get("attention") ?? "";
+    const isLegacyUndelivered = rawAttention === "undelivered";
+    const nextAttention = rawAttention as OrderAttentionFilter;
+    const nextDelivery = searchParams.get("delivery") as OrderDeliveryFilter;
     const nextSort = searchParams.get("sort") as OrderSort;
     applyFilterSnapshot({
       q: searchParams.get("q") ?? "",
       status: orderStatusFilters.includes(nextStatus) ? nextStatus : "all",
-      attention: orderAttentionFilters.includes(nextAttention) ? nextAttention : "all",
+      attention: isLegacyUndelivered ? "all" : orderAttentionFilters.includes(nextAttention) ? nextAttention : "all",
+      delivery: orderDeliveryFilters.includes(nextDelivery) ? nextDelivery : isLegacyUndelivered ? "no" : "all",
       from: searchParams.get("from") ?? "",
       to: searchParams.get("to") ?? "",
       sort: orderSorts.includes(nextSort) ? nextSort : "newest",
@@ -2321,6 +2342,7 @@ export function OrdersTable({
       q: "",
       status: "all",
       attention: "all",
+      delivery: "all",
       from: "",
       to: "",
       sort: "newest",
@@ -2366,10 +2388,11 @@ export function OrdersTable({
   }, [updateQuickFilterScrollState]);
 
   useEffect(() => {
-    if (statusFilter !== "completed" && attentionFilter !== "missingDeposit") return;
+    if (statusFilter === "pending") return;
+    if (statusFilter !== "completed" && attentionFilter !== "missingDeposit" && deliveryFilter === "all") return;
     setShowCompletedOrders(true);
     void onLoadCompleted();
-  }, [attentionFilter, onLoadCompleted, statusFilter]);
+  }, [attentionFilter, deliveryFilter, onLoadCompleted, statusFilter]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2377,6 +2400,7 @@ export function OrdersTable({
       if (search.trim()) nextParams.set("q", search.trim());
       if (statusFilter !== "all") nextParams.set("status", statusFilter);
       if (attentionFilter !== "all") nextParams.set("attention", attentionFilter);
+      if (deliveryFilter !== "all") nextParams.set("delivery", deliveryFilter);
       if (fromDate) nextParams.set("from", fromDate);
       if (toDate) nextParams.set("to", toDate);
       if (sort !== "newest") nextParams.set("sort", sort);
@@ -2392,6 +2416,7 @@ export function OrdersTable({
   }, [
     accountFilter,
     attentionFilter,
+    deliveryFilter,
     fromDate,
     pathname,
     paymentFilter,
@@ -2404,37 +2429,49 @@ export function OrdersTable({
     toDate,
   ]);
 
-  const setQuickFilter = (key: "all" | "pending" | Exclude<OrderAttentionFilter, "all">) => {
+  const setQuickFilter = (key: OrderQuickFilter) => {
     if (key === "all") {
       setStatusFilter("all");
       setAttentionFilter("all");
+      setDeliveryFilter("all");
       return;
     }
     if (key === "pending") {
       setStatusFilter("pending");
       setAttentionFilter("all");
+      setDeliveryFilter("all");
+      return;
+    }
+    if (key === "deliveryYes" || key === "deliveryNo") {
+      setStatusFilter("all");
+      setAttentionFilter("all");
+      setDeliveryFilter(key === "deliveryYes" ? "yes" : "no");
       return;
     }
     if (key === "missingDeposit") {
       setStatusFilter("completed");
       setAttentionFilter("missingDeposit");
+      setDeliveryFilter("all");
       return;
     }
+    setDeliveryFilter("all");
     setStatusFilter(
-      key === "undelivered" || key === "scheduleToday" || key === "overdue" || key === "scheduleUpcoming"
+      key === "scheduleToday" || key === "overdue" || key === "scheduleUpcoming"
         ? "pending"
         : "all",
     );
     setAttentionFilter(key);
   };
 
-  const activeQuickFilter = statusFilter === "pending" && attentionFilter === "all"
-    ? "pending"
-    : attentionFilter !== "all"
-      ? attentionFilter
-      : statusFilter === "all"
-        ? "all"
-        : null;
+  const activeQuickFilter: OrderQuickFilter | null = deliveryFilter !== "all"
+    ? deliveryFilter === "yes" ? "deliveryYes" : "deliveryNo"
+    : statusFilter === "pending" && attentionFilter === "all"
+      ? "pending"
+      : attentionFilter !== "all"
+        ? attentionFilter
+        : statusFilter === "all"
+          ? "all"
+          : null;
 
   const saveCurrentView = async () => {
     const name = window.prompt("저장할 보기 이름을 입력해 주세요.")?.trim();
@@ -2845,7 +2882,8 @@ export function OrdersTable({
             {([
               ["all", "전체"],
               ["pending", "미완료"],
-              ["undelivered", "미배송"],
+              ["deliveryYes", "배송 있음"],
+              ["deliveryNo", "배송 없음"],
               ["scheduleToday", "오늘 구매"],
               ["overdue", "예약 지남"],
               ["scheduleUpcoming", "7일 내 예정"],

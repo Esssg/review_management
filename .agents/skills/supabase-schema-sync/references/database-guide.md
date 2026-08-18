@@ -70,7 +70,7 @@ Supabase/PostgREST의 기본 반환 제한(현재 1,000건)은 최종 데이터 
 | `purchase_price_krw` | numeric | NO | 구매 금액(원) |
 | `deposit_amount_krw` | numeric | YES | 입금 금액(원) |
 | `profit_krw` | numeric | YES | 수익(원) |
-| `is_item_delivered` | boolean | NO | 상품 배송 완료 여부 |
+| `is_item_delivered` | boolean | NO | 실 배송 여부 (배송 있음/배송 없음) |
 | `deposit_memo` | text | YES | 입금 관련 메모 |
 | `notes` | text | YES | 일반 메모 |
 | `product_url` | text | YES | 상품 URL |

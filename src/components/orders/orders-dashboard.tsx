@@ -273,7 +273,7 @@ export function OrdersDashboard({ orders, userEmail }: { orders: DashboardOrder[
         <SummaryCard label="누적 입금금액" value={formatKrw(currentSummary.depositAmount)} href="/?status=completed" />
         <SummaryCard label="미회수 원금" value={formatKrw(currentSummary.unrecoveredPrincipal)} tone="warning" href="/?status=pending" detail={<span className="text-xs text-amber-800">입금 미완료 {currentSummary.pendingCount}건</span>} />
         <SummaryCard label="완료율" value={formatPercent(currentSummary.completionRate)} tone="success" href="/?status=completed" detail={<span className="text-xs text-emerald-800">완료 {currentSummary.completedCount}건</span>} />
-        <SummaryCard label="미배송 건수" value={`${currentSummary.undeliveredCount}건`} tone={currentSummary.undeliveredCount > 0 ? "warning" : "default"} href="/?attention=undelivered&status=pending" detail={<span className="text-xs text-ink-muted">배송률 {formatPercent(currentSummary.deliveryRate)}</span>} />
+        <SummaryCard label="배송 없음" value={`${currentSummary.noDeliveryCount}건`} href="/?delivery=no" detail={<span className="text-xs text-ink-muted">배송 있음 비율 {formatPercent(currentSummary.hasDeliveryRate)}</span>} />
       </section>
 
       <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
@@ -284,7 +284,7 @@ export function OrdersDashboard({ orders, userEmail }: { orders: DashboardOrder[
               <p className="text-xs font-semibold tracking-[0.08em] text-primary">OPERATING INSIGHTS</p>
               <h2 className="mt-1 text-lg font-semibold">이번 기간 확인할 것</h2>
             </div>
-            <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">{periodSummary.pendingCount + periodSummary.undeliveredCount}건</span>
+            <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">{periodSummary.pendingCount}건</span>
           </div>
           <div className="mt-4 grid gap-3">
             <Link href={buildLedgerHref({ status: "pending", from: fromDate, to: toDate })} className="rounded-lg bg-amber-50/80 p-3 transition-colors hover:bg-amber-100">
@@ -333,8 +333,8 @@ export function OrdersDashboard({ orders, userEmail }: { orders: DashboardOrder[
                 <TableHead className="px-2 py-2 text-right sm:px-3">전체</TableHead>
                 <TableHead className="px-2 py-2 text-right sm:px-3">완료</TableHead>
                 <TableHead className="px-2 py-2 text-right sm:px-3">미완료</TableHead>
-                <TableHead className="px-2 py-2 text-right sm:px-3">배송</TableHead>
-                <TableHead className="px-2 py-2 text-right sm:px-3">미배송</TableHead>
+                <TableHead className="px-2 py-2 text-right sm:px-3">배송 있음</TableHead>
+                <TableHead className="px-2 py-2 text-right sm:px-3">배송 없음</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -350,8 +350,8 @@ export function OrdersDashboard({ orders, userEmail }: { orders: DashboardOrder[
                   <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.totalCount}</TableCell>
                   <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.completedCount}</TableCell>
                   <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.pendingCount}</TableCell>
-                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.deliveredCount}</TableCell>
-                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.undeliveredCount}</TableCell>
+                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.hasDeliveryCount}</TableCell>
+                  <TableCell className="px-2 py-2 text-right tabular-nums sm:px-3">{stat.noDeliveryCount}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

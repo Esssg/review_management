@@ -185,9 +185,9 @@ export function OrderDetailPage({ initialData = null }: { initialData?: OrderDet
               </span>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">배송 상태</span>
+              <span className="text-muted-foreground">실 배송 여부</span>
               <span className={(formSummary?.isItemDelivered ?? order.is_item_delivered) ? "font-medium text-emerald-600 dark:text-emerald-400" : "font-medium text-sky-600 dark:text-sky-400"}>
-                {(formSummary?.isItemDelivered ?? order.is_item_delivered) ? "배송" : "미배송"}
+                {(formSummary?.isItemDelivered ?? order.is_item_delivered) ? "배송 있음" : "배송 없음"}
               </span>
             </div>
           </div>

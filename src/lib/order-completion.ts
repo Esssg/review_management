@@ -29,16 +29,16 @@ export function getDefaultOrderCompletionInput(row: OrderWithRelations): OrderCo
   };
 }
 
-/** 배송 상태와 입금액 조합이 평소 처리 기준과 다르면 완료 전에 확인 문구를 반환합니다. */
+/** 배송 여부와 입금액 조합이 평소 처리 기준과 다르면 완료 전에 확인 문구를 반환합니다. */
 export function getOrderCompletionWarning(row: OrderWithRelations, depositAmount: number) {
   const purchaseAmount = Number(row.purchase_price_krw);
   if (!Number.isFinite(purchaseAmount)) return null;
   const isSameAmount = depositAmount === purchaseAmount;
   if (!row.is_item_delivered && isSameAmount) {
-    return "미배송 상품인데 구매금액과 입금금액이 같습니다. 처리하시겠습니까?";
+    return "배송 없는 상품인데 구매금액과 입금금액이 같습니다. 처리하시겠습니까?";
   }
   if (row.is_item_delivered && !isSameAmount) {
-    return "배송 상품인데 구매금액과 입금금액이 다릅니다. 처리하시겠습니까?";
+    return "배송 있는 상품인데 구매금액과 입금금액이 다릅니다. 처리하시겠습니까?";
   }
   return null;
 }

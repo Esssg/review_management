@@ -8,8 +8,8 @@ export type MonthlyStat = {
   totalCount: number;
   completedCount: number;
   pendingCount: number;
-  deliveredCount: number;
-  undeliveredCount: number;
+  hasDeliveryCount: number;
+  noDeliveryCount: number;
   unrecoveredPrincipal: number;
   averageProfitKrw: number;
   profitRate: number | null;
@@ -31,11 +31,11 @@ export type OrderSummary = {
   totalCount: number;
   completedCount: number;
   pendingCount: number;
-  deliveredCount: number;
-  undeliveredCount: number;
+  hasDeliveryCount: number;
+  noDeliveryCount: number;
   unrecoveredPrincipal: number;
   completionRate: number | null;
-  deliveryRate: number | null;
+  hasDeliveryRate: number | null;
 };
 
 export function toDashboardNumber(v: string | number | null | undefined) {
@@ -77,9 +77,9 @@ export function summarizeOrders(orders: DashboardOrder[]): OrderSummary {
         prev.unrecoveredPrincipal += purchaseAmount;
       }
       if (order.is_item_delivered) {
-        prev.deliveredCount += 1;
+        prev.hasDeliveryCount += 1;
       } else {
-        prev.undeliveredCount += 1;
+        prev.noDeliveryCount += 1;
       }
 
       return prev;
@@ -91,16 +91,16 @@ export function summarizeOrders(orders: DashboardOrder[]): OrderSummary {
       totalCount: 0,
       completedCount: 0,
       pendingCount: 0,
-      deliveredCount: 0,
-      undeliveredCount: 0,
+      hasDeliveryCount: 0,
+      noDeliveryCount: 0,
       unrecoveredPrincipal: 0,
       completionRate: null,
-      deliveryRate: null,
+      hasDeliveryRate: null,
     },
   );
 
   summary.completionRate = summary.totalCount > 0 ? (summary.completedCount / summary.totalCount) * 100 : null;
-  summary.deliveryRate = summary.totalCount > 0 ? (summary.deliveredCount / summary.totalCount) * 100 : null;
+  summary.hasDeliveryRate = summary.totalCount > 0 ? (summary.hasDeliveryCount / summary.totalCount) * 100 : null;
   return summary;
 }
 
@@ -129,8 +129,8 @@ function makeEmptyMonthlyStat(month: string): MonthlyStat {
     totalCount: 0,
     completedCount: 0,
     pendingCount: 0,
-    deliveredCount: 0,
-    undeliveredCount: 0,
+    hasDeliveryCount: 0,
+    noDeliveryCount: 0,
     unrecoveredPrincipal: 0,
     averageProfitKrw: 0,
     profitRate: null,
@@ -163,8 +163,8 @@ export function buildMonthlyStats(orders: DashboardOrder[]) {
       prev.pendingCount += 1;
       prev.unrecoveredPrincipal += purchaseAmount;
     }
-    if (order.is_item_delivered) prev.deliveredCount += 1;
-    if (!order.is_item_delivered) prev.undeliveredCount += 1;
+    if (order.is_item_delivered) prev.hasDeliveryCount += 1;
+    if (!order.is_item_delivered) prev.noDeliveryCount += 1;
     map.set(month, prev);
   });
 
@@ -186,8 +186,8 @@ export function buildMonthStat(orders: DashboardOrder[], month: string) {
       prev.pendingCount += 1;
       prev.unrecoveredPrincipal += purchaseAmount;
     }
-    if (order.is_item_delivered) prev.deliveredCount += 1;
-    if (!order.is_item_delivered) prev.undeliveredCount += 1;
+    if (order.is_item_delivered) prev.hasDeliveryCount += 1;
+    if (!order.is_item_delivered) prev.noDeliveryCount += 1;
     return prev;
   }, makeEmptyMonthlyStat(month));
 

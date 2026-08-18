@@ -310,8 +310,8 @@ function readBoolean(row: CrawlOrderRow, keys: string[]) {
   if (typeof value !== "string") return null;
 
   const normalized = value.trim().toLowerCase();
-  if (["true", "yes", "y", "1", "완료", "배송"].includes(normalized)) return true;
-  if (["false", "no", "n", "0", "미완료", "미배송"].includes(normalized)) return false;
+  if (["true", "yes", "y", "1", "완료", "배송", "배송 있음"].includes(normalized)) return true;
+  if (["false", "no", "n", "0", "미완료", "미배송", "배송 없음"].includes(normalized)) return false;
   return null;
 }
 

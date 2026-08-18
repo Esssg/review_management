@@ -215,15 +215,15 @@ function RateTrendChart({ monthlyStats }: { monthlyStats: MonthlyStat[] }) {
     () => [...monthlyStats].reverse().map((stat) => ({
       month: stat.month,
       완료율: stat.completionRate ?? 0,
-      배송률: stat.totalCount > 0 ? (stat.deliveredCount / stat.totalCount) * 100 : 0,
+      "배송 있음 비율": stat.totalCount > 0 ? (stat.hasDeliveryCount / stat.totalCount) * 100 : 0,
     })),
     [monthlyStats],
   );
 
-  if (chartData.length === 0) return <EmptyChart message="완료·배송 데이터가 쌓이면 운영 상태를 보여드릴게요." />;
+  if (chartData.length === 0) return <EmptyChart message="완료·배송 여부 데이터가 쌓이면 운영 상태를 보여드릴게요." />;
 
   return (
-    <div className="h-64 min-w-0" role="img" aria-label="월별 완료율과 배송률 추이 차트">
+    <div className="h-64 min-w-0" role="img" aria-label="월별 완료율과 배송 있음 비율 추이 차트">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
           <CartesianGrid stroke="var(--hairline)" strokeDasharray="3 3" vertical={false} />
@@ -232,7 +232,7 @@ function RateTrendChart({ monthlyStats }: { monthlyStats: MonthlyStat[] }) {
           <Tooltip content={<RateTooltip />} />
           <Legend wrapperStyle={{ fontSize: 11 }} />
           <Line type="monotone" dataKey="완료율" stroke={CHART_COLORS.completion} strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-          <Line type="monotone" dataKey="배송률" stroke={CHART_COLORS.delivery} strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+          <Line type="monotone" dataKey="배송 있음 비율" stroke={CHART_COLORS.delivery} strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -299,7 +299,7 @@ export function DashboardCharts({
       <ChartPanel title="월별 금액 흐름" description="구매·입금·수익을 함께 보고 월별 상세로 이동할 수 있습니다.">
         <MonthTrendChart monthlyStats={monthlyStats} />
       </ChartPanel>
-      <ChartPanel title="운영 상태 추이" description="완료율과 배송률의 흐름을 비교해 밀린 업무를 찾습니다.">
+      <ChartPanel title="운영 상태 추이" description="완료율과 배송 여부 구성을 비교합니다.">
         <RateTrendChart monthlyStats={monthlyStats} />
       </ChartPanel>
       <GroupRankingChart title="플랫폼별" rows={groupedStats.byPlatform} />

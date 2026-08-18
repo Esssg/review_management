@@ -257,10 +257,10 @@ export function MonthlyDashboardDetailPage() {
                   </dl>
                 </div>
                 <div className="rounded-xl border bg-card p-4 shadow-xs">
-                  <p className="text-xs font-semibold text-muted-foreground">배송 상태</p>
+                  <p className="text-xs font-semibold text-muted-foreground">배송 여부</p>
                   <dl className="mt-3 grid gap-2 text-sm">
-                    <div className="flex justify-between"><dt>배송</dt><dd className="font-semibold tabular-nums">{stat.deliveredCount}건</dd></div>
-                    <div className="flex justify-between"><dt>미배송</dt><dd><Link href={buildMonthlyLedgerHref(month, { status: "pending", attention: "undelivered" })} className="font-semibold text-primary hover:underline">{stat.undeliveredCount}건</Link></dd></div>
+                    <div className="flex justify-between"><dt>배송 있음</dt><dd className="font-semibold tabular-nums">{stat.hasDeliveryCount}건</dd></div>
+                    <div className="flex justify-between"><dt>배송 없음</dt><dd><Link href={buildMonthlyLedgerHref(month, { delivery: "no" })} className="font-semibold text-primary hover:underline">{stat.noDeliveryCount}건</Link></dd></div>
                     <div className="flex justify-between"><dt>완료율</dt><dd className="font-semibold tabular-nums">{formatPercent(stat.completionRate)}</dd></div>
                   </dl>
                 </div>
@@ -293,10 +293,6 @@ export function MonthlyDashboardDetailPage() {
                 <Link href={buildMonthlyLedgerHref(month, { status: "pending" })} className="flex items-center justify-between gap-3 rounded-lg bg-amber-50 px-3 py-2.5 text-sm transition-colors hover:bg-amber-100 dark:bg-amber-950/30">
                   <span className="text-amber-900 dark:text-amber-100">미완료 주문</span>
                   <span className="font-semibold tabular-nums text-amber-900 dark:text-amber-100">{stat.pendingCount}건</span>
-                </Link>
-                <Link href={buildMonthlyLedgerHref(month, { status: "pending", attention: "undelivered" })} className="flex items-center justify-between gap-3 rounded-lg bg-sky-50 px-3 py-2.5 text-sm transition-colors hover:bg-sky-100 dark:bg-sky-950/30">
-                  <span className="text-sky-900 dark:text-sky-100">미배송 주문</span>
-                  <span className="font-semibold tabular-nums text-sky-900 dark:text-sky-100">{stat.undeliveredCount}건</span>
                 </Link>
                 <div className="flex items-center justify-between gap-3 rounded-lg bg-emerald-50 px-3 py-2.5 text-sm dark:bg-emerald-950/30">
                   <span className="text-emerald-900 dark:text-emerald-100">완료율</span>

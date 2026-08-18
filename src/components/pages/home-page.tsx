@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, ClipboardList, Loader2, PackageCheck, Plus, RefreshCw, WalletCards, X } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, ClipboardList, Loader2, Plus, RefreshCw, WalletCards, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR, { mutate as mutateSWR } from "swr";
 
@@ -52,7 +52,6 @@ function HomeOperationsQueue({
     () => pendingOrders.reduce((sum, order) => sum + Number(order.purchase_price_krw || 0), 0),
     [pendingOrders],
   );
-  const undeliveredCount = useMemo(() => pendingOrders.filter((order) => !order.is_item_delivered).length, [pendingOrders]);
   const scheduledCount = useMemo(
     () => pendingOrders.filter((order) => {
       if (!order.scheduled_purchase_at) return false;
@@ -84,7 +83,7 @@ function HomeOperationsQueue({
           </div>
           <div className="flex items-center gap-2">
             <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">
-              {pendingOrders.length + undeliveredCount}건
+              {pendingOrders.length}건
             </span>
             {onClose ? (
               <button
@@ -106,13 +105,6 @@ function HomeOperationsQueue({
               <span className="truncate text-sm text-amber-950">입금 미완료</span>
             </div>
             <span className="shrink-0 text-sm font-bold tabular-nums text-amber-950">{pendingOrders.length}건</span>
-          </Link>
-          <Link href="/?status=pending&attention=undelivered" className="flex items-center justify-between gap-3 rounded-lg bg-surface-soft p-3 transition-colors hover:bg-accent">
-            <div className="flex min-w-0 items-center gap-2">
-              <PackageCheck className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />
-              <span className="truncate text-sm">미배송 주문</span>
-            </div>
-            <span className="shrink-0 text-sm font-bold tabular-nums">{undeliveredCount}건</span>
           </Link>
           <Link href="/?status=pending&attention=scheduleToday" className="flex items-center justify-between gap-3 rounded-lg bg-surface-soft p-3 transition-colors hover:bg-accent">
             <div className="flex min-w-0 items-center gap-2">

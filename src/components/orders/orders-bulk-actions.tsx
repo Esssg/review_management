@@ -37,7 +37,7 @@ type BulkActionKind = "delivery" | "platform" | "payment" | "account" | "templat
 type DialogStage = "edit" | "confirm" | "result";
 
 const actionLabels: Record<BulkActionKind, string> = {
-  delivery: "배송 상태",
+  delivery: "실 배송 여부",
   platform: "결제 플랫폼",
   payment: "결제 수단",
   account: "구매 계정",
@@ -49,7 +49,7 @@ function orderLabel(order: OrderWithRelations) {
 }
 
 function currentValueLabel(order: OrderWithRelations, action: BulkActionKind) {
-  if (action === "delivery") return order.is_item_delivered ? "배송 완료" : "미배송";
+  if (action === "delivery") return order.is_item_delivered ? "배송 있음" : "배송 없음";
   if (action === "platform") return order.platforms?.name ?? "미지정";
   if (action === "payment") return order.payment_methods?.name ?? "미지정";
   if (action === "account") return order.buyer_accounts?.label ?? "미지정";
@@ -137,15 +137,15 @@ function BulkPatchDialog({
   onClose: () => void;
 }) {
   const [action, setAction] = useState<BulkActionKind>("delivery");
-  const [target, setTarget] = useState("delivered");
+  const [target, setTarget] = useState("withDelivery");
   const [stage, setStage] = useState<DialogStage>("edit");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BulkOperationResult | null>(null);
 
   const options = useMemo(() => {
     if (action === "delivery") return [
-      { value: "delivered", label: "배송 완료" },
-      { value: "undelivered", label: "미배송" },
+      { value: "withDelivery", label: "배송 있음" },
+      { value: "withoutDelivery", label: "배송 없음" },
     ];
     if (action === "platform") return [
       { value: "__none__", label: "미지정" },
@@ -166,7 +166,7 @@ function BulkPatchDialog({
   }, [action, masterData, templates]);
 
   useEffect(() => {
-    setTarget(action === "delivery" ? "delivered" : "__none__");
+    setTarget(action === "delivery" ? "withDelivery" : "__none__");
     setStage("edit");
   }, [action]);
 
@@ -175,7 +175,7 @@ function BulkPatchDialog({
 
   const buildPatch = (): BulkOrderPatch => {
     if (action === "delivery") {
-      return { field: "is_item_delivered", value: target === "delivered", label: targetLabel };
+      return { field: "is_item_delivered", value: target === "withDelivery", label: targetLabel };
     }
     const field = action === "platform"
       ? "platform_id"
@@ -312,7 +312,7 @@ function BulkCompleteDialog({
         <div className="space-y-4">
           <div className={cn("rounded-xl border p-3 text-sm", warningCount > 0 ? "border-amber-200 bg-amber-50 text-amber-950" : "border-emerald-200 bg-emerald-50 text-emerald-950")}>
             <p className="font-semibold">미완료 {pendingOrders.length}건을 완료 처리합니다.</p>
-            <p className="mt-1">배송·입금액 확인이 필요한 주문 {warningCount}건</p>
+            <p className="mt-1">배송 여부·입금액 확인이 필요한 주문 {warningCount}건</p>
           </div>
           <ul className="max-h-64 space-y-2 overflow-y-auto rounded-xl border p-3 text-sm">
             {checked.map(({ order, outcome }) => {

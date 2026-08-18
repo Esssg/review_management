@@ -105,7 +105,7 @@ export function GlobalCommandPalette() {
         const orderResults: SearchResult[] = [...orders.values()].map((row) => ({
           key: `order-${row.id}`,
           label: row.title?.trim() || row.product_name,
-          description: `${row.product_name} · ${row.is_processed ? "완료" : "미완료"} · ${row.is_item_delivered ? "배송" : "미배송"} · ${row.purchase_date} · ${Number(row.purchase_price_krw).toLocaleString("ko-KR")}원`,
+          description: `${row.product_name} · ${row.is_processed ? "완료" : "미완료"} · ${row.is_item_delivered ? "배송 있음" : "배송 없음"} · ${row.purchase_date} · ${Number(row.purchase_price_krw).toLocaleString("ko-KR")}원`,
           href: `/orders/detail?id=${encodeURIComponent(row.id)}`,
           icon: ShoppingBag,
         }));

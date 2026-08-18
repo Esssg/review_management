@@ -33,9 +33,9 @@ describe("주문 완료 입력", () => {
     expect(input.memo).toBe("공구방");
   });
 
-  it("미배송 전액 입금과 배송 후 차액 입금을 경고한다", () => {
-    expect(getOrderCompletionWarning(baseOrder, 10_000)).toContain("미배송");
-    expect(getOrderCompletionWarning({ ...baseOrder, is_item_delivered: true }, 9_000)).toContain("배송 상품");
+  it("배송 없는 상품의 전액 입금과 배송 있는 상품의 차액 입금을 경고한다", () => {
+    expect(getOrderCompletionWarning(baseOrder, 10_000)).toContain("배송 없는");
+    expect(getOrderCompletionWarning({ ...baseOrder, is_item_delivered: true }, 9_000)).toContain("배송 있는");
     expect(getOrderCompletionWarning({ ...baseOrder, is_item_delivered: true }, 10_000)).toBeNull();
   });
 
