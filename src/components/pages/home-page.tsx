@@ -318,6 +318,21 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
   const completedOrders = isCompletedRequested ? completedOrdersData ?? null : null;
 
   useEffect(() => {
+    if (!isInitialDataActive || !initialData || initialData.user.id !== userId) return;
+    // 서버에서 먼저 보여준 목록도 캐시에 넣어 첫 변경 때 화면 목록이 사라지지 않게 합니다.
+    void mutateSWR(
+      homeCountsKey(userId),
+      (current) => current ?? initialData.orderCounts,
+      { revalidate: false },
+    );
+    void mutateSWR(
+      homePendingKey(userId),
+      (current) => current ?? initialData.pendingOrders,
+      { revalidate: false },
+    );
+  }, [initialData, isInitialDataActive, userId]);
+
+  useEffect(() => {
     if (isMobile || (!isOperationsOpen && !isQuickActionsOpen)) return;
     setIsOperationsOpen(false);
     setIsQuickActionsOpen(false);
