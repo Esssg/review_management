@@ -55,3 +55,5 @@ src/types/database.gen.ts
 # supabase local temp files
 supabase/.temp/
 supabase/.branches/
+
+plans.md
