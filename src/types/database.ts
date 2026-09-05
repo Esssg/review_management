@@ -657,7 +657,22 @@ export type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      complete_deposit_recommendation: {
+        Args: {
+          p_deposit_id: number;
+          p_order_id: string;
+        };
+        Returns: boolean;
+      };
+      import_crawl_order: {
+        Args: {
+          p_crawl_order_id: string;
+          p_order_payload: Json;
+        };
+        Returns: string;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

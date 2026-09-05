@@ -1,6 +1,8 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 import type { PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
+import { fetchAllPurchaseTemplates } from "@/lib/new-order-data";
+import { fetchAllPages } from "@/lib/pagination";
 import { getOrCreateUserPreferences, type UserPreferences } from "@/lib/user-preferences";
 import type { Database } from "@/types/database";
 
@@ -22,29 +24,25 @@ export type SettingsPayload = {
   displayEmail: string;
 };
 
-const TEMPLATE_USAGE_PAGE_SIZE = 1000;
-
 export async function fetchTemplateUsageCounts(supabase: SupabaseClient<Database>) {
-  const counts: Record<string, number> = {};
-
-  // Supabase 기본 반환 제한을 넘는 주문도 템플릿 사용량에서 빠지지 않게 페이지별로 합산합니다.
-  for (let from = 0; ; from += TEMPLATE_USAGE_PAGE_SIZE) {
+  const result = await fetchAllPages<{ purchase_info_template_id: string | null }>(async (from, to) => {
     const { data, error } = await supabase
       .from("orders")
       .select("purchase_info_template_id")
       .is("deleted_at", null)
       .not("purchase_info_template_id", "is", null)
       .order("id", { ascending: true })
-      .range(from, from + TEMPLATE_USAGE_PAGE_SIZE - 1);
-    if (error) return counts;
+      .range(from, to);
 
-    for (const row of data ?? []) {
-      const templateId = row.purchase_info_template_id;
-      if (!templateId) continue;
-      counts[templateId] = (counts[templateId] ?? 0) + 1;
-    }
+    return { data: data ?? [], error };
+  });
+  if (result.error) throw new Error(result.error.message);
 
-    if ((data ?? []).length < TEMPLATE_USAGE_PAGE_SIZE) break;
+  const counts: Record<string, number> = {};
+  for (const row of result.data ?? []) {
+    const templateId = row.purchase_info_template_id;
+    if (!templateId) continue;
+    counts[templateId] = (counts[templateId] ?? 0) + 1;
   }
 
   return counts;
@@ -60,7 +58,7 @@ export async function fetchSettingsPayload(
     methodsResult,
     accountsResult,
     hiddenResult,
-    templatesResult,
+    purchaseTemplates,
     templateUsageCounts,
     aiProfileResult,
     publicUserResult,
@@ -85,10 +83,7 @@ export async function fetchSettingsPayload(
       .select("user_id, target_id, item_type, is_hidden")
       .eq("user_id", user.id)
       .eq("is_hidden", true),
-    supabase
-      .from("purchase_info_templates")
-      .select("*")
-      .order("created_at", { ascending: false }),
+    fetchAllPurchaseTemplates(supabase),
     view === "purchase-templates"
       ? fetchTemplateUsageCounts(supabase)
       : Promise.resolve<Record<string, number>>({}),
@@ -107,7 +102,6 @@ export async function fetchSettingsPayload(
     methodsResult.error ??
     accountsResult.error ??
     hiddenResult.error ??
-    templatesResult.error ??
     aiProfileResult.error ??
     publicUserResult.error ??
     trashCountResult.error;
@@ -135,7 +129,7 @@ export async function fetchSettingsPayload(
     paymentMethods: methodsResult.data ?? [],
     buyerAccounts: accountsResult.data ?? [],
     hidden: hiddenResult.data ?? [],
-    purchaseTemplates: templatesResult.data ?? [],
+    purchaseTemplates,
     templateUsageCounts,
     trashCount: trashCountResult.count ?? 0,
     preferences,

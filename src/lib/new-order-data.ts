@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchMasterData, type MasterData } from "@/lib/master-data";
 import type { PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import { getOrCreateUserPreferences, type UserPreferences } from "@/lib/user-preferences";
+import { fetchAllPages } from "@/lib/pagination";
 import type { Database } from "@/types/database";
 import { ORDER_LIST_SELECT, type OrderWithRelations } from "@/types/orders";
 
@@ -19,24 +20,25 @@ export type NewOrderInitialData = {
 
 const PURCHASE_TEMPLATE_PAGE_SIZE = 1000;
 
-async function fetchAllPurchaseTemplates(
+export async function fetchAllPurchaseTemplates(
   supabase: SupabaseClient<Database>,
 ): Promise<PurchaseTemplateRow[]> {
-  const rows: PurchaseTemplateRow[] = [];
-
-  // Supabase 기본 반환 제한을 넘는 템플릿도 새 주문 입력란에서 빠지지 않게 페이지별로 읽습니다.
-  for (let from = 0; ; from += PURCHASE_TEMPLATE_PAGE_SIZE) {
+  const result = await fetchAllPages<PurchaseTemplateRow>(async (from, to) => {
     const { data, error } = await supabase
       .from("purchase_info_templates")
       .select("*")
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
-      .range(from, from + PURCHASE_TEMPLATE_PAGE_SIZE - 1);
+      .range(from, to);
 
-    if (error) throw new Error(error.message);
-    rows.push(...(data ?? []));
-    if ((data ?? []).length < PURCHASE_TEMPLATE_PAGE_SIZE) return rows;
-  }
+    return {
+      data: (data ?? []) as PurchaseTemplateRow[],
+      error,
+    };
+  }, PURCHASE_TEMPLATE_PAGE_SIZE);
+
+  if (result.error) throw new Error(result.error.message);
+  return result.data ?? [];
 }
 
 /** 신규 주문 첫 화면에 필요한 데이터를 서버에서 병렬로 준비합니다. */

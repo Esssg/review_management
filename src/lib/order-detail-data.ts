@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { fetchMasterData, type MasterData } from "@/lib/master-data";
 import type { PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
+import { fetchAllPurchaseTemplates } from "@/lib/new-order-data";
 import type { Database } from "@/types/database";
 import { ORDER_LIST_SELECT, type OrderWithRelations } from "@/types/orders";
 
@@ -19,7 +20,7 @@ export async function fetchOrderDetailData(
   userId: string,
   orderId: string,
 ) {
-  const [orderResult, master, templatesResult] = await Promise.all([
+  const [orderResult, master, purchaseTemplates] = await Promise.all([
     supabase
       .from("orders")
       .select(ORDER_LIST_SELECT)
@@ -28,18 +29,13 @@ export async function fetchOrderDetailData(
       .is("deleted_at", null)
       .maybeSingle(),
     fetchMasterData(supabase, userId),
-    supabase
-      .from("purchase_info_templates")
-      .select("*")
-      .order("created_at", { ascending: false }),
+    fetchAllPurchaseTemplates(supabase),
   ]);
 
   if (orderResult.error) throw new Error(orderResult.error.message);
-  if (templatesResult.error) throw new Error(templatesResult.error.message);
-
   return {
     order: (orderResult.data as OrderWithRelations | null) ?? null,
     master,
-    purchaseTemplates: templatesResult.data ?? [],
+    purchaseTemplates,
   };
 }

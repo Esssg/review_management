@@ -1,7 +1,7 @@
 # DB 가이드 (Supabase)
 
 기준 프로젝트: `xhjjoxzwpgqlodflaiix`  
-최종 업데이트: 2026-08-15
+최종 업데이트: 2026-09-05
 
 ## 0) 공개 스키마 경계 (필수)
 
@@ -409,8 +409,15 @@ supabase
   .order("purchase_date", { ascending: false })
 ```
 
+### 1,000건을 넘는 목록 조회
+`src/lib/pagination.ts`의 `fetchAllPages`로 `range(from, to)`를 반복해 전체 결과를 읽습니다. 장부·자동추천 후보·구매 정보 템플릿·템플릿 사용량처럼 전체 행이 필요한 조회는 첫 페이지를 전체 결과로 사용하지 않습니다.
+
 ### 마스터 데이터 조회 (숨김 항목 제외)
 `src/lib/master-data.ts`의 `fetchMasterData(supabase, userId)` 사용
+
+### 자동추천 원자적 처리 RPC
+- `public.complete_deposit_recommendation(p_deposit_id bigint, p_order_id uuid)` — 같은 사용자의 미완료 주문에 입금일·금액·메모·수익을 기록하고 입금 내역을 매핑완료로 바꾸는 작업을 하나의 트랜잭션으로 처리합니다. 로그인한 `authenticated` 역할만 실행할 수 있습니다.
+- `public.import_crawl_order(p_crawl_order_id text, p_order_payload jsonb)` — 처리 대기 크롤링 주문을 `orders`에 등록하고 원본 상태를 처리완료로 바꾸는 작업을 하나의 트랜잭션으로 처리합니다. 크롤링 주문 ID는 원본 테이블의 `bigint` 값을 안전하게 문자열로 받아 변환하며, 로그인한 `authenticated` 역할만 실행할 수 있습니다.
 
 ---
 

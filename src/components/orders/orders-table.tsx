@@ -59,6 +59,7 @@ import { exportDashboardExcel } from "@/lib/export-dashboard-excel";
 import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import { fetchMasterData, type MasterData } from "@/lib/master-data";
 import { getKoreaDateInputValue } from "@/lib/korea-date";
+import { fetchAllPurchaseTemplates } from "@/lib/new-order-data";
 import {
   buildOrderCompletionValues,
   calculateOrderProfit,
@@ -2509,13 +2510,18 @@ export function OrdersTable({
     setSavedViews((current) => current.filter((item) => item.id !== view.id));
   };
 
-  const toggleDensity = () => {
+  const toggleDensity = async () => {
+    const previous = density;
     const next: LedgerDensity = density === "compact" ? "comfortable" : "compact";
     setDensity(next);
-    void supabase.from("user_preferences").upsert(
+    const { error } = await supabase.from("user_preferences").upsert(
       { user_id: userId, ledger_density: next },
       { onConflict: "user_id" },
     );
+    if (error) {
+      setDensity(previous);
+      window.alert(`표시 밀도를 저장하지 못했습니다: ${error.message}`);
+    }
   };
 
   const toggleExpanded = useCallback((id: string) => {
@@ -2558,14 +2564,10 @@ export function OrdersTable({
     setIsLoadingBulkOptions(true);
     void Promise.all([
       fetchMasterData(supabase, userId),
-      supabase
-        .from("purchase_info_templates")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false }),
-    ]).then(([master, templateResult]) => {
+      fetchAllPurchaseTemplates(supabase),
+    ]).then(([master, templates]) => {
       setBulkMasterData(master);
-      setBulkTemplates(templateResult.data ?? []);
+      setBulkTemplates(templates);
     }).catch((error: unknown) => {
       window.alert(`일괄 변경 항목을 불러오지 못했습니다: ${error instanceof Error ? error.message : String(error)}`);
     }).finally(() => setIsLoadingBulkOptions(false));

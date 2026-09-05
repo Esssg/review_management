@@ -48,6 +48,13 @@ export async function fetchMasterData(
       .order("label"),
   ]);
 
+  const queryError =
+    hiddenResult.error ??
+    platformsResult.error ??
+    methodsResult.error ??
+    accountsResult.error;
+  if (queryError) throw new Error(`마스터 데이터를 불러오지 못했습니다: ${queryError.message}`);
+
   const hidden = hiddenResult.data ?? [];
   const hiddenPlatformIds = new Set<string>();
   const hiddenMethodIds = new Set<string>();

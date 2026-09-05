@@ -17,6 +17,7 @@ import {
 
 import { fetchMasterData } from "@/lib/master-data";
 import { type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
+import { fetchAllPurchaseTemplates } from "@/lib/new-order-data";
 import { createClient } from "@/lib/supabase/client";
 import {
   getOrCreateUserPreferences,
@@ -223,14 +224,9 @@ export function OnboardingTour() {
         const [master, preferences, templatesResult, aiProfileResult] = await Promise.all([
           fetchMasterData(supabase, user.id),
           getOrCreateUserPreferences(supabase, user.id),
-          supabase
-            .from("purchase_info_templates")
-            .select("*")
-            .eq("user_id", user.id)
-            .order("created_at", { ascending: false }),
+          fetchAllPurchaseTemplates(supabase),
           supabase.from("user_ai_review_profiles").select("*").eq("user_id", user.id).maybeSingle(),
         ]);
-        if (templatesResult.error) throw templatesResult.error;
         if (aiProfileResult.error) throw aiProfileResult.error;
         if (activeUserIdRef.current !== user.id) return;
 
@@ -240,7 +236,7 @@ export function OnboardingTour() {
           displayEmail: publicUser?.email ?? user.email ?? user.id,
           preferences,
           master,
-          templates: templatesResult.data ?? [],
+          templates: templatesResult,
           aiReviewProfile: aiProfileResult.data ?? null,
         };
 

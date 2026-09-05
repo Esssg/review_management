@@ -27,40 +27,25 @@ import {
 import { normalizeHexColor } from "@/lib/color";
 import { fetchMasterData, type BuyerAccount, type MasterData, type PaymentMethod, type Platform } from "@/lib/master-data";
 import {
+  fetchRecommendationDepositData,
   fetchRecommendationCrawlOrders,
+  fetchRecommendationRecoveryData,
   fetchSelectedRecommendationCrawlOrder,
   type CrawlOrderRow,
+  type DepositBankAccountSummary,
+  type DepositRecommendationData,
+  type DepositWithAccount,
+  type PendingDepositOrder,
   type RecommendationInitialData,
+  type RecoveryData,
 } from "@/lib/recommendations-data";
 import { createClient } from "@/lib/supabase/client";
 import { getOrCreateUserPreferences } from "@/lib/user-preferences";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 
-type BankAccountDepositRow = Database["public"]["Tables"]["bank_account_deposit"]["Row"];
-type BankAccountRow = Database["public"]["Tables"]["bank_account"]["Row"];
-type OrderRow = Database["public"]["Tables"]["orders"]["Row"];
 type OrderInsert = Database["public"]["Tables"]["orders"]["Insert"];
-type DepositBankAccount = Pick<BankAccountRow, "bank_account_name" | "bank" | "bank_account_number">;
-type DepositBankAccountSummary = Pick<BankAccountRow, "id" | "bank_account_name" | "bank" | "bank_account_number">;
-type DepositWithAccount = BankAccountDepositRow & {
-  bank_account: DepositBankAccount | null;
-};
-type PendingDepositOrder = Pick<
-  OrderRow,
-  | "id"
-  | "title"
-  | "product_name"
-  | "purchase_date"
-  | "purchase_price_krw"
-  | "deposit_date"
-  | "deposit_amount_krw"
-  | "is_processed"
-  | "is_item_delivered"
-  | "platform_id"
-  | "buyer_account_id"
->;
 type PreparedDepositOrder = PendingDepositOrder & {
   normalizedTitle: string;
   purchaseMonthDay: string;
@@ -93,7 +78,6 @@ const DEPOSIT_TITLE_SIMILARITY_MIN = 1;
 const DEPOSIT_TIED_SIMILARITY_MIN = 1;
 const PENDING_DEPOSIT_RECOMMENDATION_LIMIT = 3;
 const COMPLETED_DEPOSIT_RECOMMENDATION_LIMIT = 2;
-const DEPOSIT_RECOMMENDATION_PAGE_SIZE = 1000;
 
 const krwFormatter = new Intl.NumberFormat("ko-KR");
 const recoveryDateTimeFormatter = new Intl.DateTimeFormat("ko-KR", {
@@ -102,44 +86,11 @@ const recoveryDateTimeFormatter = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
 });
 
-type RecommendationPageResult<T> = {
-  data: T[];
-  error: { message: string } | null;
-};
-
-// Supabase API의 최대 반환 건수를 넘어도 추천 후보를 빠짐없이 모읍니다.
-async function fetchAllRecommendationPages<T>(
-  fetchPage: (from: number, to: number) => Promise<RecommendationPageResult<T>>,
-) {
-  const rows: T[] = [];
-
-  for (let from = 0; ; from += DEPOSIT_RECOMMENDATION_PAGE_SIZE) {
-    const page = await fetchPage(from, from + DEPOSIT_RECOMMENDATION_PAGE_SIZE - 1);
-    if (page.error) return { data: null, error: page.error };
-
-    rows.push(...page.data);
-    if (page.data.length < DEPOSIT_RECOMMENDATION_PAGE_SIZE) {
-      return { data: rows, error: null };
-    }
-  }
-}
-
 type CrawlOrdersSWRKey = readonly ["recommendations", "crawl-orders", string];
 type SelectedCrawlOrderSWRKey = readonly ["recommendations", "crawl-order", string, string];
 type CrawlMasterSWRKey = readonly ["recommendations", "master", string];
 type DepositRecommendationSWRKey = readonly ["recommendations", "deposit-data", string];
 type RecoverySWRKey = readonly ["recommendations", "recovery", string];
-
-type DepositRecommendationData = {
-  bankAccounts: DepositBankAccountSummary[];
-  deposits: DepositWithAccount[];
-  orders: PendingDepositOrder[];
-};
-
-type RecoveryData = {
-  crawlOrders: CrawlOrderRow[];
-  deposits: DepositWithAccount[];
-};
 
 async function fetchCrawlOrders(key: CrawlOrdersSWRKey) {
   const [, , userId] = key;
@@ -158,117 +109,12 @@ async function fetchCrawlMaster(key: CrawlMasterSWRKey) {
 
 async function fetchDepositRecommendationData(key: DepositRecommendationSWRKey): Promise<DepositRecommendationData> {
   const [, , userId] = key;
-  const supabase = createClient();
-  const [bankAccountsResult, depositsResult, pendingOrdersResult] = await Promise.all([
-    // 입금 자동추천 화면에는 민감 인증값을 빼고 운영자가 확인할 계좌 정보만 가져옵니다.
-    supabase
-      .from("bank_account")
-      .select("id, bank_account_name, bank, bank_account_number")
-      .eq("user_id", userId)
-      .order("id", { ascending: true }),
-    // 미완료 입금 내역은 오래된 순서를 유지하며 모든 페이지를 가져옵니다.
-    fetchAllRecommendationPages<DepositWithAccount>(async (from, to) => {
-      const result = await supabase
-        .from("bank_account_deposit")
-        .select(`
-          id,
-          bank_account_id,
-          date,
-          time,
-          counterparty,
-          amount,
-          bank_account_deposit_status,
-          bank_account:bank_account_id (
-            bank_account_name,
-            bank,
-            bank_account_number
-          )
-        `)
-        .eq("bank_account_deposit_status", 0)
-        .order("date", { ascending: true })
-        .order("time", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, to);
-
-      return {
-        data: (result.data ?? []) as DepositWithAccount[],
-        error: result.error,
-      };
-    }),
-    // 주문도 구매일과 ID 순서로 끝까지 가져와 최근 주문이 추천에서 누락되지 않게 합니다.
-    fetchAllRecommendationPages<PendingDepositOrder>(async (from, to) => {
-      const result = await supabase
-        .from("orders")
-        .select(
-          "id, title, product_name, purchase_date, purchase_price_krw, deposit_date, deposit_amount_krw, is_processed, is_item_delivered, platform_id, buyer_account_id",
-        )
-        .eq("user_id", userId)
-        .is("deleted_at", null)
-        .order("purchase_date", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, to);
-
-      return {
-        data: (result.data ?? []) as PendingDepositOrder[],
-        error: result.error,
-      };
-    }),
-  ]);
-
-  const error = bankAccountsResult.error ?? depositsResult.error ?? pendingOrdersResult.error;
-  if (error) throw new Error(error.message);
-
-  return {
-    bankAccounts: (bankAccountsResult.data ?? []) as DepositBankAccountSummary[],
-    deposits: depositsResult.data ?? [],
-    orders: pendingOrdersResult.data ?? [],
-  };
+  return fetchRecommendationDepositData(createClient(), userId);
 }
 
 async function fetchRecoveryData(key: RecoverySWRKey): Promise<RecoveryData> {
   const [, , userId] = key;
-  const supabase = createClient();
-  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const cutoffDate = cutoff.toISOString().slice(0, 10);
-  const [crawlResult, depositResult] = await Promise.all([
-    supabase
-      .from("crawl_orders")
-      .select("*")
-      .eq("user_id", userId)
-      .in("crawl_order_status", [1, 99])
-      .gte("updated_at", cutoff.toISOString())
-      .order("updated_at", { ascending: false, nullsFirst: false })
-      .limit(100),
-    supabase
-      .from("bank_account_deposit")
-      .select(`
-        id,
-        bank_account_id,
-        date,
-        time,
-        counterparty,
-        amount,
-        bank_account_deposit_status,
-        bank_account:bank_account_id (
-          bank_account_name,
-          bank,
-          bank_account_number
-        )
-      `)
-      .in("bank_account_deposit_status", [1, 99])
-      .gte("date", cutoffDate)
-      .order("date", { ascending: false })
-      .order("time", { ascending: false })
-      .limit(100),
-  ]);
-
-  const error = crawlResult.error ?? depositResult.error;
-  if (error) throw new Error(error.message);
-
-  return {
-    crawlOrders: crawlResult.data ?? [],
-    deposits: (depositResult.data ?? []) as DepositWithAccount[],
-  };
+  return fetchRecommendationRecoveryData(createClient(), userId);
 }
 
 function readValue(row: CrawlOrderRow, keys: string[]) {
@@ -1901,41 +1747,32 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
     return data ? `${crawlListHref}?id=${encodeURIComponent(data.id)}` : crawlListHref;
   }, [autoAdvanceRecommendations, userId]);
 
-  const toggleAutoAdvance = useCallback(() => {
+  const toggleAutoAdvance = useCallback(async () => {
     if (!userId) return;
+    const previous = autoAdvanceRecommendations;
     const next = !autoAdvanceRecommendations;
     setAutoAdvanceRecommendations(next);
     const supabase = createClient();
-    void supabase.from("user_preferences").upsert(
+    const { error } = await supabase.from("user_preferences").upsert(
       { user_id: userId, auto_advance_recommendations: next },
       { onConflict: "user_id" },
     );
+    if (error) {
+      setAutoAdvanceRecommendations(previous);
+      window.alert(`자동 이동 설정을 저장하지 못했습니다: ${error.message}`);
+    }
   }, [autoAdvanceRecommendations, userId]);
 
   const saveSelectedCrawlOrder = useCallback(async (payload: OrderInsert) => {
     if (!selectedOrder || !userId) return { error: "주문 정보를 불러오지 못했습니다." };
 
     const supabase = createClient();
-    const insertResult = await supabase
-      .from("orders")
-      .insert({ ...payload, user_id: userId })
-      .select("id")
-      .single();
+    const { data: insertedOrderId, error } = await supabase.rpc("import_crawl_order", {
+      p_crawl_order_id: String(selectedOrder.id),
+      p_order_payload: payload as unknown as Json,
+    });
 
-    if (insertResult.error) return { error: insertResult.error.message };
-
-    // 주문 삽입 후 원본 상태를 바꿉니다. 상태 변경 실패 시 방금 넣은 주문을 되돌립니다.
-    const statusResult = await supabase
-      .from("crawl_orders")
-      .update({ crawl_order_status: 1 }, { count: "exact" })
-      .eq("id", selectedOrder.id)
-      .eq("user_id", userId)
-      .eq("crawl_order_status", 0);
-
-    if (statusResult.error || statusResult.count === 0) {
-      await supabase.from("orders").delete().eq("id", insertResult.data.id);
-      return { error: statusResult.error?.message ?? "이미 처리된 크롤링 주문입니다." };
-    }
+    if (error || !insertedOrderId) return { error: error?.message ?? "크롤링 주문을 저장하지 못했습니다." };
 
     void mutateOrders((current) => current?.filter((item) => item.id !== selectedOrder.id) ?? [], { revalidate: false });
     return { redirectHref: await getNextRecommendationHref() };
@@ -2156,43 +1993,14 @@ export function CrawlOrdersPage({ initialData = null }: { initialData?: Recommen
     setCompletingDepositId(deposit.id);
     try {
       const supabase = createClient();
-      const purchase = Number(order.purchase_price_krw);
-      const profit = deposit.amount - purchase;
-      // 주문 완료값을 먼저 저장한 뒤 입금 내역을 매핑완료로 바꿉니다.
-      const orderResult = await supabase
-        .from("orders")
-        .update({
-          is_processed: true,
-          deposit_date: deposit.date,
-          deposit_amount_krw: deposit.amount,
-          deposit_memo: deposit.counterparty.trim() || null,
-          profit_krw: Number.isFinite(profit) ? profit : null,
-        })
-        .eq("id", order.id)
-        .eq("user_id", userId)
-        .is("deleted_at", null)
-        .eq("is_processed", false)
-        .select("id")
-        .single();
+      // 주문과 입금 내역을 한 트랜잭션으로 처리해 한쪽만 완료되는 상태를 막습니다.
+      const { error } = await supabase.rpc("complete_deposit_recommendation", {
+        p_deposit_id: deposit.id,
+        p_order_id: order.id,
+      });
 
-      if (orderResult.error) {
-        window.alert(orderResult.error.message);
-        return;
-      }
-
-      const depositResult = await supabase
-        .from("bank_account_deposit")
-        .update({ bank_account_deposit_status: 1 }, { count: "exact" })
-        .eq("id", deposit.id)
-        .eq("bank_account_deposit_status", 0);
-
-      if (depositResult.error) {
-        window.alert(`주문은 완료 처리됐지만 입금 내역 상태 변경에 실패했습니다: ${depositResult.error.message}`);
-        return;
-      }
-
-      if (depositResult.count === 0) {
-        window.alert("이미 처리된 입금 내역입니다.");
+      if (error) {
+        window.alert(error.message);
         await loadDepositRecommendationData({ force: true });
         return;
       }

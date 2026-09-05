@@ -35,6 +35,7 @@ import { Label } from "@/components/ui/label";
 import { copyTextToClipboard } from "@/lib/copy-to-clipboard";
 import { buildKakaoPasteLine, type PurchaseTemplateRow } from "@/lib/kakao-purchase-paste";
 import { getKoreaDateInputValue } from "@/lib/korea-date";
+import { fetchAllPurchaseTemplates } from "@/lib/new-order-data";
 import { normalizeOrderMatchText } from "@/lib/order-workflow";
 import { streamAiReviewFromEdge } from "@/lib/stream-ai-review";
 import { createClient } from "@/lib/supabase/client";
@@ -909,6 +910,7 @@ export function OrderDetailForm({
     isProcessed: boolean;
     onSuccess: () => void;
   } | null>(null);
+  const draftSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const importRedirectHrefRef = useRef<string | null>(null);
   const isCurrentlyProcessed = isProcessed === "true";
   const isMultipleBuyerAccounts = isNewOrderMode && buyerAccountIds.length > 1;
@@ -1064,13 +1066,17 @@ export function OrderDetailForm({
 
     let cancelled = false;
     (async () => {
-      const supa = createClient();
-      const { data } = await supa
-        .from("purchase_info_templates")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (cancelled) return;
-      setPurchaseTemplates(data ?? []);
+      try {
+        const templates = await fetchAllPurchaseTemplates(createClient());
+        if (cancelled) return;
+        setPurchaseTemplates(templates);
+      } catch (error) {
+        if (cancelled) return;
+        setToast({
+          type: "error",
+          message: error instanceof Error ? error.message : "구매 정보 템플릿을 불러오지 못했습니다.",
+        });
+      }
     })();
     return () => {
       cancelled = true;
@@ -1242,18 +1248,38 @@ export function OrderDetailForm({
       || newOrderDraft.scheduled_purchase_at,
     );
 
+    let cancelled = false;
     const timer = window.setTimeout(() => {
-      if (hasMeaningfulInput) {
-        void supabase.from("user_order_drafts").upsert(
-          { user_id: workflowUserId, draft_data: newOrderDraft },
-          { onConflict: "user_id" },
-        );
-      } else {
-        void supabase.from("user_order_drafts").delete().eq("user_id", workflowUserId);
-      }
+      const persistDraft = async () => {
+        try {
+          const result = hasMeaningfulInput
+            ? await supabase.from("user_order_drafts").upsert(
+                { user_id: workflowUserId, draft_data: newOrderDraft },
+                { onConflict: "user_id" },
+              )
+            : await supabase.from("user_order_drafts").delete().eq("user_id", workflowUserId);
+
+          if (!cancelled && result.error) {
+            setToast({ type: "error", message: `임시 저장에 실패했습니다: ${result.error.message}` });
+          }
+        } catch (error) {
+          if (!cancelled) {
+            setToast({
+              type: "error",
+              message: error instanceof Error ? `임시 저장에 실패했습니다: ${error.message}` : "임시 저장에 실패했습니다.",
+            });
+          }
+        }
+      };
+
+      // 입력이 빠르게 바뀌어도 이전 저장이 끝난 뒤 최신 내용이 저장되도록 순서를 보장합니다.
+      draftSaveQueueRef.current = draftSaveQueueRef.current.catch(() => undefined).then(persistDraft);
     }, 800);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [draftReady, isNewOrderMode, newOrderDraft, supabase, workflowUserId]);
 
   useEffect(() => {
@@ -1561,8 +1587,8 @@ export function OrderDetailForm({
       }
 
       if (isNewOrderMode && workflowUserId) {
-        // 주문 저장 성공은 설정 저장 실패와 분리해 중복 주문이 생기지 않도록 합니다.
-        await Promise.allSettled([
+        // 주문 저장 성공은 설정 저장 실패와 분리하되, 후속 동기화 오류는 사용자에게 알립니다.
+        const [preferenceResult, draftResult] = await Promise.allSettled([
           supabase.from("user_preferences").upsert(
             {
               user_id: workflowUserId,
@@ -1576,6 +1602,17 @@ export function OrderDetailForm({
           ),
           supabase.from("user_order_drafts").delete().eq("user_id", workflowUserId),
         ]);
+        const syncErrors = [preferenceResult, draftResult]
+          .map((result) => {
+            if (result.status === "rejected") {
+              return result.reason instanceof Error ? result.reason.message : "후속 동기화 요청이 실패했습니다.";
+            }
+            return result.value.error?.message ?? null;
+          })
+          .filter((message): message is string => Boolean(message));
+        if (syncErrors.length > 0) {
+          setToast({ type: "error", message: `주문은 저장했지만 후속 동기화에 실패했습니다: ${syncErrors.join(" ")}` });
+        }
         setPreferences((current) => current ? {
           ...current,
           recent_platform_id: platformId || null,
@@ -1694,15 +1731,21 @@ export function OrderDetailForm({
     });
   };
 
-  const updateOrderSaveAction = (action: OrderSaveAction) => {
+  const updateOrderSaveAction = async (action: OrderSaveAction) => {
+    const previousAction = orderSaveAction;
     setOrderSaveAction(action);
     setPreferences((current) => (current ? { ...current, order_save_action: action } : current));
-    if (workflowUserId) {
-      void supabase.from("user_preferences").upsert(
-        { user_id: workflowUserId, order_save_action: action },
-        { onConflict: "user_id" },
-      );
-    }
+    if (!workflowUserId) return;
+
+    const { error } = await supabase.from("user_preferences").upsert(
+      { user_id: workflowUserId, order_save_action: action },
+      { onConflict: "user_id" },
+    );
+    if (!error) return;
+
+    setOrderSaveAction(previousAction);
+    setPreferences((current) => (current ? { ...current, order_save_action: previousAction } : current));
+    setToast({ type: "error", message: `저장 후 동작을 저장하지 못했습니다: ${error.message}` });
   };
 
   const restoreAvailableDraft = () => {
@@ -1712,12 +1755,16 @@ export function OrderDetailForm({
     setToast({ type: "success", message: "다른 기기에도 저장된 임시 내용을 불러왔습니다." });
   };
 
-  const discardAvailableDraft = () => {
+  const discardAvailableDraft = async () => {
+    if (workflowUserId) {
+      const { error } = await supabase.from("user_order_drafts").delete().eq("user_id", workflowUserId);
+      if (error) {
+        setToast({ type: "error", message: `임시 내용을 버리지 못했습니다: ${error.message}` });
+        return;
+      }
+    }
     setAvailableDraft(null);
     setDraftReady(true);
-    if (workflowUserId) {
-      void supabase.from("user_order_drafts").delete().eq("user_id", workflowUserId);
-    }
   };
 
   const closeLeaveFlow = () => {

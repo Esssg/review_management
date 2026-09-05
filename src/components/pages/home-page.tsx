@@ -16,10 +16,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { GlobalSearchTrigger } from "@/components/navigation/global-search-trigger";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { getKoreaDateInputValue } from "@/lib/korea-date";
+import { fetchAllHomeOrders } from "@/lib/home-data";
 import { createClient } from "@/lib/supabase/client";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
-import { ORDER_LIST_SELECT, type OrderWithRelations } from "@/types/orders";
+import type { OrderWithRelations } from "@/types/orders";
 import type { HomeInitialData } from "@/types/home";
 
 const homeKrwFormatter = new Intl.NumberFormat("ko-KR", {
@@ -236,34 +237,12 @@ async function fetchHomeOrderCounts(key: HomeSWRKey): Promise<OrderListCounts> {
 
 async function fetchHomePendingOrders(key: HomeSWRKey): Promise<OrderWithRelations[]> {
   const [, , userId] = key;
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("orders")
-    .select(ORDER_LIST_SELECT)
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .eq("is_processed", false)
-    .order("purchase_date", { ascending: false })
-    .order("created_at", { ascending: false });
-
-  if (error) throw new Error(error.message);
-  return (data ?? []) as OrderWithRelations[];
+  return fetchAllHomeOrders(createClient(), userId, false);
 }
 
 async function fetchHomeCompletedOrders(key: HomeSWRKey): Promise<OrderWithRelations[]> {
   const [, , userId] = key;
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("orders")
-    .select(ORDER_LIST_SELECT)
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .eq("is_processed", true)
-    .order("purchase_date", { ascending: false })
-    .order("created_at", { ascending: false });
-
-  if (error) throw new Error(error.message);
-  return (data ?? []) as OrderWithRelations[];
+  return fetchAllHomeOrders(createClient(), userId, true);
 }
 
 function sortOrderList(orders: OrderWithRelations[]) {

@@ -26,6 +26,7 @@ export function NewOrderPage({ initialData = null }: { initialData?: NewOrderIni
   const [master, setMaster] = useState<Awaited<ReturnType<typeof fetchMasterData>> | null>(initialData?.master ?? null);
   const [copyOrder, setCopyOrder] = useState<OrderWithRelations | null>(initialData?.copyOrder ?? null);
   const [summary, setSummary] = useState<OrderFormSummary | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +42,7 @@ export function NewOrderPage({ initialData = null }: { initialData?: NewOrderIni
       }
       setEmail(user.email ?? user.id);
       setUserId(user.id);
+      setLoadError(null);
 
       if (initialData?.userId === user.id && initialData.copyId === copyId) {
         setMaster(initialData.master);
@@ -52,26 +54,46 @@ export function NewOrderPage({ initialData = null }: { initialData?: NewOrderIni
       setReady(false);
       setMaster(null);
       setCopyOrder(null);
-      const [data, copyResult] = await Promise.all([
-        fetchMasterData(supabase, user.id),
-        copyId
-          ? supabase
-              .from("orders")
-              .select("*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)")
-              .eq("id", copyId)
-              .is("deleted_at", null)
-              .maybeSingle()
-          : Promise.resolve({ data: null, error: null }),
-      ]);
-      if (cancelled) return;
-      setMaster(data);
-      setCopyOrder((copyResult.data as OrderWithRelations | null) ?? null);
-      setReady(true);
+      try {
+        const [data, copyResult] = await Promise.all([
+          fetchMasterData(supabase, user.id),
+          copyId
+            ? supabase
+                .from("orders")
+                .select("*, platforms(id, name, color), payment_methods(id, name, color), buyer_accounts(id, label, color), purchase_info_templates(*)")
+                .eq("id", copyId)
+                .eq("user_id", user.id)
+                .is("deleted_at", null)
+                .maybeSingle()
+            : Promise.resolve({ data: null, error: null }),
+        ]);
+        if (copyResult.error) throw new Error(copyResult.error.message);
+        if (cancelled) return;
+        setMaster(data);
+        setCopyOrder((copyResult.data as OrderWithRelations | null) ?? null);
+        setLoadError(null);
+        setReady(true);
+      } catch (error) {
+        if (cancelled) return;
+        setLoadError(error instanceof Error ? error.message : "주문 입력에 필요한 데이터를 불러오지 못했습니다.");
+        setReady(false);
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, [copyId, initialData, router]);
+
+  if (loadError) {
+    return (
+      <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
+        <p className="text-destructive text-sm">조회 오류: {loadError}</p>
+        <button type="button" className="w-fit rounded-lg border px-3 py-2 text-sm hover:bg-accent" onClick={() => window.location.reload()}>
+          다시 시도
+        </button>
+      </div>
+    );
+  }
 
   if (!ready || !master) {
     return (
