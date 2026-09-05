@@ -898,8 +898,8 @@ function OrderDetailChips({
   );
 }
 
-/** 미완료 카드 펼침: 1페이지(칩+주문상세보기)가 왼쪽으로 밀리며 2페이지(입금 입력·완료) 표시. */
-function MobilePendingDepositSwipePanel({
+/** 미완료 카드 펼침: 상태 처리 버튼을 세로로 보여주고 입금 입력은 토스트형 팝업으로 엽니다. */
+function MobilePendingDepositPanel({
   row,
   onEditOrder,
   supabase,
@@ -910,11 +910,8 @@ function MobilePendingDepositSwipePanel({
   supabase: ReturnType<typeof createClient>;
   onPatched: (o: OrderWithRelations) => void;
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const panel0Ref = useRef<HTMLDivElement>(null);
-  const panel1Ref = useRef<HTMLDivElement>(null);
-  const [activePage, setActivePage] = useState(0);
-  const [panelHeights, setPanelHeights] = useState({ h0: 96, h1: 280 });
+  const [isDepositToastOpen, setIsDepositToastOpen] = useState(false);
+  const closeDepositToast = useCallback(() => setIsDepositToastOpen(false), []);
   const {
     depositDate,
     depositAmount,
@@ -930,53 +927,34 @@ function MobilePendingDepositSwipePanel({
   } = useOrderCompletionForm({
     row,
     supabase,
-    resetOn: true,
+    resetOn: isDepositToastOpen,
     onPatched,
+    onCompleted: closeDepositToast,
   });
 
-  useLayoutEffect(() => {
-    const scroll = scrollRef.current;
-    if (!scroll) return;
-    scroll.scrollLeft = 0;
-  }, [row.id]);
+  const handleCloseDepositToast = useCallback(() => {
+    if (busy) return;
+    cancelConfirm();
+    closeDepositToast();
+  }, [busy, cancelConfirm, closeDepositToast]);
 
-  useLayoutEffect(() => {
-    const p0 = panel0Ref.current;
-    const p1 = panel1Ref.current;
-    if (!p0 || !p1) return;
-    const measure = () => {
-      setPanelHeights({
-        h0: Math.max(1, Math.ceil(p0.getBoundingClientRect().height)),
-        h1: Math.max(1, Math.ceil(p1.getBoundingClientRect().height)),
-      });
+  useEffect(() => {
+    if (!isDepositToastOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      handleCloseDepositToast();
     };
-    measure();
-    const ro = new ResizeObserver(() => {
-      window.requestAnimationFrame(measure);
-    });
-    ro.observe(p0);
-    ro.observe(p1);
-    return () => ro.disconnect();
-  }, [row.id]);
-
-  const innerH = Math.max(panelHeights.h0, panelHeights.h1);
-  const outerH = activePage === 0 ? panelHeights.h0 : panelHeights.h1;
-
-  const handleScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const w = el.clientWidth;
-    if (w < 8) return;
-    const next = el.scrollLeft >= w * 0.42 ? 1 : 0;
-    setActivePage((p) => (p !== next ? next : p));
-  };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleCloseDepositToast, isDepositToastOpen]);
 
   const memoClass =
     "min-h-[4rem] w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30";
 
   return (
     <div className="mt-0">
-      {confirmMessage ? (
+      {isDepositToastOpen && confirmMessage ? (
         <DepositMismatchConfirmDialog
           message={confirmMessage}
           busy={busy}
@@ -984,125 +962,137 @@ function MobilePendingDepositSwipePanel({
           onConfirm={confirmSubmit}
         />
       ) : null}
-      <div className="mb-2 grid grid-cols-2 gap-2 px-0.5" aria-hidden>
-        <span
-          className={cn(
-            "h-1 rounded-full transition-colors duration-200",
-            activePage === 0
-              ? "bg-slate-800 dark:bg-slate-100"
-              : "bg-slate-300/90 dark:bg-slate-600",
-          )}
+      <div className="flex flex-col gap-2.5 px-1 py-2">
+        <div className="min-w-0 w-full">
+          <OrderDetailChips row={row} density="default" preferWrapLabels />
+        </div>
+        <OrderCompleteButton
+          row={row}
+          supabase={supabase}
+          className="w-full touch-manipulation"
+          onPatched={onPatched}
         />
-        <span
-          className={cn(
-            "h-1 rounded-full transition-colors duration-200",
-            activePage === 1
-              ? "bg-slate-800 dark:bg-slate-100"
-              : "bg-slate-300/90 dark:bg-slate-600",
-          )}
-        />
-      </div>
-      <div
-        className="overflow-hidden rounded-xl border border-slate-200/90 bg-white/80 transition-[height] duration-200 ease-out will-change-[height] dark:border-slate-600 dark:bg-slate-800/60"
-        style={{ height: outerH }}
-      >
-        <div
-          ref={scrollRef}
-          onScroll={handleScroll}
-          className="flex w-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth touch-pan-x items-start"
-          style={{ height: innerH }}
-          onClick={(e) => e.stopPropagation()}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full gap-1.5 border-emerald-200 bg-emerald-50/80 text-emerald-900 hover:bg-emerald-100 touch-manipulation dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100 dark:hover:bg-emerald-900/50"
+          aria-haspopup="dialog"
+          aria-expanded={isDepositToastOpen}
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsDepositToastOpen(true);
+          }}
         >
-          <div
-            ref={panel0Ref}
-            className="box-border flex min-w-full max-w-full shrink-0 snap-center snap-always flex-col gap-2.5 self-start px-1 py-2"
-          >
-            <div className="min-w-0 w-full">
-              <OrderDetailChips row={row} density="default" preferWrapLabels />
-            </div>
-            <OrderCompleteButton
-              row={row}
-              supabase={supabase}
-              className="w-full touch-manipulation"
-              onPatched={onPatched}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="w-full gap-2 touch-manipulation"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEditOrder();
-              }}
-            >
-              <ChevronRight className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
-              주문상세보기
-            </Button>
-          </div>
-          <div
-            ref={panel1Ref}
-            className="min-w-full shrink-0 snap-center snap-always space-y-2 self-start border-l border-slate-200/80 px-2 py-2.5 dark:border-slate-600"
-          >
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <Label className="text-[11px] text-muted-foreground">입금일자</Label>
-              <DepositDateStepButtons onStep={(days) => setDepositDate((value) => addDaysToDateInput(value, days))} />
-            </div>
-            <Input
-              type="date"
-              value={depositDate}
-              onChange={(e) => setDepositDate(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              className="h-9"
-            />
-          </div>
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <Label className="text-[11px] text-muted-foreground">입금금액 (원)</Label>
-              <DepositAmountStepButtons
-                onStep={(amount) =>
-                  setDepositAmount((value) => adjustDepositAmountInput(value, row.purchase_price_krw, amount))
-                }
-              />
-            </div>
-            <Input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={1}
-              value={depositAmount}
-              onChange={(e) => setDepositAmount(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              className="h-9 tabular-nums"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-[11px] text-muted-foreground">입금메모</Label>
-            <textarea
-              value={depositMemo}
-              onChange={(e) => setDepositMemo(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              rows={3}
-              className={memoClass}
-              placeholder="입금 확인 메모"
-            />
-          </div>
-          <Button
-            type="button"
-            className="w-full touch-manipulation bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
-            disabled={busy}
-            onClick={(e) => {
-              e.stopPropagation();
-              void submit();
-            }}
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            입금완료처리
-          </Button>
-        </div>
-        </div>
+          <Wallet className="h-3.5 w-3.5" aria-hidden />
+          입금완료처리
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full gap-2 touch-manipulation"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEditOrder();
+          }}
+        >
+          <ChevronRight className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+          주문상세보기
+        </Button>
       </div>
+
+      {isDepositToastOpen ? (
+        <>
+          <button
+            type="button"
+            aria-label="입금완료 처리 창 닫기"
+            className="fixed inset-0 z-[70] bg-slate-950/20 lg:hidden"
+            onClick={handleCloseDepositToast}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="입금완료 처리"
+            className="fixed inset-x-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[71] max-h-[calc(100dvh-7rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl ring-1 ring-black/5 dark:border-slate-600 dark:bg-slate-900 lg:hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">입금완료처리</p>
+                <p className="mt-1 text-xs text-muted-foreground">입금 정보를 확인한 뒤 저장하세요.</p>
+              </div>
+              <button
+                type="button"
+                aria-label="입금완료 처리 창 닫기"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-soft hover:text-foreground"
+                onClick={handleCloseDepositToast}
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-[11px] text-muted-foreground">입금일자</Label>
+                  <DepositDateStepButtons onStep={(days) => setDepositDate((value) => addDaysToDateInput(value, days))} />
+                </div>
+                <Input
+                  type="date"
+                  value={depositDate}
+                  onChange={(e) => setDepositDate(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-[11px] text-muted-foreground">입금금액 (원)</Label>
+                  <DepositAmountStepButtons
+                    onStep={(amount) =>
+                      setDepositAmount((value) => adjustDepositAmountInput(value, row.purchase_price_krw, amount))
+                    }
+                  />
+                </div>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1}
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="h-9 tabular-nums"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">입금메모</Label>
+                <textarea
+                  value={depositMemo}
+                  onChange={(e) => setDepositMemo(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  rows={3}
+                  className={memoClass}
+                  placeholder="입금 확인 메모"
+                />
+              </div>
+              <Button
+                type="button"
+                className="w-full touch-manipulation bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                disabled={busy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void submit();
+                }}
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                입금완료처리
+              </Button>
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -1334,7 +1324,7 @@ const OrderExpandPanel = memo(function OrderExpandPanel({
   return (
     <div className="border-t border-slate-100 bg-slate-50/90 px-3 pb-3 pt-2.5 dark:border-slate-700 dark:bg-slate-900/35">
       {!row.is_processed ? (
-        <MobilePendingDepositSwipePanel
+        <MobilePendingDepositPanel
           row={row}
           onEditOrder={onEditOrder}
           supabase={supabase}
@@ -2983,7 +2973,7 @@ export function OrdersTable({
   const handleSwipeCancel = useCallback(() => setSwipedRowId(null), []);
 
   const mobilePendingSize = useCallback(
-    (row: OrderWithRelations) => (expandedOrderId === row.id ? 430 : 92),
+    (row: OrderWithRelations) => (expandedOrderId === row.id ? 280 : 92),
     [expandedOrderId],
   );
   const mobileCompletedSize = useCallback(
