@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { APP_SUPPORT_EMAIL } from "@/lib/app-info";
 import { createClient } from "@/lib/supabase/client";
 
 function decodeEmailParam(q: string) {
@@ -89,9 +90,9 @@ function LoginFormFields({ initialEmail, onSignedIn, hideHomeLink }: LoginFormFi
         />
       </div>
       <p className="text-muted-foreground rounded-lg bg-muted/40 px-3 py-2 text-xs leading-relaxed">
-        계정 생성 시 문의주세요:{" "}
-        <a href="tel:01036251217" className="font-medium text-foreground underline-offset-2 hover:underline">
-          010-3625-1217
+        계정 발급 또는 로그인 문의:{" "}
+        <a href={`mailto:${APP_SUPPORT_EMAIL}`} className="font-medium text-foreground underline-offset-2 hover:underline">
+          {APP_SUPPORT_EMAIL}
         </a>
       </p>
       {error ? (

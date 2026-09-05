@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { isAppChromeHiddenRoute } from "@/lib/app-routes";
 import { OPEN_GLOBAL_SEARCH_EVENT } from "@/components/navigation/global-command-palette";
 
 // 데스크톱에서 자주 쓰는 업무 흐름을 위에서부터 바로 이동할 수 있게 정리합니다.
@@ -102,7 +103,7 @@ export function DesktopSidebar() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const isSettingsExpanded = isSettingsRoute || isSettingsOpen;
 
-  if (pathname.startsWith("/login")) return null;
+  if (isAppChromeHiddenRoute(pathname)) return null;
 
   return (
     <aside className="fixed inset-y-0 left-0 z-50 hidden w-60 flex-col border-r border-hairline bg-card lg:flex">

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HexColorInput, HexColorPicker } from "react-colorful";
@@ -557,6 +558,22 @@ function AccountSettingsView({
           <span className="text-muted-foreground shrink-0 text-sm">계정</span>
           <span className="min-w-0 flex-1 truncate text-right text-sm">{accountEmail || "—"}</span>
         </div>
+      </section>
+      <section className="flex flex-col gap-1 rounded-lg border border-hairline bg-card p-2 shadow-[0_1px_2px_rgb(0_0_0_/_0.04)]">
+        <Link
+          href="/privacy"
+          className="flex min-h-12 w-full touch-manipulation items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-muted/60 active:bg-muted/80"
+        >
+          <span className="text-sm font-medium">개인정보처리방침</span>
+          <ChevronRight className="text-muted-foreground h-5 w-5 shrink-0" aria-hidden />
+        </Link>
+        <Link
+          href="/account-deletion"
+          className="flex min-h-12 w-full touch-manipulation items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-destructive transition-colors hover:bg-destructive/5 active:bg-destructive/10"
+        >
+          <span className="text-sm font-medium">계정 및 데이터 삭제 요청</span>
+          <ChevronRight className="h-5 w-5 shrink-0" aria-hidden />
+        </Link>
       </section>
     </div>
   );

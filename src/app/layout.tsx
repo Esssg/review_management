@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { BottomMenu } from "@/components/navigation/bottom-menu";
 import { DesktopSidebar } from "@/components/navigation/desktop-sidebar";
 import { GlobalCommandPalette } from "@/components/navigation/global-command-palette";
+import { AppContent } from "@/components/navigation/app-content";
 import { SplashScreen } from "@/components/loading/splash-screen";
 import { OnboardingTourLoader } from "@/components/onboarding/onboarding-tour-loader";
 import { NotificationProvider } from "@/components/notifications/notification-provider";
@@ -47,7 +48,7 @@ export default function RootLayout({
         </Suspense>
         <Suspense fallback={null}>
           <NotificationProvider>
-            <div className="flex min-h-full flex-1 flex-col pb-16 lg:pl-60 lg:pb-0">{children}</div>
+            <AppContent>{children}</AppContent>
           </NotificationProvider>
         </Suspense>
         <BottomMenu />

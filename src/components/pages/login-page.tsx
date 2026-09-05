@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { LandingAuthPanel } from "@/components/auth/landing-auth-panel";
 import { LoginForm } from "@/components/auth/login-form";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { APP_SUPPORT_EMAIL } from "@/lib/app-info";
 import { createClient } from "@/lib/supabase/client";
 
 export function LoginPage() {
@@ -70,20 +71,20 @@ export function LoginPage() {
         </CardContent>
         <CardFooter className="flex flex-col gap-3 border-t border-border/60 bg-muted/30 text-xs text-muted-foreground">
           <p className="leading-relaxed">
-            사용자가 없다면 Supabase{" "}
-            <span className="font-medium text-foreground">Authentication → Users → Add user</span>로 먼저
-            만드세요.
+            계정 발급이나 로그인에 도움이 필요하면{" "}
+            <a href={`mailto:${APP_SUPPORT_EMAIL}`} className="font-medium text-foreground underline-offset-4 hover:underline">
+              {APP_SUPPORT_EMAIL}
+            </a>
+            으로 문의해 주세요.
           </p>
-          <p className="leading-relaxed">
-            시드 SQL의 <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.65rem]">user_id</code>
-            가 이 계정의 User UID와 같아야 목록에 보입니다.
-          </p>
-          <Link
-            href="/"
-            className="text-primary self-center text-sm font-medium underline-offset-4 hover:underline"
-          >
-            메인(구매 장부)으로
-          </Link>
+          <nav className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2" aria-label="이용자 정책">
+            <Link href="/privacy" className="text-primary font-medium underline-offset-4 hover:underline">
+              개인정보처리방침
+            </Link>
+            <Link href="/account-deletion" className="text-primary font-medium underline-offset-4 hover:underline">
+              계정 및 데이터 삭제
+            </Link>
+          </nav>
         </CardFooter>
       </Card>
     </LandingAuthPanel>

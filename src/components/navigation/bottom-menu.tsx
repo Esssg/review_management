@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { House, LayoutDashboard, Settings, Sparkles, SquarePlus } from "lucide-react";
 
+import { isAppChromeHiddenRoute } from "@/lib/app-routes";
 import { cn } from "@/lib/utils";
 
 const menuItems = [
@@ -52,7 +53,7 @@ const menuItems = [
 export function BottomMenu() {
   const pathname = usePathname();
 
-  if (pathname.startsWith("/login")) return null;
+  if (isAppChromeHiddenRoute(pathname)) return null;
 
   return (
     <nav
