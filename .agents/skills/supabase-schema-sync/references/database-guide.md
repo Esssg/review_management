@@ -1,7 +1,7 @@
 # DB 가이드 (Supabase)
 
 기준 프로젝트: `xhjjoxzwpgqlodflaiix`  
-최종 업데이트: 2026-09-05
+최종 업데이트: 2026-09-06
 
 ## 0) 공개 스키마 경계 (필수)
 
@@ -60,7 +60,8 @@ Supabase/PostgREST의 기본 반환 제한(현재 1,000건)은 최종 데이터 
 | `user_id` | uuid | NO | 주문 소유 사용자 ID (`auth.users.id` FK) |
 | `title` | text | YES | 목록에서 빠르게 식별하기 위한 짧은 제목 (카톡방 이름 등) |
 | `product_name` | text | NO | 상품명 |
-| `is_processed` | boolean | NO | 주문 처리 완료 여부 (입금 완료) |
+| `is_order_completed` | boolean | NO | 주문완료 여부. 기존 입금완료 주문은 true로 초기화하며, 수동 신규 주문은 false로 시작 |
+| `is_processed` | boolean | NO | 입금완료 여부. true이면 `is_order_completed`도 true여야 함 |
 | `platform_id` | uuid | YES | 결제 플랫폼 FK → `platforms.id` |
 | `payment_method_id` | uuid | YES | 결제 수단 FK → `payment_methods.id` |
 | `buyer_account_id` | uuid | YES | 구매 계정 FK → `buyer_accounts.id` |
@@ -95,7 +96,11 @@ Supabase/PostgREST의 기본 반환 제한(현재 1,000건)은 최종 데이터 
 
 #### 휴지통 조회 인덱스
 - `orders_user_active_processed_purchase_date_idx`: 사용자별 활성 주문(`deleted_at IS NULL`)을 처리 상태와 구매일 순으로 조회합니다.
+- `orders_user_active_order_completed_purchase_date_idx`: 사용자별 활성 주문을 주문완료 상태와 구매일 순으로 조회합니다.
 - `orders_user_deleted_at_idx`: 사용자별 휴지통 주문(`deleted_at IS NOT NULL`)을 최근 삭제 순으로 조회합니다.
+
+#### 상태 제약
+- `orders_is_processed_requires_order_completed_check`: 입금완료(`is_processed = true`) 주문은 반드시 주문완료(`is_order_completed = true`)여야 합니다.
 
 ### `public.push_subscriptions`
 
@@ -416,8 +421,8 @@ supabase
 `src/lib/master-data.ts`의 `fetchMasterData(supabase, userId)` 사용
 
 ### 자동추천 원자적 처리 RPC
-- `public.complete_deposit_recommendation(p_deposit_id bigint, p_order_id uuid)` — 같은 사용자의 미완료 주문에 입금일·금액·메모·수익을 기록하고 입금 내역을 매핑완료로 바꾸는 작업을 하나의 트랜잭션으로 처리합니다. 로그인한 `authenticated` 역할만 실행할 수 있습니다.
-- `public.import_crawl_order(p_crawl_order_id text, p_order_payload jsonb)` — 처리 대기 크롤링 주문을 `orders`에 등록하고 원본 상태를 처리완료로 바꾸는 작업을 하나의 트랜잭션으로 처리합니다. 크롤링 주문 ID는 원본 테이블의 `bigint` 값을 안전하게 문자열로 받아 변환하며, 로그인한 `authenticated` 역할만 실행할 수 있습니다.
+- `public.complete_deposit_recommendation(p_deposit_id bigint, p_order_id uuid)` — 같은 사용자의 미완료 주문에 입금일·금액·메모·수익을 기록하고 주문완료·입금완료와 입금 내역 매핑완료를 하나의 트랜잭션으로 처리합니다. 로그인한 `authenticated` 역할만 실행할 수 있습니다.
+- `public.import_crawl_order(p_crawl_order_id text, p_order_payload jsonb)` — 처리 대기 크롤링 주문을 주문완료 상태로 `orders`에 등록하고 원본 상태를 처리완료로 바꾸는 작업을 하나의 트랜잭션으로 처리합니다. 입금완료 여부는 기존 payload 값을 따르며, 크롤링 주문 ID는 원본 테이블의 `bigint` 값을 안전하게 문자열로 받아 변환합니다. 로그인한 `authenticated` 역할만 실행할 수 있습니다.
 
 ---
 

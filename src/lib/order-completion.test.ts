@@ -18,6 +18,8 @@ const baseOrder = {
   deposit_amount_krw: null,
   deposit_memo: null,
   is_item_delivered: false,
+  is_order_completed: false,
+  is_processed: false,
 } as OrderWithRelations;
 
 describe("주문 완료 입력", () => {
@@ -47,6 +49,7 @@ describe("주문 완료 입력", () => {
     });
     expect(result).toMatchObject({
       values: {
+        is_order_completed: true,
         is_processed: true,
         deposit_date: "2026-08-08",
         deposit_amount_krw: 12_000,

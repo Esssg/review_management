@@ -179,9 +179,15 @@ export function OrderDetailPage({ initialData = null }: { initialData?: OrderDet
               <span className="font-semibold tabular-nums">{formatKrw(formSummary?.depositAmount ?? (Number(order.deposit_amount_krw) || 0))}</span>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">주문 상태</span>
+              <span className="text-muted-foreground">입금 상태</span>
               <span className={(formSummary?.isProcessed ?? order.is_processed) ? "font-medium text-emerald-600 dark:text-emerald-400" : "font-medium text-amber-600 dark:text-amber-400"}>
-                {(formSummary?.isProcessed ?? order.is_processed) ? "완료" : "미완료"}
+                {(formSummary?.isProcessed ?? order.is_processed) ? "입금완료" : "입금 미완료"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">주문 상태</span>
+              <span className={(formSummary?.isOrderCompleted ?? order.is_order_completed) ? "font-medium text-yellow-700 dark:text-yellow-300" : "font-medium text-amber-600 dark:text-amber-400"}>
+                {(formSummary?.isOrderCompleted ?? order.is_order_completed) ? "주문완료" : "주문 미완료"}
               </span>
             </div>
             <div className="flex items-center justify-between gap-3">

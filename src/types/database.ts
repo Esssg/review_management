@@ -134,6 +134,7 @@ export type Database = {
           id: string;
           user_id: string;
           product_name: string;
+          is_order_completed: boolean;
           is_processed: boolean;
           purchase_date: string;
           deposit_date: string | null;
@@ -165,6 +166,7 @@ export type Database = {
           id?: string;
           user_id?: string;
           product_name: string;
+          is_order_completed?: boolean;
           is_processed?: boolean;
           purchase_date: string;
           deposit_date?: string | null;
@@ -196,6 +198,7 @@ export type Database = {
           id?: string;
           user_id?: string;
           product_name?: string;
+          is_order_completed?: boolean;
           is_processed?: boolean;
           purchase_date?: string;
           deposit_date?: string | null;

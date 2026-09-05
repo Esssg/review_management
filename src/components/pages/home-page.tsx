@@ -197,6 +197,7 @@ function HomeOperationsSummary(props: Omit<HomeOperationsProps, "className" | "o
 const EMPTY_COUNTS: OrderListCounts = {
   total: null,
   pending: null,
+  orderCompleted: null,
   completed: null,
 };
 
@@ -209,7 +210,7 @@ const homeCompletedKey = (userId: string): HomeSWRKey => ["home", "completed", u
 async function fetchHomeOrderCounts(key: HomeSWRKey): Promise<OrderListCounts> {
   const [, , userId] = key;
   const supabase = createClient();
-  const [totalResult, pendingResult, completedResult] = await Promise.all([
+  const [totalResult, pendingResult, orderCompletedResult, completedResult] = await Promise.all([
     supabase.from("orders").select("id", { count: "exact", head: true }).eq("user_id", userId).is("deleted_at", null),
     supabase
       .from("orders")
@@ -222,15 +223,22 @@ async function fetchHomeOrderCounts(key: HomeSWRKey): Promise<OrderListCounts> {
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId)
       .is("deleted_at", null)
+      .eq("is_order_completed", true),
+    supabase
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .is("deleted_at", null)
       .eq("is_processed", true),
   ]);
 
-  const error = totalResult.error ?? pendingResult.error ?? completedResult.error;
+  const error = totalResult.error ?? pendingResult.error ?? orderCompletedResult.error ?? completedResult.error;
   if (error) throw new Error(error.message);
 
   return {
     total: totalResult.count ?? 0,
     pending: pendingResult.count ?? 0,
+    orderCompleted: orderCompletedResult.count ?? 0,
     completed: completedResult.count ?? 0,
   };
 }
@@ -389,10 +397,14 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
       return current;
     }, { revalidate: false });
 
-    if (previous.is_processed !== updated.is_processed) {
+    if (previous.is_processed !== updated.is_processed || previous.is_order_completed !== updated.is_order_completed) {
       void mutateOrderCounts((current = EMPTY_COUNTS) => ({
         total: current.total,
         pending: adjustNullableCount(current.pending, updated.is_processed ? -1 : 1),
+        orderCompleted: adjustNullableCount(
+          current.orderCompleted,
+          previous.is_order_completed === updated.is_order_completed ? 0 : updated.is_order_completed ? 1 : -1,
+        ),
         completed: adjustNullableCount(current.completed, updated.is_processed ? 1 : -1),
       }), { revalidate: false });
     }
@@ -408,6 +420,7 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
     void mutateOrderCounts((current = EMPTY_COUNTS) => ({
       total: adjustNullableCount(current.total, -1),
       pending: adjustNullableCount(current.pending, deleted.is_processed ? 0 : -1),
+      orderCompleted: adjustNullableCount(current.orderCompleted, deleted.is_order_completed ? -1 : 0),
       completed: adjustNullableCount(current.completed, deleted.is_processed ? -1 : 0),
     }), { revalidate: false });
   }, [mutateCompletedOrders, mutateOrderCounts, mutatePendingOrders]);
@@ -422,6 +435,7 @@ export function HomePage({ initialData = null }: { initialData?: HomeInitialData
     void mutateOrderCounts((current = EMPTY_COUNTS) => ({
       total: adjustNullableCount(current.total, 1),
       pending: adjustNullableCount(current.pending, restored.is_processed ? 0 : 1),
+      orderCompleted: adjustNullableCount(current.orderCompleted, restored.is_order_completed ? 1 : 0),
       completed: adjustNullableCount(current.completed, restored.is_processed ? 1 : 0),
     }), { revalidate: false });
   }, [mutateCompletedOrders, mutateOrderCounts, mutatePendingOrders]);

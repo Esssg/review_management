@@ -112,7 +112,7 @@ export function NewOrderPage({ initialData = null }: { initialData?: NewOrderIni
             필수 항목 입력 {"->"} 저장 가능
           </p>
           <p className="text-muted-foreground/90 mt-0.5 text-[11px] leading-snug break-words">
-            입금 완료 정보까지 입력 {"->"} 완료처리 가능
+            입금 완료 정보까지 입력 {"->"} 입금완료처리 가능
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2 self-start">
@@ -139,6 +139,7 @@ export function NewOrderPage({ initialData = null }: { initialData?: NewOrderIni
             scheduled_purchase_at: null,
             screenshot_storage_path: null,
             order_status: null,
+            is_order_completed: false,
             is_processed: false,
             ai_review: null,
             ai_review_user_prompt: null,

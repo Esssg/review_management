@@ -91,10 +91,10 @@ export function GlobalCommandPalette() {
         if (!authData.user) return [];
         const pattern = `%${requestedQuery}%`;
         const [titleOrders, productOrders, numberOrders, noteOrders, templates] = await Promise.all([
-          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").is("deleted_at", null).ilike("title", pattern).limit(6),
-          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").is("deleted_at", null).ilike("product_name", pattern).limit(6),
-          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").is("deleted_at", null).ilike("order_number", pattern).limit(4),
-          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_processed, is_item_delivered").is("deleted_at", null).ilike("notes", pattern).limit(4),
+          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_order_completed, is_processed, is_item_delivered").is("deleted_at", null).ilike("title", pattern).limit(6),
+          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_order_completed, is_processed, is_item_delivered").is("deleted_at", null).ilike("product_name", pattern).limit(6),
+          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_order_completed, is_processed, is_item_delivered").is("deleted_at", null).ilike("order_number", pattern).limit(4),
+          supabase.from("orders").select("id, title, product_name, purchase_date, order_number, purchase_price_krw, is_order_completed, is_processed, is_item_delivered").is("deleted_at", null).ilike("notes", pattern).limit(4),
           supabase.from("purchase_info_templates").select("id, title").ilike("title", pattern).limit(4),
         ]);
 
@@ -105,7 +105,7 @@ export function GlobalCommandPalette() {
         const orderResults: SearchResult[] = [...orders.values()].map((row) => ({
           key: `order-${row.id}`,
           label: row.title?.trim() || row.product_name,
-          description: `${row.product_name} · ${row.is_processed ? "완료" : "미완료"} · ${row.is_item_delivered ? "배송 있음" : "배송 없음"} · ${row.purchase_date} · ${Number(row.purchase_price_krw).toLocaleString("ko-KR")}원`,
+          description: `${row.product_name} · ${row.is_processed ? "입금완료" : row.is_order_completed ? "주문완료" : "입금 미완료"} · ${row.is_item_delivered ? "배송 있음" : "배송 없음"} · ${row.purchase_date} · ${Number(row.purchase_price_krw).toLocaleString("ko-KR")}원`,
           href: `/orders/detail?id=${encodeURIComponent(row.id)}`,
           icon: ShoppingBag,
         }));

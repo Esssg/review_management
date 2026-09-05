@@ -1375,6 +1375,7 @@ function crawlOrderToDraft(row: CrawlOrderRow, userId: string, master: MasterDat
     purchase_price_krw: readNumber(row, ["purchase_price_krw", "purchase_price", "price", "product_price", "amount", "total_price", "total_amount", "payment_amount"]),
     deposit_amount_krw: readNumber(row, ["deposit_amount_krw", "deposit_amount", "depositAmount"]),
     is_item_delivered: readBoolean(row, ["is_item_delivered", "item_delivered", "is_delivered", "delivered"]),
+    is_order_completed: true,
     is_processed: false,
     deposit_memo: readText(row, ["deposit_memo", "depositMemo"]) || null,
     notes: readText(row, ["notes", "memo", "description"]) || null,

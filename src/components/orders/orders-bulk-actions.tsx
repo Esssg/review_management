@@ -299,8 +299,8 @@ function BulkCompleteDialog({
 
   return (
     <DialogShell
-      title="선택 주문 일괄 완료"
-      description={`미완료 ${pendingOrders.length}건을 주문별 입금 정보로 처리합니다.${selectedOrders.length !== pendingOrders.length ? ` 완료 주문 ${selectedOrders.length - pendingOrders.length}건은 제외됩니다.` : ""}`}
+      title="선택 주문 일괄 입금완료"
+      description={`미완료 ${pendingOrders.length}건을 주문별 입금 정보로 처리합니다.${selectedOrders.length !== pendingOrders.length ? ` 입금완료 주문 ${selectedOrders.length - pendingOrders.length}건은 제외됩니다.` : ""}`}
       onClose={onClose}
     >
       {stage === "result" && result ? (
@@ -311,7 +311,7 @@ function BulkCompleteDialog({
       ) : stage === "confirm" ? (
         <div className="space-y-4">
           <div className={cn("rounded-xl border p-3 text-sm", warningCount > 0 ? "border-amber-200 bg-amber-50 text-amber-950" : "border-emerald-200 bg-emerald-50 text-emerald-950")}>
-            <p className="font-semibold">미완료 {pendingOrders.length}건을 완료 처리합니다.</p>
+            <p className="font-semibold">미완료 {pendingOrders.length}건을 입금완료 처리합니다.</p>
             <p className="mt-1">배송 여부·입금액 확인이 필요한 주문 {warningCount}건</p>
           </div>
           <ul className="max-h-64 space-y-2 overflow-y-auto rounded-xl border p-3 text-sm">
@@ -331,7 +331,7 @@ function BulkCompleteDialog({
             <Button type="button" variant="outline" disabled={busy} onClick={() => setStage("edit")}>이전</Button>
             <Button type="button" disabled={busy || pendingOrders.length === 0} onClick={() => void apply()}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-              최종 완료처리
+              최종 입금완료처리
             </Button>
           </div>
         </div>
@@ -360,7 +360,7 @@ function BulkCompleteDialog({
               </article>
             );
           })}
-          <Button type="button" className="w-full" disabled={pendingOrders.length === 0} onClick={review}>완료 내용 검토</Button>
+          <Button type="button" className="w-full" disabled={pendingOrders.length === 0} onClick={review}>입금완료 내용 검토</Button>
         </div>
       )}
     </DialogShell>
@@ -410,7 +410,7 @@ export function OrdersBulkActions({
             {isLoadingOptions ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />}
             일괄 변경
           </Button>
-          <Button type="button" size="sm" className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-700" disabled={pendingCount === 0} onClick={() => setDialog("complete")}>미완료 {pendingCount}건 완료</Button>
+          <Button type="button" size="sm" className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-700" disabled={pendingCount === 0} onClick={() => setDialog("complete")}>미완료 {pendingCount}건 입금완료</Button>
           <Button type="button" size="sm" variant="secondary" className="shrink-0 gap-1.5" disabled={orders.length === 0} onClick={onExport}>
             <Download className="h-3.5 w-3.5" aria-hidden /> 선택 엑셀
           </Button>

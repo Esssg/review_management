@@ -17,6 +17,7 @@ import {
   Copy,
   CreditCard,
   Filter,
+  HelpCircle,
   Images,
   ListChecks,
   Loader2,
@@ -94,6 +95,7 @@ const koreaScheduleFormatter = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
 });
 const EMPTY_ORDER_ROWS: OrderWithRelations[] = [];
+const ORDER_STATUS_GUIDE_STORAGE_PREFIX = "review-manager-order-status-guide-seen-v0.2.0";
 
 function formatKrw(amount: number | string | null) {
   if (amount === null || amount === undefined) return "—";
@@ -113,6 +115,7 @@ function completeLedgerOrder(
   return supabase
     .from("orders")
     .update({
+      is_order_completed: true,
       is_processed: true,
       deposit_date: date,
       deposit_amount_krw: amount,
@@ -149,6 +152,7 @@ function formatDate(isoDate: string | null) {
 export type OrderListCounts = {
   total: number | null;
   pending: number | null;
+  orderCompleted: number | null;
   completed: number | null;
 };
 
@@ -315,6 +319,176 @@ function useUncompleteOrder({
   }, [onCompleted, onPatched, row, supabase]);
 
   return { busy, handleUncomplete };
+}
+
+function OrderCompleteButton({
+  row,
+  supabase,
+  onPatched,
+  className,
+}: {
+  row: OrderWithRelations;
+  supabase: ReturnType<typeof createClient>;
+  onPatched: (order: OrderWithRelations) => void;
+  className?: string;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const handleComplete = useCallback(async () => {
+    if (row.is_order_completed || row.is_processed) return;
+    setBusy(true);
+    try {
+      const { data, error } = await supabase
+        .from("orders")
+        .update({ is_order_completed: true })
+        .eq("id", row.id)
+        .is("deleted_at", null)
+        .eq("is_processed", false)
+        .eq("is_order_completed", false)
+        .select(ORDER_LIST_SELECT)
+        .maybeSingle();
+      if (error) {
+        window.alert(error.message);
+        return;
+      }
+      if (!data) {
+        window.alert("이미 주문완료 처리되었거나 변경할 주문을 찾지 못했습니다.");
+        return;
+      }
+      onPatched(data as OrderWithRelations);
+    } finally {
+      setBusy(false);
+    }
+  }, [onPatched, row.id, row.is_order_completed, row.is_processed, supabase]);
+
+  if (row.is_order_completed) return null;
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className={cn(
+        "gap-1 border-yellow-300 bg-yellow-100 text-yellow-950 hover:bg-yellow-200 dark:border-yellow-700 dark:bg-yellow-500/20 dark:text-yellow-100 dark:hover:bg-yellow-500/30",
+        className,
+      )}
+      disabled={busy}
+      onClick={(event) => {
+        event.stopPropagation();
+        void handleComplete();
+      }}
+    >
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PackageCheck className="h-3.5 w-3.5" aria-hidden />}
+      주문완료처리
+    </Button>
+  );
+}
+
+/** 주문완료와 입금완료의 차이와 처리 위치를 언제든 다시 확인할 수 있게 안내합니다. */
+function OrderStatusGuideDialog({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[220] flex items-end justify-center bg-slate-950/50 p-0 backdrop-blur-[2px] sm:items-center sm:p-4"
+      role="presentation"
+      onClick={onClose}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="order-status-guide-title"
+        aria-describedby="order-status-guide-description"
+        className="flex max-h-[92dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-hairline bg-card shadow-2xl sm:rounded-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-start justify-between gap-3 border-b border-hairline px-4 py-3 sm:px-5 sm:py-4">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold tracking-[0.1em] text-primary">REVIEW MANAGER v0.2.0</p>
+            <h2 id="order-status-guide-title" className="mt-1 text-base font-semibold sm:text-lg">주문 상태 사용 방법</h2>
+            <p id="order-status-guide-description" className="mt-0.5 text-xs leading-relaxed text-muted-foreground sm:text-sm">
+              주문완료와 입금완료를 구분해 처리하는 방법을 안내합니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="주문 상태 사용 방법 닫기"
+            onClick={onClose}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-5 w-5" aria-hidden />
+          </button>
+        </header>
+
+        <div className="min-h-0 overflow-y-auto px-4 py-4 sm:px-5 sm:py-5">
+          <div className="rounded-xl border border-yellow-200 bg-yellow-50/80 p-3 text-sm text-yellow-950 dark:border-yellow-700/60 dark:bg-yellow-500/10 dark:text-yellow-100">
+            <p className="font-semibold">핵심 규칙</p>
+            <p className="mt-1 leading-relaxed">
+              주문완료는 주문 처리가 끝났다는 표시이고, 입금완료는 입금 정보까지 확인된 상태입니다. 입금완료처리는 주문완료도 함께 처리합니다.
+            </p>
+          </div>
+
+          <ol className="mt-4 grid gap-2.5">
+            <li className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-700/60 dark:bg-amber-500/10">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500 text-sm font-bold text-white">A</span>
+              <div className="min-w-0">
+                <p className="font-semibold">입금 미완료</p>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">아직 주문완료 또는 입금완료 처리를 하지 않은 기본 상태입니다.</p>
+              </div>
+            </li>
+            <li className="flex gap-3 rounded-xl border border-yellow-300 bg-yellow-100/75 p-3 text-yellow-950 dark:border-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-100">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-yellow-500 text-sm font-bold text-white">B</span>
+              <div className="min-w-0">
+                <p className="font-semibold">주문완료</p>
+                <p className="mt-1 text-sm leading-relaxed text-yellow-900/75 dark:text-yellow-100/75">주문완료처리 버튼을 누르면 입금 정보는 바꾸지 않고 노란색으로 표시됩니다. 미완료 주문 목록에 계속 남습니다.</p>
+              </div>
+            </li>
+            <li className="flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-emerald-950 dark:border-emerald-700/60 dark:bg-emerald-500/10 dark:text-emerald-100">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-sm font-bold text-white">C</span>
+              <div className="min-w-0">
+                <p className="font-semibold">입금완료</p>
+                <p className="mt-1 text-sm leading-relaxed text-emerald-900/75 dark:text-emerald-100/75">입금일·입금금액·입금메모를 확인한 뒤 입금완료처리하면 입금완료 주문 목록으로 이동합니다.</p>
+              </div>
+            </li>
+          </ol>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <section className="rounded-xl border border-hairline bg-surface-soft p-3">
+              <h3 className="text-sm font-semibold">어디서 처리하나요?</h3>
+              <ul className="mt-2 space-y-2 text-sm leading-relaxed text-muted-foreground">
+                <li><span className="font-medium text-foreground">PC:</span> 미완료 주문 행의 주문완료처리 버튼이 위에 있습니다.</li>
+                <li><span className="font-medium text-foreground">모바일:</span> 주문을 누른 뒤 펼침 영역에서 주문상세보기 위에 있습니다.</li>
+                <li><span className="font-medium text-foreground">입금완료:</span> 입금 정보를 입력하고 입금완료처리 버튼을 사용합니다.</li>
+              </ul>
+            </section>
+            <section className="rounded-xl border border-hairline bg-surface-soft p-3">
+              <h3 className="text-sm font-semibold">건수와 필터</h3>
+              <ul className="mt-2 space-y-2 text-sm leading-relaxed text-muted-foreground">
+                <li><span className="font-medium text-yellow-700 dark:text-yellow-300">주문완료</span> 건수는 B+C를 합산합니다.</li>
+                <li><span className="font-medium text-emerald-700 dark:text-emerald-300">입금 완료</span> 건수는 C만 계산합니다.</li>
+                <li>상단의 주문완료 필터 또는 상세 필터에서 주문완료 주문을 모아볼 수 있습니다.</li>
+              </ul>
+            </section>
+          </div>
+
+          <p className="mt-4 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+            주문완료를 취소해야 한다면 주문 상세에서 먼저 입금완료를 취소한 뒤 주문 완료 여부를 미완료로 저장하세요.
+          </p>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 /** 완료처리 전 금액과 배송 여부가 어긋나는 경우 운영자가 한 번 더 확인한다. */
@@ -846,6 +1020,12 @@ function MobilePendingDepositSwipePanel({
             <div className="min-w-0 w-full">
               <OrderDetailChips row={row} density="default" preferWrapLabels />
             </div>
+            <OrderCompleteButton
+              row={row}
+              supabase={supabase}
+              className="w-full touch-manipulation"
+              onPatched={onPatched}
+            />
             <Button
               type="button"
               variant="outline"
@@ -918,7 +1098,7 @@ function MobilePendingDepositSwipePanel({
             }}
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            완료처리하기
+            입금완료처리
           </Button>
         </div>
         </div>
@@ -997,7 +1177,7 @@ function WebPendingCompleteDropdown({
           onToggle();
         }}
       >
-        완료처리하기
+        입금완료처리
         <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", isOpen && "rotate-180")} aria-hidden />
       </Button>
       {isOpen ? (
@@ -1043,7 +1223,7 @@ function WebPendingCompleteDropdown({
             onClick={() => void submit()}
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            완료처리하기
+            입금완료처리
           </Button>
         </div>
       ) : null}
@@ -1233,7 +1413,10 @@ const OrderCardItem = memo(function OrderCardItem({
   return (
     <div className={cn(
       "relative overflow-hidden rounded-2xl border bg-white shadow-sm transition-colors dark:bg-slate-800",
-      isSelected ? "border-primary bg-primary/5 ring-1 ring-primary/20" : "border-transparent",
+      row.is_order_completed
+        ? "border-yellow-300 bg-yellow-100/75 dark:border-yellow-700 dark:bg-yellow-500/15"
+        : "border-transparent",
+      isSelected && "border-primary bg-primary/5 ring-1 ring-primary/20",
     )}>
       {/* 스와이프 삭제 영역 */}
       <div
@@ -1355,7 +1538,7 @@ type SearchableOrder = {
   searchText: string;
 };
 
-type OrderStatusFilter = "all" | "pending" | "completed";
+type OrderStatusFilter = "all" | "pending" | "completed" | "orderCompleted";
 type OrderAttentionFilter =
   | "all"
   | "scheduleToday"
@@ -1365,7 +1548,7 @@ type OrderAttentionFilter =
   | "missingAi"
   | "missingTemplate";
 type OrderDeliveryFilter = "all" | "yes" | "no";
-type OrderQuickFilter = "all" | "pending" | "deliveryYes" | "deliveryNo" | Exclude<OrderAttentionFilter, "all">;
+type OrderQuickFilter = "all" | "pending" | "orderCompleted" | "deliveryYes" | "deliveryNo" | Exclude<OrderAttentionFilter, "all">;
 type OrderSort = "newest" | "oldest" | "amountDesc" | "amountAsc";
 type SavedOrderView = Database["public"]["Tables"]["saved_order_views"]["Row"];
 
@@ -1382,7 +1565,7 @@ type OrderFilterSnapshot = {
   account: string;
 };
 
-const orderStatusFilters: OrderStatusFilter[] = ["all", "pending", "completed"];
+const orderStatusFilters: OrderStatusFilter[] = ["all", "pending", "completed", "orderCompleted"];
 const orderAttentionFilters: OrderAttentionFilter[] = [
   "all",
   "scheduleToday",
@@ -1394,6 +1577,15 @@ const orderAttentionFilters: OrderAttentionFilter[] = [
 ];
 const orderDeliveryFilters: OrderDeliveryFilter[] = ["all", "yes", "no"];
 const orderSorts: OrderSort[] = ["newest", "oldest", "amountDesc", "amountAsc"];
+
+function parseOrderStatusFilter(value: string | null): OrderStatusFilter {
+  if (value === "order_completed") return "orderCompleted";
+  return orderStatusFilters.includes(value as OrderStatusFilter) ? value as OrderStatusFilter : "all";
+}
+
+function serializeOrderStatusFilter(value: OrderStatusFilter) {
+  return value === "orderCompleted" ? "order_completed" : value;
+}
 
 function readSavedFilterSnapshot(value: Json): OrderFilterSnapshot | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -1662,7 +1854,7 @@ const CompletedOrdersSection = memo(function CompletedOrdersSection({
             aria-hidden
           />
           <span className="text-base font-semibold tracking-tight text-emerald-700 dark:text-emerald-300">
-            완료 주문
+            입금완료 주문
           </span>
           <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200">
             {showCompletedOrders && completedOrders !== null
@@ -1701,7 +1893,7 @@ const CompletedOrdersSection = memo(function CompletedOrdersSection({
                         colSpan={7}
                         className="px-3 py-4 text-center text-sm text-muted-foreground"
                       >
-                        조건에 맞는 완료 주문이 없습니다.
+                        조건에 맞는 입금완료 주문이 없습니다.
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -1719,7 +1911,9 @@ const CompletedOrdersSection = memo(function CompletedOrdersSection({
                           aria-label={selectionMode ? `${row.product_name} 주문 선택` : `${row.product_name} 주문 상세`}
                           aria-pressed={selectionMode ? selectedOrderIds.has(row.id) : undefined}
                           className={cn(
-                            "group cursor-pointer border-l-2 border-l-emerald-400/70 bg-emerald-50/20 transition-colors hover:bg-emerald-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-emerald-500/50 dark:hover:bg-emerald-500/10",
+                            row.is_order_completed
+                              ? "group cursor-pointer border-l-2 border-l-yellow-500 bg-yellow-100/75 transition-colors hover:bg-yellow-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-yellow-400 dark:bg-yellow-500/15 dark:hover:bg-yellow-500/25"
+                              : "group cursor-pointer border-l-2 border-l-emerald-400/70 bg-emerald-50/20 transition-colors hover:bg-emerald-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-emerald-500/50 dark:hover:bg-emerald-500/10",
                             selectedOrderIds.has(row.id) && "bg-primary/10 ring-1 ring-inset ring-primary/30 hover:bg-primary/10",
                           )}
                           onClick={() => selectionMode ? toggleOrderSelection(row.id) : goToOrderDetail(row.id)}
@@ -1830,9 +2024,9 @@ const CompletedOrdersSection = memo(function CompletedOrdersSection({
             className="mt-4 max-h-[22rem] min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y"
           >
             {isCompletedLoading && completedOrders === null ? (
-              <OrderListLoading label="완료 주문" />
+              <OrderListLoading label="입금완료 주문" />
             ) : visibleCompletedOrders.length === 0 ? (
-              <p className="text-muted-foreground text-sm">조건에 맞는 완료 주문이 없습니다.</p>
+              <p className="text-muted-foreground text-sm">조건에 맞는 입금완료 주문이 없습니다.</p>
             ) : (
               <div className="flex flex-col gap-2">
                 {completedTopPadding > 0 ? <div aria-hidden style={{ height: completedTopPadding }} /> : null}
@@ -1931,6 +2125,11 @@ const PendingOrdersSection = memo(function PendingOrdersSection({
           <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
             {visiblePendingOrders.length.toLocaleString("ko-KR")}
           </span>
+          {visiblePendingOrders.some((order) => order.is_order_completed) ? (
+            <span className="rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-semibold text-yellow-900 dark:bg-yellow-500/20 dark:text-yellow-100">
+              주문완료 {visiblePendingOrders.filter((order) => order.is_order_completed).length.toLocaleString("ko-KR")}
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -1979,7 +2178,9 @@ const PendingOrdersSection = memo(function PendingOrdersSection({
                         aria-label={selectionMode ? `${row.product_name} 주문 선택` : `${row.product_name} 주문 상세`}
                         aria-pressed={selectionMode ? selectedOrderIds.has(row.id) : undefined}
                         className={cn(
-                          "group cursor-pointer border-l-2 border-l-amber-400/90 bg-amber-50/30 transition-colors hover:bg-amber-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-amber-500/50 dark:hover:bg-amber-500/10",
+                          row.is_order_completed
+                            ? "group cursor-pointer border-l-2 border-l-yellow-500 bg-yellow-100/75 transition-colors hover:bg-yellow-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-yellow-400 dark:bg-yellow-500/15 dark:hover:bg-yellow-500/25"
+                            : "group cursor-pointer border-l-2 border-l-amber-400/90 bg-amber-50/30 transition-colors hover:bg-amber-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-l-amber-500/50 dark:hover:bg-amber-500/10",
                           selectedOrderIds.has(row.id) && "bg-primary/10 ring-1 ring-inset ring-primary/30 hover:bg-primary/10",
                         )}
                         onClick={() => selectionMode ? toggleOrderSelection(row.id) : goToOrderDetail(row.id)}
@@ -2054,14 +2255,24 @@ const PendingOrdersSection = memo(function PendingOrdersSection({
                         <TableCell className="relative whitespace-nowrap px-3 py-2 align-top">
                           {selectionMode ? (
                             <span className="text-xs font-medium text-primary">{selectedOrderIds.has(row.id) ? "선택됨" : "선택"}</span>
-                          ) : <WebPendingCompleteDropdown
-                            row={row}
-                            isOpen={pendingCompleteMenuId === row.id}
-                            onClose={() => onPendingCompleteMenuChange(row.id, false)}
-                            onToggle={() => onPendingCompleteMenuChange(row.id, pendingCompleteMenuId !== row.id)}
-                            supabase={supabase}
-                            onPatched={(updated) => handlePatched(row, updated)}
-                          />}
+                          ) : (
+                            <div className="flex flex-col items-end gap-1.5">
+                              <OrderCompleteButton
+                                row={row}
+                                supabase={supabase}
+                                className="w-full justify-center"
+                                onPatched={(updated) => handlePatched(row, updated)}
+                              />
+                              <WebPendingCompleteDropdown
+                                row={row}
+                                isOpen={pendingCompleteMenuId === row.id}
+                                onClose={() => onPendingCompleteMenuChange(row.id, false)}
+                                onToggle={() => onPendingCompleteMenuChange(row.id, pendingCompleteMenuId !== row.id)}
+                                supabase={supabase}
+                                onPatched={(updated) => handlePatched(row, updated)}
+                              />
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -2164,10 +2375,7 @@ export function OrdersTable({
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const legacyUndeliveredFromUrl = searchParams.get("attention") === "undelivered";
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
-  const [statusFilter, setStatusFilter] = useState<OrderStatusFilter>(() => {
-    const value = searchParams.get("status") as OrderStatusFilter;
-    return orderStatusFilters.includes(value) ? value : "all";
-  });
+  const [statusFilter, setStatusFilter] = useState<OrderStatusFilter>(() => parseOrderStatusFilter(searchParams.get("status")));
   const [attentionFilter, setAttentionFilter] = useState<OrderAttentionFilter>(() => {
     const value = searchParams.get("attention") as OrderAttentionFilter;
     return legacyUndeliveredFromUrl ? "all" : orderAttentionFilters.includes(value) ? value : "all";
@@ -2186,6 +2394,7 @@ export function OrdersTable({
   const [paymentFilter, setPaymentFilter] = useState(() => searchParams.get("payment") ?? "");
   const [accountFilter, setAccountFilter] = useState(() => searchParams.get("account") ?? "");
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false);
+  const [isOrderStatusGuideOpen, setIsOrderStatusGuideOpen] = useState(false);
   const quickFilterScrollRef = useRef<HTMLDivElement>(null);
   const [hasMoreQuickFilters, setHasMoreQuickFilters] = useState(false);
   const [savedViews, setSavedViews] = useState<SavedOrderView[]>([]);
@@ -2193,7 +2402,7 @@ export function OrdersTable({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [swipedRowId, setSwipedRowId] = useState<string | null>(null);
   const [showCompletedOrders, setShowCompletedOrders] = useState(
-    statusFilter === "completed" || attentionFilter === "missingDeposit" || deliveryFilter !== "all",
+    statusFilter === "completed" || statusFilter === "orderCompleted" || attentionFilter === "missingDeposit" || deliveryFilter !== "all",
   );
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [pendingCompleteMenuId, setPendingCompleteMenuId] = useState<string | null>(null);
@@ -2206,6 +2415,17 @@ export function OrdersTable({
   const [undoOrder, setUndoOrder] = useState<OrderWithRelations | null>(null);
   const [isUndoing, setIsUndoing] = useState(false);
   const undoTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const storageKey = `${ORDER_STATUS_GUIDE_STORAGE_PREFIX}:${userId}`;
+    try {
+      if (window.localStorage.getItem(storageKey)) return;
+      window.localStorage.setItem(storageKey, "1");
+    } catch {
+      // 브라우저 저장소를 사용할 수 없어도 이번 접속에서는 안내를 보여줍니다.
+    }
+    setIsOrderStatusGuideOpen(true);
+  }, [userId]);
 
   const updateQuickFilterScrollState = useCallback(() => {
     const element = quickFilterScrollRef.current;
@@ -2247,7 +2467,13 @@ export function OrdersTable({
   );
 
   const visiblePendingOrders = useMemo(
-    () => statusFilter === "completed" ? [] : filterSearchableOrders(pendingSearchableOrders, filterSnapshot),
+    () => {
+      if (statusFilter === "completed") return EMPTY_ORDER_ROWS;
+      const source = statusFilter === "orderCompleted"
+        ? pendingSearchableOrders.filter(({ order }) => order.is_order_completed)
+        : pendingSearchableOrders;
+      return filterSearchableOrders(source, filterSnapshot);
+    },
     [filterSnapshot, pendingSearchableOrders, statusFilter],
   );
 
@@ -2273,6 +2499,7 @@ export function OrdersTable({
 
   const totalCount = counts.total;
   const pendingCount = counts.pending;
+  const orderCompletedCount = counts.orderCompleted;
   const completedCount = counts.completed;
   const completedPct =
     totalCount !== null && completedCount !== null && totalCount > 0
@@ -2318,7 +2545,6 @@ export function OrdersTable({
   }, []);
 
   useEffect(() => {
-    const nextStatus = searchParams.get("status") as OrderStatusFilter;
     const rawAttention = searchParams.get("attention") ?? "";
     const isLegacyUndelivered = rawAttention === "undelivered";
     const nextAttention = rawAttention as OrderAttentionFilter;
@@ -2326,7 +2552,7 @@ export function OrdersTable({
     const nextSort = searchParams.get("sort") as OrderSort;
     applyFilterSnapshot({
       q: searchParams.get("q") ?? "",
-      status: orderStatusFilters.includes(nextStatus) ? nextStatus : "all",
+      status: parseOrderStatusFilter(searchParams.get("status")),
       attention: isLegacyUndelivered ? "all" : orderAttentionFilters.includes(nextAttention) ? nextAttention : "all",
       delivery: orderDeliveryFilters.includes(nextDelivery) ? nextDelivery : isLegacyUndelivered ? "no" : "all",
       from: searchParams.get("from") ?? "",
@@ -2390,7 +2616,7 @@ export function OrdersTable({
 
   useEffect(() => {
     if (statusFilter === "pending") return;
-    if (statusFilter !== "completed" && attentionFilter !== "missingDeposit" && deliveryFilter === "all") return;
+    if (statusFilter !== "completed" && statusFilter !== "orderCompleted" && attentionFilter !== "missingDeposit" && deliveryFilter === "all") return;
     setShowCompletedOrders(true);
     void onLoadCompleted();
   }, [attentionFilter, deliveryFilter, onLoadCompleted, statusFilter]);
@@ -2399,7 +2625,7 @@ export function OrdersTable({
     const timer = window.setTimeout(() => {
       const nextParams = new URLSearchParams();
       if (search.trim()) nextParams.set("q", search.trim());
-      if (statusFilter !== "all") nextParams.set("status", statusFilter);
+      if (statusFilter !== "all") nextParams.set("status", serializeOrderStatusFilter(statusFilter));
       if (attentionFilter !== "all") nextParams.set("attention", attentionFilter);
       if (deliveryFilter !== "all") nextParams.set("delivery", deliveryFilter);
       if (fromDate) nextParams.set("from", fromDate);
@@ -2443,6 +2669,12 @@ export function OrdersTable({
       setDeliveryFilter("all");
       return;
     }
+    if (key === "orderCompleted") {
+      setStatusFilter("orderCompleted");
+      setAttentionFilter("all");
+      setDeliveryFilter("all");
+      return;
+    }
     if (key === "deliveryYes" || key === "deliveryNo") {
       setStatusFilter("all");
       setAttentionFilter("all");
@@ -2467,12 +2699,14 @@ export function OrdersTable({
   const activeQuickFilter: OrderQuickFilter | null = deliveryFilter !== "all"
     ? deliveryFilter === "yes" ? "deliveryYes" : "deliveryNo"
     : statusFilter === "pending" && attentionFilter === "all"
-      ? "pending"
-      : attentionFilter !== "all"
-        ? attentionFilter
-        : statusFilter === "all"
-          ? "all"
-          : null;
+        ? "pending"
+        : attentionFilter !== "all"
+          ? attentionFilter
+          : statusFilter === "orderCompleted"
+            ? "orderCompleted"
+            : statusFilter === "all"
+              ? "all"
+              : null;
 
   const saveCurrentView = async () => {
     const name = window.prompt("저장할 보기 이름을 입력해 주세요.")?.trim();
@@ -2770,8 +3004,8 @@ export function OrdersTable({
 
   return (
     <div className="flex min-h-0 flex-col gap-5">
-      {/* ── 통계 카드 (모바일도 한 줄 3열) ───────────────── */}
-      <div className="grid min-w-0 grid-cols-3 gap-2 sm:gap-3">
+      {/* ── 통계 카드 ───────────────── */}
+      <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
         {/* 전체 주문 */}
         <div className="flex min-w-0 items-center gap-1.5 rounded-xl bg-white p-2 shadow-sm sm:gap-3 sm:rounded-2xl sm:p-4 dark:bg-slate-800">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-slate-100 sm:h-11 sm:w-11 sm:rounded-2xl dark:bg-slate-700">
@@ -2798,6 +3032,21 @@ export function OrdersTable({
             </p>
             <p className="text-lg font-bold tabular-nums text-amber-800 sm:text-2xl dark:text-amber-200">
               {displayCount(pendingCount)}
+            </p>
+          </div>
+        </div>
+
+        {/* 주문 완료 */}
+        <div className="flex min-w-0 items-center gap-1.5 rounded-xl bg-yellow-50 p-2 shadow-sm sm:gap-3 sm:rounded-2xl sm:p-4 dark:bg-yellow-500/10">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-yellow-100 sm:h-11 sm:w-11 sm:rounded-2xl dark:bg-yellow-500/20">
+            <PackageCheck className="h-4 w-4 text-yellow-700 sm:h-5 sm:w-5 dark:text-yellow-300" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] leading-tight break-keep text-yellow-800 sm:text-xs dark:text-yellow-200">
+              주문완료
+            </p>
+            <p className="text-lg font-bold tabular-nums text-yellow-900 sm:text-2xl dark:text-yellow-100">
+              {displayCount(orderCompletedCount)}
             </p>
           </div>
         </div>
@@ -2850,6 +3099,18 @@ export function OrdersTable({
           <div className="flex min-w-0 gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:shrink-0">
             <Button
               type="button"
+              variant="outline"
+              size="sm"
+              className="h-10 shrink-0 gap-1.5 whitespace-nowrap"
+              aria-haspopup="dialog"
+              aria-expanded={isOrderStatusGuideOpen}
+              onClick={() => setIsOrderStatusGuideOpen(true)}
+            >
+              <HelpCircle className="h-4 w-4" aria-hidden />
+              사용 방법
+            </Button>
+            <Button
+              type="button"
               variant={showAdvancedFilter ? "default" : "outline"}
               size="sm"
               className="h-10 shrink-0 gap-1.5 whitespace-nowrap"
@@ -2884,6 +3145,7 @@ export function OrdersTable({
             {([
               ["all", "전체"],
               ["pending", "미완료"],
+              ["orderCompleted", "주문완료"],
               ["deliveryYes", "배송 있음"],
               ["deliveryNo", "배송 없음"],
               ["scheduleToday", "오늘 구매"],
@@ -2948,7 +3210,8 @@ export function OrdersTable({
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as OrderStatusFilter)} className="h-9 rounded-xl border border-input bg-background px-3 text-sm">
                 <option value="all">상태 전체</option>
                 <option value="pending">미완료</option>
-                <option value="completed">완료</option>
+                <option value="completed">입금완료</option>
+                <option value="orderCompleted">주문완료</option>
               </select>
               <select value={platformFilter} onChange={(event) => setPlatformFilter(event.target.value)} className="h-9 rounded-xl border border-input bg-background px-3 text-sm">
                 <option value="">플랫폼 전체</option>
@@ -3065,6 +3328,7 @@ export function OrdersTable({
           </Button>
         </div>
       ) : null}
+      {isOrderStatusGuideOpen ? <OrderStatusGuideDialog onClose={() => setIsOrderStatusGuideOpen(false)} /> : null}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import type { OrderWithRelations } from "@/types/orders";
 export type HomeOrderCounts = {
   total: number | null;
   pending: number | null;
+  orderCompleted: number | null;
   completed: number | null;
 };
 

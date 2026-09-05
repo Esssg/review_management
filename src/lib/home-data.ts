@@ -42,7 +42,7 @@ export async function fetchHomeInitialData(
   supabase: SupabaseClient<Database>,
   userId: string,
 ) {
-  const [totalResult, pendingCountResult, completedCountResult, pendingOrdersResult] = await Promise.all([
+  const [totalResult, pendingCountResult, orderCompletedCountResult, completedCountResult, pendingOrdersResult] = await Promise.all([
     supabase.from("orders").select("id", { count: "exact", head: true }).eq("user_id", userId).is("deleted_at", null),
     supabase
       .from("orders")
@@ -55,16 +55,23 @@ export async function fetchHomeInitialData(
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId)
       .is("deleted_at", null)
+      .eq("is_order_completed", true),
+    supabase
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .is("deleted_at", null)
       .eq("is_processed", true),
     fetchAllHomeOrders(supabase, userId, false),
   ]);
 
-  const error = totalResult.error ?? pendingCountResult.error ?? completedCountResult.error;
+  const error = totalResult.error ?? pendingCountResult.error ?? orderCompletedCountResult.error ?? completedCountResult.error;
   if (error) throw new Error(error.message);
 
   const orderCounts: HomeOrderCounts = {
     total: totalResult.count ?? 0,
     pending: pendingCountResult.count ?? 0,
+    orderCompleted: orderCompletedCountResult.count ?? 0,
     completed: completedCountResult.count ?? 0,
   };
 

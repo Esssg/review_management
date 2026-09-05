@@ -146,6 +146,7 @@ export type OrderFormSummary = {
   productName: string;
   purchasePrice: number;
   depositAmount: number;
+  isOrderCompleted: boolean;
   isProcessed: boolean;
   isItemDelivered: boolean | null;
   platformName: string;
@@ -173,6 +174,7 @@ type OrderFormSnapshot = {
   review_photo: string;
   review_char: string;
   is_item_delivered: string;
+  is_order_completed: string;
   is_processed: string;
   deposit_memo: string;
   notes: string;
@@ -206,6 +208,7 @@ function orderRowToSnapshot(o: OrderWithRelations): OrderFormSnapshot {
     review_photo: o.review_photo_count != null ? String(o.review_photo_count) : "",
     review_char: o.review_char_count != null ? String(o.review_char_count) : "",
     is_item_delivered: o.is_item_delivered ? "true" : "false",
+    is_order_completed: o.is_order_completed ? "true" : "false",
     is_processed: o.is_processed ? "true" : "false",
     deposit_memo: (o.deposit_memo ?? "").trim(),
     notes: (o.notes ?? "").trim(),
@@ -380,6 +383,16 @@ function OrderSummaryHero({ order }: { order: OrderWithRelations }) {
             )}
           >
             {order.is_processed ? "입금 완료" : "입금 미완료"}
+          </span>
+          <span
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset",
+              order.is_order_completed
+                ? "bg-yellow-400/20 text-yellow-50 ring-yellow-300/40"
+                : "bg-white/10 text-white/75 ring-white/15",
+            )}
+          >
+            {order.is_order_completed ? "주문 완료" : "주문 미완료"}
           </span>
           <span
             className={cn(
@@ -733,6 +746,8 @@ const AdditionalOrderInfoSection = memo(function AdditionalOrderInfoSection({
 const OrderCompletionInfoSection = memo(function OrderCompletionInfoSection({
   isEditMode,
   isImportMode,
+  isOrderCompleted,
+  onIsOrderCompletedChange,
   isProcessed,
   onIsProcessedChange,
   depositDate,
@@ -744,6 +759,8 @@ const OrderCompletionInfoSection = memo(function OrderCompletionInfoSection({
 }: {
   isEditMode: boolean;
   isImportMode: boolean;
+  isOrderCompleted: string;
+  onIsOrderCompletedChange: (value: string) => void;
   isProcessed: string;
   onIsProcessedChange: (value: string) => void;
   depositDate: string;
@@ -770,6 +787,18 @@ const OrderCompletionInfoSection = memo(function OrderCompletionInfoSection({
       </CardHeader>
       <CardContent className="pt-0">
         <div className="divide-y divide-border/50">
+          {isEditMode ? (
+            <FormRow label="주문 완료 여부" hint="입금완료 전에만 주문완료를 취소할 수 있습니다.">
+              <select
+                value={isOrderCompleted}
+                onChange={(event) => onIsOrderCompletedChange(event.target.value)}
+                className={controlSelectClass}
+              >
+                <option value="false">미완료</option>
+                <option value="true">완료</option>
+              </select>
+            </FormRow>
+          ) : null}
           {!isEditMode && !isImportMode ? (
             <FormRow label="입금 완료 여부" hint="처음부터 완료로 넣을 때만 선택">
               <select
@@ -778,7 +807,7 @@ const OrderCompletionInfoSection = memo(function OrderCompletionInfoSection({
                 className={controlSelectClass}
               >
                 <option value="false">미완료</option>
-                <option value="true">완료</option>
+                <option value="true">입금완료</option>
               </select>
             </FormRow>
           ) : null}
@@ -885,6 +914,9 @@ export function OrderDetailForm({
   const [isItemDelivered, setIsItemDelivered] = useState(
     initialOrder?.is_item_delivered == null ? "" : initialOrder.is_item_delivered ? "true" : "false",
   );
+  const [isOrderCompleted, setIsOrderCompleted] = useState(
+    isImportMode || initialOrder?.is_processed || initialOrder?.is_order_completed ? "true" : "false",
+  );
   const [isProcessed, setIsProcessed] = useState(initialOrder?.is_processed ? "true" : "false");
   const [depositMemo, setDepositMemo] = useState(initialOrder?.deposit_memo ?? "");
   const [notes, setNotes] = useState(initialOrder?.notes ?? "");
@@ -950,6 +982,7 @@ export function OrderDetailForm({
       review_photo: reviewPhotoCount.trim(),
       review_char: reviewCharCount.trim(),
       is_item_delivered: isItemDelivered,
+      is_order_completed: isOrderCompleted,
       is_processed: isProcessed,
       deposit_memo: depositMemo.trim(),
       notes: notes.trim(),
@@ -973,6 +1006,7 @@ export function OrderDetailForm({
     reviewPhotoCount,
     reviewCharCount,
     isItemDelivered,
+    isOrderCompleted,
     isProcessed,
     depositMemo,
     notes,
@@ -1096,6 +1130,7 @@ export function OrderDetailForm({
     setReviewPhotoCount(draft.review_photo_count);
     setReviewCharCount(draft.review_char_count);
     setIsItemDelivered(draft.is_item_delivered);
+    setIsOrderCompleted("false");
     setIsProcessed(draft.is_processed || "false");
     setDepositDate(draft.deposit_date);
     setDepositAmount(draft.deposit_amount);
@@ -1352,6 +1387,7 @@ export function OrderDetailForm({
       productName: productName.trim(),
       purchasePrice: Number(purchasePrice) || 0,
       depositAmount: Number(depositAmount) || 0,
+      isOrderCompleted: isOrderCompleted === "true",
       isProcessed: isProcessed === "true",
       isItemDelivered: isItemDelivered === "true" ? true : isItemDelivered === "false" ? false : null,
       platformName: platforms.find((item) => item.id === platformId)?.name ?? "",
@@ -1369,6 +1405,7 @@ export function OrderDetailForm({
     duplicateCandidates.length,
     depositAmount,
     isItemDelivered,
+    isOrderCompleted,
     isProcessed,
     kakaoRoomName,
     linkedPurchaseTemplateId,
@@ -1425,6 +1462,8 @@ export function OrderDetailForm({
     const purchaseDateValue = purchaseDate.trim();
     const depositDateValue = depositDate.trim();
     const depositAmountValue = String(depositAmount ?? "").trim();
+    const requestedOrderCompletion = isOrderCompleted === "true";
+    const nextIsOrderCompleted = isImportMode || nextIsProcessed || requestedOrderCompletion;
 
     if (
       !kakaoRoomNameValue ||
@@ -1462,6 +1501,10 @@ export function OrderDetailForm({
       if (!depositAmountValue) {
         return { error: "완료처리를 하려면 실입금금액 칸을 입력해야됩니다." };
       }
+    }
+
+    if (isEditMode && order?.is_processed === true && !requestedOrderCompletion) {
+      return { error: "주문완료를 취소하려면 먼저 입금완료를 취소해 주세요." };
     }
 
     const clearingDepositBecauseUncomplete =
@@ -1510,6 +1553,7 @@ export function OrderDetailForm({
         review_char_count: reviewCharResult.value,
         deposit_amount_krw,
         is_item_delivered: isItemDelivered === "true",
+        is_order_completed: nextIsOrderCompleted,
         is_processed: nextIsProcessed,
         deposit_memo,
         notes: notes.trim() || null,
@@ -1534,6 +1578,7 @@ export function OrderDetailForm({
     isEditMode,
     isImportMode,
     isItemDelivered,
+    isOrderCompleted,
     isMultipleBuyerAccounts,
     kakaoRoomName,
     linkedPurchaseTemplateId,
@@ -1684,6 +1729,7 @@ export function OrderDetailForm({
     setDepositDate("");
     setDepositAmount("");
     setDepositMemo("");
+    setIsOrderCompleted("false");
     setIsProcessed("false");
     setScheduledPurchaseAt("");
     setOrderStatus("");
@@ -2277,6 +2323,8 @@ export function OrderDetailForm({
       <OrderCompletionInfoSection
         isEditMode={isEditMode}
         isImportMode={isImportMode}
+        isOrderCompleted={isOrderCompleted}
+        onIsOrderCompletedChange={setIsOrderCompleted}
         isProcessed={isProcessed}
         onIsProcessedChange={setIsProcessed}
         depositDate={depositDate}
@@ -2357,7 +2405,7 @@ export function OrderDetailForm({
                     })
                   }
                 >
-                  미완료처리
+                  입금미완료처리
                 </button>
               ) : (
                 <button
@@ -2378,7 +2426,7 @@ export function OrderDetailForm({
                     })
                   }
                 >
-                  완료처리
+                  입금완료처리
                 </button>
               )}
               <button
@@ -2453,7 +2501,7 @@ export function OrderDetailForm({
               })
             }
           >
-            {isProcessed === "true" ? "완료로 처리하기" : "추가하기"}
+            {isProcessed === "true" ? "입금완료로 처리하기" : "추가하기"}
           </button>
         </div>
       )}

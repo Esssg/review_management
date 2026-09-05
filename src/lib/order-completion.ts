@@ -56,6 +56,7 @@ export function buildOrderCompletionValues(row: OrderWithRelations, input: Order
 
   return {
     values: {
+      is_order_completed: true,
       is_processed: true,
       deposit_date: depositDate,
       deposit_amount_krw: depositAmount,

@@ -72,6 +72,7 @@ export const ORDER_LIST_SELECT = `
   id,
   user_id,
   product_name,
+  is_order_completed,
   is_processed,
   purchase_date,
   deposit_date,
